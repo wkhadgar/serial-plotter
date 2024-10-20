@@ -14,7 +14,7 @@ win = pg.GraphicsLayoutWidget(show=True, title="Plotter Serial SC")
 win.showFullScreen()
 
 # Plot combinado dos dados
-plot_combined = win.addPlot(title="Temperatura Interna", col=0, row=0)
+plot_combined = win.addPlot(title="Temperatura A e B", col=0, row=0)
 curve_a_combined = plot_combined.plot(pen="c", name="Temperatura A")
 curve_b_combined = plot_combined.plot(pen="g", name="Temperatura B")
 
@@ -41,27 +41,37 @@ log_file_path = log_path + f"log_{dt.year}-{dt.month}-{dt.day}-{dt.hour}-{dt.min
 df = pd.DataFrame(columns=["time", "temp_a", "temp_b"])
 df.to_csv(log_file_path, index=False)
 
-current_mode = "C"
+plot_views = ["C", "IC", "A", "B"]
+current_mode = -1
 
 
 def toggle_plot_view():
     global current_mode
-    if current_mode == "C":
-        plot_combined.show()
-        plot_a.hide()
-        plot_b.hide()
-        current_mode = "I"
-    else:
-        plot_combined.hide()
-        plot_a.show()
-        plot_b.show()
-        current_mode = "C"
+
+    current_mode = (current_mode + 1) % len(plot_views)
+    match plot_views[current_mode]:
+        case "C":
+            plot_combined.show()
+            plot_a.hide()
+            plot_b.hide()
+        case "IC":
+            plot_combined.hide()
+            plot_a.show()
+            plot_b.show()
+        case "A":
+            plot_combined.hide()
+            plot_a.show()
+            plot_b.hide()
+        case "B":
+            plot_combined.hide()
+            plot_a.hide()
+            plot_b.show()
 
 
 def update_plots():
     global temp_a_data, temp_b_data, time_data
 
-    #data = ser.readline().decode("utf-8").strip()
+    # data = ser.readline().decode("utf-8").strip()
     import random
     t = random.randint(20, int(20+5*random.random())) + random.random()
     data = f"> {t:.2f};{t -  random.random():.2f}"
