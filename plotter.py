@@ -1,16 +1,15 @@
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-import os
+import argparse
+import random
 import serial
 import sys
 from PyQt5.QtWidgets import QApplication
 from PyQt5 import QtCore
 
-ser = serial.Serial("COM3", 9600, timeout=1)
-
 app = QApplication([])
-win = pg.GraphicsLayoutWidget(show=True, title="Plotter Serial SC")
+win = pg.GraphicsLayoutWidget(show=False, title="Plotter Serial SC")
 win.showFullScreen()
 
 # Plot combinado dos dados
@@ -28,18 +27,6 @@ curve_b = plot_b.plot(pen="g")
 temp_a_data = np.array([])
 temp_b_data = np.array([])
 time_data = []
-
-log_path = "temp_logs/"
-
-try:
-    os.mkdir(log_path)
-except FileExistsError:
-    pass
-
-dt = pd.Timestamp.now()
-log_file_path = log_path + f"log_{dt.year}-{dt.month}-{dt.day}-{dt.hour}-{dt.minute}-{dt.second}.csv"
-df = pd.DataFrame(columns=["time", "temp_a", "temp_b"])
-df.to_csv(log_file_path, index=False)
 
 plot_views = ["C", "IC", "A", "B"]
 current_mode = -1
@@ -68,13 +55,21 @@ def toggle_plot_view():
             plot_b.show()
 
 
+def get_data_dummy():
+    t = random.randint(20, int(20 + 5 * random.random())) + random.random()
+    data = f"> {t:.2f};{t - random.random():.2f}"
+    return data
+
+
+def get_data_serial():
+    data = ser.readline().decode("utf-8").strip()
+    return data
+
+
 def update_plots():
     global temp_a_data, temp_b_data, time_data
 
-    # data = ser.readline().decode("utf-8").strip()
-    import random
-    t = random.randint(20, int(20+5*random.random())) + random.random()
-    data = f"> {t:.2f};{t -  random.random():.2f}"
+    data = get_data()
 
     if data.startswith("> "):
         temp_a, temp_b = [float(t) for t in data[2:].split(";")]
@@ -104,15 +99,71 @@ def key_press_event(event):
         sys.exit()
 
 
+def arg_parse():
+    parser = argparse.ArgumentParser(description="Plotter serial para sensores.")
+    parser.add_argument(
+        "port",
+        type=str,
+        help="Porta serial a ser plotada.")
+    parser.add_argument(
+        "baud",
+        type=int,
+        help="Baud rate da porta serial.")
+    parser.add_argument(
+        "--update-delay",
+        "-u",
+        type=int,
+        default=100,
+        help="Tempo entre atualizações do plot, em milissegundos."
+    )
+    parser.add_argument(
+        "--output-log-path",
+        "-o",
+        type=str,
+        default="./temp_logs/",
+        help="Diretório de saída dos logs de gravação."
+    )
+
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
+    args = arg_parse()
+    port = args.port
+    baud = args.baud
+    update_delay = args.update_delay
+    log_path = args.output_log_path
+
+    dt = pd.Timestamp.now()
+    df = pd.DataFrame(columns=["time", "temp_a", "temp_b"])
+
+    if port != "sim":
+        try:
+            ser = serial.Serial(port, baud, timeout=1)
+            get_data = get_data_serial
+        except serial.SerialException:
+            print(f"Não foi possível abrir a porta serial {port}@{baud}")
+            sys.exit(1)
+
+    else:
+        get_data = get_data_dummy
+
+    try:
+        os.mkdir(log_path)
+    except FileExistsError:
+        pass
+
+    print(f"Salvando dados em {log_path}")
+    log_file_path = log_path + f"log_{dt.year}-{dt.month}-{dt.day}-{dt.hour}-{dt.minute}-{dt.second}.csv"
+    df.to_csv(log_file_path, index=False)
+
     timer = QtCore.QTimer()
     timer.timeout.connect(update_plots)
 
     win.keyPressEvent = key_press_event
     toggle_plot_view()
 
-    # TODO: ajustar o delay
-    timer.start(100)
+    timer.start(update_delay)
     try:
         QApplication.instance().exec_()
     except KeyboardInterrupt:
