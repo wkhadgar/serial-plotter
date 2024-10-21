@@ -69,7 +69,7 @@ def get_data_serial(ser):
     return data
 
 
-def update_plots(log_f_path: str, get_data: Callable):
+def update_plots(get_data: Callable, log_f_path: str):
     global temp_a_data, temp_b_data, time_data
 
     data = get_data()
@@ -161,7 +161,7 @@ def main():
     df.to_csv(log_file_path, index=False)
 
     timer = QtCore.QTimer()
-    timer.timeout.connect(partial(update_plots, get_data, log_path))
+    timer.timeout.connect(partial(update_plots, get_data, log_file_path))
 
     win.keyPressEvent = key_press_event
     toggle_plot_view()
