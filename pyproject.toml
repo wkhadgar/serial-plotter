@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "serial-plotter"
+version = "0.1.0"
+description = "Visualizador de dados via serial"
+authors = [{ name = "Paulo Santos", email = "pauloxrms@gmail.com" }]
+license = { text = "GNU" }
+requires-python = ">=3.9"
+
+dependencies = [
+    "PyQt5>=5.15.11",
+    "numpy>=2.1.2",
+    "pandas>=2.2.3",
+    "pyqtgraph>=0.13.7",
+    "pyserial>=3.5",
+    "python-dateutil>=2.9.0.post0",
+    "pytz>=2024.2",
+    "six>=1.16.0",
+    "tzdata>=2024.2",
+]
+
+[tool.setuptools]
+py-modules = ["plotter"]
+
+[project.scripts]
+splot = "plotter:main"

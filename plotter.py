@@ -2,9 +2,12 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 import argparse
+import os
 import random
 import serial
 import sys
+from collections.abc import Callable
+from functools import partial
 from PyQt5.QtWidgets import QApplication
 from PyQt5 import QtCore
 
@@ -61,12 +64,12 @@ def get_data_dummy():
     return data
 
 
-def get_data_serial():
+def get_data_serial(ser):
     data = ser.readline().decode("utf-8").strip()
     return data
 
 
-def update_plots():
+def update_plots(log_f_path: str, get_data: Callable):
     global temp_a_data, temp_b_data, time_data
 
     data = get_data()
@@ -82,7 +85,7 @@ def update_plots():
         time_data.append(timestamp)
         plot_seconds = [(t - time_data[0]).total_seconds() for t in time_data]
 
-        with open(log_file_path, "a") as f:
+        with open(log_f_path, "a") as f:
             f.write(f"{int(plot_seconds[-1] / 60):02d}:{plot_seconds[-1]:06.3f},{temp_a},{temp_b}\n")
 
         curve_a_combined.setData(plot_seconds, temp_a_data)
@@ -95,8 +98,7 @@ def key_press_event(event):
     if event.key() == QtCore.Qt.Key_Space:
         toggle_plot_view()
     elif event.key() == QtCore.Qt.Key_Escape:
-        ser.close()
-        sys.exit()
+        sys.exit(0)
 
 
 def arg_parse():
@@ -112,6 +114,7 @@ def arg_parse():
     parser.add_argument(
         "--update-delay",
         "-u",
+        metavar="<delay_ms>",
         type=int,
         default=100,
         help="Tempo entre atualizações do plot, em milissegundos."
@@ -119,6 +122,7 @@ def arg_parse():
     parser.add_argument(
         "--output-log-path",
         "-o",
+        metavar="<path/to/out>",
         type=str,
         default="./temp_logs/",
         help="Diretório de saída dos logs de gravação."
@@ -127,7 +131,7 @@ def arg_parse():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
+def main():
     args = arg_parse()
     port = args.port
     baud = args.baud
@@ -140,11 +144,10 @@ if __name__ == "__main__":
     if port != "sim":
         try:
             ser = serial.Serial(port, baud, timeout=1)
-            get_data = get_data_serial
+            get_data = partial(get_data_serial, ser)
         except serial.SerialException:
             print(f"Não foi possível abrir a porta serial {port}@{baud}")
             sys.exit(1)
-
     else:
         get_data = get_data_dummy
 
@@ -158,7 +161,7 @@ if __name__ == "__main__":
     df.to_csv(log_file_path, index=False)
 
     timer = QtCore.QTimer()
-    timer.timeout.connect(update_plots)
+    timer.timeout.connect(partial(update_plots, get_data, log_path))
 
     win.keyPressEvent = key_press_event
     toggle_plot_view()
@@ -170,3 +173,7 @@ if __name__ == "__main__":
         print("Exiting...")
         ser.close()
         sys.exit()
+
+
+if __name__ == "__main__":
+    main()
