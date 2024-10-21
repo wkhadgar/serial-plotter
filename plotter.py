@@ -17,14 +17,23 @@ win.showFullScreen()
 
 # Plot combinado dos dados
 plot_combined = win.addPlot(title="Temperatura A e B", col=0, row=0)
+plot_combined.setLabel('bottom', "Tempo decorrido (s)")
+plot_combined.setLabel('left', "Temperatura (°C)")
+plot_combined.showGrid(x=True, y=True, alpha=0.5)
 curve_a_combined = plot_combined.plot(pen="c", name="Temperatura A")
 curve_b_combined = plot_combined.plot(pen="g", name="Temperatura B")
 
 # Plot individual dos dados
 plot_a = win.addPlot(title="Temperatura A", col=0, row=1)
+plot_a.setLabel('bottom', "Tempo decorrido (s)")
+plot_a.setLabel('left', "Temperatura (°C)")
+plot_a.showGrid(x=True, y=True, alpha=0.5)
 curve_a = plot_a.plot(pen="c")
 
 plot_b = win.addPlot(title="Temperatura B", col=1, row=1)
+plot_a.setLabel('bottom', "Tempo decorrido (s)")
+plot_a.setLabel('left', "Temperatura (°C)")
+plot_b.showGrid(x=True, y=True, alpha=0.5)
 curve_b = plot_b.plot(pen="g")
 
 temp_a_data = np.array([])
@@ -58,9 +67,16 @@ def toggle_plot_view():
             plot_b.show()
 
 
+last_t = random.randint(20, 45) + random.random()
+
+
 def get_data_dummy():
-    t = random.randint(20, int(20 + 5 * random.random())) + random.random()
-    data = f"> {t:.2f};{t - random.random():.2f}"
+    global last_t
+
+    t1 = last_t + (random.random() - random.random())
+    t2 = last_t + (random.random() - random.random())
+    last_t = (t1 + t2) / 2
+    data = f"> {t1:.2f};{t2:.2f}"
     return data
 
 

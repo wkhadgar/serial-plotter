@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Visualizador de dados via serial"
 authors = [{ name = "Paulo Santos", email = "pauloxrms@gmail.com" }]
 license = { text = "GNU" }
+readme = "README.md"
 requires-python = ">=3.9"
 
 dependencies = [
