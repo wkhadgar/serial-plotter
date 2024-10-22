@@ -24,7 +24,7 @@ curve_a_combined = plot_combined.plot(pen="c", name="Temperatura A")
 curve_b_combined = plot_combined.plot(pen="g", name="Temperatura B")
 
 # Plot individual dos dados
-plot_a = win.addPlot(title="Temperatura A", col=0, row=1)
+plot_a = win.addPlot(title="Temperatura A", col=1, row=0)
 plot_a.setLabel('bottom', "Tempo decorrido (s)")
 plot_a.setLabel('left', "Temperatura (°C)")
 plot_a.showGrid(x=True, y=True, alpha=0.5)
@@ -36,8 +36,17 @@ plot_a.setLabel('left', "Temperatura (°C)")
 plot_b.showGrid(x=True, y=True, alpha=0.5)
 curve_b = plot_b.plot(pen="g")
 
+
+plot_c = win.addPlot(title="Duty", col=0, row=1)
+plot_c.setLabel('bottom', "Tempo decorrido (s)")
+plot_c.setLabel('left', "Duty Cycle (%)")
+plot_c.showGrid(x=True, y=True, alpha=0.5)
+curve_c = plot_c.plot(pen="r")
+
+
 temp_a_data = np.array([])
 temp_b_data = np.array([])
+duty_data = np.array([])
 time_data = []
 
 plot_views = ["C", "IC", "A", "B"]
@@ -53,18 +62,22 @@ def toggle_plot_view():
             plot_combined.show()
             plot_a.hide()
             plot_b.hide()
+            plot_c.show()
         case "IC":
             plot_combined.hide()
             plot_a.show()
             plot_b.show()
+            plot_c.hide()
         case "A":
             plot_combined.hide()
             plot_a.show()
             plot_b.hide()
+            plot_c.hide()
         case "B":
             plot_combined.hide()
             plot_a.hide()
             plot_b.show()
+            plot_c.hide()
 
 
 last_t = random.randint(20, 45) + random.random()
@@ -86,17 +99,18 @@ def get_data_serial(ser):
 
 
 def update_plots(get_data: Callable, log_f_path: str):
-    global temp_a_data, temp_b_data, time_data
+    global temp_a_data, temp_b_data, duty_data, time_data
 
     data = get_data()
 
     if data.startswith("> "):
-        temp_a, temp_b = [float(t) for t in data[2:].split(";")]
+        temp_a, temp_b, duty = [float(t) for t in data[2:].split(";")]
 
         timestamp = pd.Timestamp.now()
 
         temp_a_data = np.append(temp_a_data, temp_a)
         temp_b_data = np.append(temp_b_data, temp_b)
+        duty_data = np.append(duty_data, duty)
 
         time_data.append(timestamp)
         plot_seconds = [(t - time_data[0]).total_seconds() for t in time_data]
@@ -108,6 +122,7 @@ def update_plots(get_data: Callable, log_f_path: str):
         curve_b_combined.setData(plot_seconds, temp_b_data)
         curve_a.setData(plot_seconds, temp_a_data)
         curve_b.setData(plot_seconds, temp_b_data)
+        curve_c.setData(plot_seconds, duty_data)
 
 
 def key_press_event(event):
