@@ -8,128 +8,167 @@ import serial
 import sys
 from collections.abc import Callable
 from functools import partial
-from PyQt5.QtWidgets import QApplication
+from PyQt5.QtWidgets import QApplication, QLineEdit, QGraphicsProxyWidget, QWidget
 from PyQt5 import QtCore
 
-app = QApplication([])
-win = pg.GraphicsLayoutWidget(show=False, title="Plotter Serial SC")
-win.showFullScreen()
 
-# Plot combinado dos dados
-plot_combined = win.addPlot(title="Temperatura A e B", col=0, row=0)
-plot_combined.setLabel('bottom', "Tempo decorrido (s)")
-plot_combined.setLabel('left', "Temperatura (°C)")
-plot_combined.showGrid(x=True, y=True, alpha=0.5)
-curve_a_combined = plot_combined.plot(pen="c", name="Temperatura A")
-curve_b_combined = plot_combined.plot(pen="g", name="Temperatura B")
+class MainWindow(QWidget):
+    def __init__(self):
+        super().__init__()
 
-# Plot individual dos dados
-plot_a = win.addPlot(title="Temperatura A", col=1, row=0)
-plot_a.setLabel('bottom', "Tempo decorrido (s)")
-plot_a.setLabel('left', "Temperatura (°C)")
-plot_a.showGrid(x=True, y=True, alpha=0.5)
-curve_a = plot_a.plot(pen="c")
+        self.win = pg.GraphicsLayoutWidget(show=False, title="Plotter Serial SC")
+        self.win.showFullScreen()
 
-plot_b = win.addPlot(title="Temperatura B", col=1, row=1)
-plot_a.setLabel('bottom', "Tempo decorrido (s)")
-plot_a.setLabel('left', "Temperatura (°C)")
-plot_b.showGrid(x=True, y=True, alpha=0.5)
-curve_b = plot_b.plot(pen="g")
+        # Plot combinado dos dados
+        self.plot_combined = self.win.addPlot(title="Temperatura A e B", col=0, row=0)
+        self.plot_combined.setLabel('bottom', "Tempo decorrido (s)")
+        self.plot_combined.setLabel('left', "Temperatura (°C)")
+        self.plot_combined.showGrid(x=True, y=True, alpha=0.5)
+        self.curve_a_combined = self.plot_combined.plot(pen="c", name="Temperatura A")
+        self.curve_b_combined = self.plot_combined.plot(pen="g", name="Temperatura B")
 
+        # Plot individual dos dados
+        self.plot_a = self.win.addPlot(title="Temperatura A", col=1, row=0)
+        self.plot_a.setLabel('bottom', "Tempo decorrido (s)")
+        self.plot_a.setLabel('left', "Temperatura (°C)")
+        self.plot_a.showGrid(x=True, y=True, alpha=0.5)
+        self.curve_a = self.plot_a.plot(pen="c")
 
-plot_c = win.addPlot(title="Duty", col=0, row=1)
-plot_c.setLabel('bottom', "Tempo decorrido (s)")
-plot_c.setLabel('left', "Duty Cycle (%)")
-plot_c.showGrid(x=True, y=True, alpha=0.5)
-curve_c = plot_c.plot(pen="r")
+        self.plot_b = self.win.addPlot(title="Temperatura B", col=1, row=1)
+        self.plot_a.setLabel('bottom', "Tempo decorrido (s)")
+        self.plot_a.setLabel('left', "Temperatura (°C)")
+        self.plot_b.showGrid(x=True, y=True, alpha=0.5)
+        self.curve_b = self.plot_b.plot(pen="g")
 
+        self.plot_c = self.win.addPlot(title="Duty", col=0, row=1)
+        self.plot_c.setLabel('bottom', "Tempo decorrido (s)")
+        self.plot_c.setLabel('left', "Duty Cycle (%)")
+        self.plot_c.showGrid(x=True, y=True, alpha=0.5)
+        self.curve_c = self.plot_c.plot(pen="r")
 
-temp_a_data = np.array([])
-temp_b_data = np.array([])
-duty_data = np.array([])
-time_data = []
+        self.pwm_input = QLineEdit()
+        self.pwm_input.setPlaceholderText("Defina o PWM de controle...")
+        self.pwm_input.setAlignment(QtCore.Qt.AlignCenter)
 
-plot_views = ["C", "IC", "A", "B"]
-current_mode = -1
+        # Use QGraphicsProxyWidget to overlay the QLineEdit on the plot
+        self.proxy = QGraphicsProxyWidget()
+        self.proxy.setWidget(self.pwm_input)
+        self.win.addItem(self.proxy, col=0, row=2)
 
+        self.pwm_input.returnPressed.connect(self.on_return_pressed)
 
-def toggle_plot_view():
-    global current_mode
+        self.temp_a_data = np.array([])
+        self.temp_b_data = np.array([])
+        self.time_data = []
 
-    current_mode = (current_mode + 1) % len(plot_views)
-    match plot_views[current_mode]:
-        case "C":
-            plot_combined.show()
-            plot_a.hide()
-            plot_b.hide()
-            plot_c.show()
-        case "IC":
-            plot_combined.hide()
-            plot_a.show()
-            plot_b.show()
-            plot_c.hide()
-        case "A":
-            plot_combined.hide()
-            plot_a.show()
-            plot_b.hide()
-            plot_c.hide()
-        case "B":
-            plot_combined.hide()
-            plot_a.hide()
-            plot_b.show()
-            plot_c.hide()
+        self.plot_views = ["C", "IC", "A", "B"]
+        self.current_mode = -1
 
+        self.duty_data = np.array([])
+        self.dummy_temp = random.randint(20, 45) + random.random()
+        self.dummy_duty = random.randint(-50, 50) + random.random()
 
-last_t = random.randint(20, 45) + random.random()
+        self.ser = None
 
+    def on_return_pressed(self):
+        # Handle 'Enter' key press to print the input text
+        print(f"User Input: {self.pwm_input.text()}")
+        self.pwm_input.clear()  # Optional: Clear input after submission
 
-def get_data_dummy():
-    global last_t
+    def toggle_plot_view(self):
 
-    t1 = last_t + (random.random() - random.random())
-    t2 = last_t + (random.random() - random.random())
-    last_t = (t1 + t2) / 2
-    data = f"> {t1:.2f};{t2:.2f}"
-    return data
+        self.current_mode = (self.current_mode + 1) % len(self.plot_views)
+        match self.plot_views[self.current_mode]:
+            case "C":
+                self.plot_combined.show()
+                self.plot_a.hide()
+                self.plot_b.hide()
+                self.plot_c.show()
+            case "IC":
+                self.plot_combined.hide()
+                self.plot_a.show()
+                self.plot_b.show()
+                self.plot_c.hide()
+            case "A":
+                self.plot_combined.hide()
+                self.plot_a.show()
+                self.plot_b.hide()
+                self.plot_c.hide()
+            case "B":
+                self.plot_combined.hide()
+                self.plot_a.hide()
+                self.plot_b.show()
+                self.plot_c.hide()
 
+    def get_data_dummy(self):
+        t1 = self.dummy_temp + (random.random() - random.random())
+        t2 = self.dummy_temp + (random.random() - random.random())
+        self.dummy_temp = (t1 + t2) / 2
 
-def get_data_serial(ser):
-    data = ser.readline().decode("utf-8").strip()
-    return data
+        self.dummy_duty = self.dummy_duty + (random.random() - random.random())
+        if self.dummy_duty > 100:
+            self.dummy_duty = 100
+        if self.dummy_duty < -100:
+            self.dummy_duty = -100
 
+        data = f"> {t1:.2f};{t2:.2f};{self.dummy_duty:.2f}"
+        return data
 
-def update_plots(get_data: Callable, log_f_path: str):
-    global temp_a_data, temp_b_data, duty_data, time_data
+    def set_serial(self, serial: serial.Serial):
+        self.ser = serial
 
-    data = get_data()
+    def get_data_serial(self):
+        data = self.ser.readline().decode("utf-8").strip()
+        return data
 
-    if data.startswith("> "):
-        temp_a, temp_b, duty = [float(t) for t in data[2:].split(";")]
+    def send_data_serial(self):
+        self.ser.write(str(self.dummy_duty).encode('ascii'))
 
-        timestamp = pd.Timestamp.now()
+    def on_return_pressed(self):
+        self.dummy_duty = float(self.pwm_input.text())
+        if self.dummy_duty > 100:
+            self.dummy_duty = 100
+        if self.dummy_duty < -100:
+            self.dummy_duty = -100
 
-        temp_a_data = np.append(temp_a_data, temp_a)
-        temp_b_data = np.append(temp_b_data, temp_b)
-        duty_data = np.append(duty_data, duty)
+        self.pwm_input.clear()
 
-        time_data.append(timestamp)
-        plot_seconds = [(t - time_data[0]).total_seconds() for t in time_data]
+        if self.ser is not None:
+            self.send_data_serial()
 
-        with open(log_f_path, "a") as f:
-            f.write(f"{int(plot_seconds[-1] / 60):02d}:{plot_seconds[-1]:06.3f},{temp_a},{temp_b}\n")
+    # Function to print the input text on 'Enter'
+    def update_plots(self, get_data: Callable, log_f_path: str):
+        data = get_data()
 
-        curve_a_combined.setData(plot_seconds, temp_a_data)
-        curve_b_combined.setData(plot_seconds, temp_b_data)
-        curve_a.setData(plot_seconds, temp_a_data)
-        curve_b.setData(plot_seconds, temp_b_data)
-        curve_c.setData(plot_seconds, duty_data)
+        if data.startswith("> "):
+            temp_a, temp_b, duty = [float(t) for t in data[2:].split(";")]
 
+            timestamp = pd.Timestamp.now()
 
-def key_press_event(event):
-    if event.key() == QtCore.Qt.Key_Space:
-        toggle_plot_view()
-    elif event.key() == QtCore.Qt.Key_Escape:
-        sys.exit(0)
+            self.temp_a_data = np.append(self.temp_a_data, temp_a)
+            self.temp_b_data = np.append(self.temp_b_data, temp_b)
+            self.duty_data = np.append(self.duty_data, duty)
+
+            self.time_data.append(timestamp)
+            plot_seconds = [(t - self.time_data[0]).total_seconds() for t in self.time_data]
+
+            with open(log_f_path, "a") as f:
+                f.write(f"{int(plot_seconds[-1] / 60):02d}:{plot_seconds[-1]:06.3f},{temp_a},{temp_b}\n")
+
+            self.curve_a_combined.setData(plot_seconds, self.temp_a_data)
+            self.curve_b_combined.setData(plot_seconds, self.temp_b_data)
+            self.curve_a.setData(plot_seconds, self.temp_a_data)
+            self.curve_b.setData(plot_seconds, self.temp_b_data)
+            self.curve_c.setData(plot_seconds, self.duty_data)
+
+    def keyPressEvent(self, a0):
+        if self.pwm_input.hasFocus():
+            # If QLineEdit has focus, let it handle the key event
+            super().keyPressEvent(a0)
+        elif a0.key() == QtCore.Qt.Key_Space:
+            self.toggle_plot_view()
+        elif a0.key() == QtCore.Qt.Key_Escape:
+            sys.exit(0)
 
 
 def arg_parse():
@@ -172,15 +211,19 @@ def main():
     dt = pd.Timestamp.now()
     df = pd.DataFrame(columns=["time", "temp_a", "temp_b"])
 
+    app = QApplication([])
+    main_w = MainWindow()
+
     if port != "sim":
         try:
             ser = serial.Serial(port, baud, timeout=1)
-            get_data = partial(get_data_serial, ser)
+            main_w.set_serial(ser)
+            get_data = partial(main_w.get_data_serial, ser)
         except serial.SerialException:
             print(f"Não foi possível abrir a porta serial {port}@{baud}")
             sys.exit(1)
     else:
-        get_data = get_data_dummy
+        get_data = main_w.get_data_dummy
 
     try:
         os.mkdir(log_path)
@@ -192,14 +235,12 @@ def main():
     df.to_csv(log_file_path, index=False)
 
     timer = QtCore.QTimer()
-    timer.timeout.connect(partial(update_plots, get_data, log_file_path))
-
-    win.keyPressEvent = key_press_event
-    toggle_plot_view()
+    timer.timeout.connect(partial(main_w.update_plots, get_data, log_file_path))
+    main_w.toggle_plot_view()
 
     timer.start(update_delay)
     try:
-        QApplication.instance().exec_()
+        app.exec_()
     except KeyboardInterrupt:
         print("Exiting...")
         ser.close()
