@@ -24,27 +24,36 @@ class MainWindow(QWidget):
         self.plot_combined.setLabel('bottom', "Tempo decorrido (s)")
         self.plot_combined.setLabel('left', "Temperatura (°C)")
         self.plot_combined.showGrid(x=True, y=True, alpha=0.5)
+        self.combined_leg = self.plot_combined.addLegend()
         self.curve_a_combined = self.plot_combined.plot(pen="c", name="Temperatura A")
         self.curve_b_combined = self.plot_combined.plot(pen="g", name="Temperatura B")
+        self.curve_a_combined_label = self.combined_leg.getLabel(self.curve_a_combined)
+        self.curve_b_combined_label = self.combined_leg.getLabel(self.curve_b_combined)
 
         # Plot individual dos dados
         self.plot_a = self.win.addPlot(title="Temperatura A", col=1, row=0)
         self.plot_a.setLabel('bottom', "Tempo decorrido (s)")
         self.plot_a.setLabel('left', "Temperatura (°C)")
         self.plot_a.showGrid(x=True, y=True, alpha=0.5)
-        self.curve_a = self.plot_a.plot(pen="c")
+        self.a_leg = self.plot_a.addLegend()
+        self.curve_a = self.plot_a.plot(pen="c", name="Temperatura A")
+        self.curve_a_label = self.a_leg.getLabel(self.curve_a)
 
         self.plot_b = self.win.addPlot(title="Temperatura B", col=1, row=1)
-        self.plot_a.setLabel('bottom', "Tempo decorrido (s)")
-        self.plot_a.setLabel('left', "Temperatura (°C)")
+        self.plot_b.setLabel('bottom', "Tempo decorrido (s)")
+        self.plot_b.setLabel('left', "Temperatura (°C)")
         self.plot_b.showGrid(x=True, y=True, alpha=0.5)
-        self.curve_b = self.plot_b.plot(pen="g")
+        self.b_leg = self.plot_b.addLegend()
+        self.curve_b = self.plot_b.plot(pen="g", name="Temperatura B")
+        self.curve_b_label = self.b_leg.getLabel(self.curve_b)
 
         self.plot_c = self.win.addPlot(title="Duty", col=0, row=1)
         self.plot_c.setLabel('bottom', "Tempo decorrido (s)")
         self.plot_c.setLabel('left', "Duty Cycle (%)")
         self.plot_c.showGrid(x=True, y=True, alpha=0.5)
-        self.curve_c = self.plot_c.plot(pen="r")
+        self.c_leg = self.plot_c.addLegend()
+        self.curve_c = self.plot_c.plot(pen="r", name="Duty")
+        self.curve_c_label = self.c_leg.getLabel(self.curve_c)
 
         self.pwm_input = QLineEdit()
         self.pwm_input.setPlaceholderText("Defina o PWM de controle...")
@@ -70,11 +79,6 @@ class MainWindow(QWidget):
 
         self.ser = None
 
-    def on_return_pressed(self):
-        # Handle 'Enter' key press to print the input text
-        print(f"User Input: {self.pwm_input.text()}")
-        self.pwm_input.clear()  # Optional: Clear input after submission
-
     def toggle_plot_view(self):
 
         self.current_mode = (self.current_mode + 1) % len(self.plot_views)
@@ -84,21 +88,25 @@ class MainWindow(QWidget):
                 self.plot_a.hide()
                 self.plot_b.hide()
                 self.plot_c.show()
+                self.proxy.show()
             case "IC":
                 self.plot_combined.hide()
                 self.plot_a.show()
                 self.plot_b.show()
                 self.plot_c.hide()
+                self.proxy.hide()
             case "A":
                 self.plot_combined.hide()
                 self.plot_a.show()
                 self.plot_b.hide()
                 self.plot_c.hide()
+                self.proxy.hide()
             case "B":
                 self.plot_combined.hide()
                 self.plot_a.hide()
                 self.plot_b.show()
                 self.plot_c.hide()
+                self.proxy.hide()
 
     def get_data_dummy(self):
         t1 = self.dummy_temp + (random.random() - random.random())
@@ -114,8 +122,8 @@ class MainWindow(QWidget):
         data = f"> {t1:.2f};{t2:.2f};{self.dummy_duty:.2f}"
         return data
 
-    def set_serial(self, serial: serial.Serial):
-        self.ser = serial
+    def set_serial(self, ser: serial.Serial):
+        self.ser = ser
 
     def get_data_serial(self):
         data = self.ser.readline().decode("utf-8").strip()
@@ -149,6 +157,12 @@ class MainWindow(QWidget):
             self.temp_b_data = np.append(self.temp_b_data, temp_b)
             self.duty_data = np.append(self.duty_data, duty)
 
+            self.curve_a_combined_label.setText(f"Temperatura A: {temp_a}")
+            self.curve_a_label.setText(f"Temperatura A: {temp_a}")
+            self.curve_b_combined_label.setText(f"Temperatura B: {temp_b}")
+            self.curve_b_label.setText(f"Temperatura B: {temp_b}")
+            self.curve_c_label.setText(f"Duty Cycle (%): {duty}")
+
             self.time_data.append(timestamp)
             plot_seconds = [(t - self.time_data[0]).total_seconds() for t in self.time_data]
 
@@ -161,14 +175,14 @@ class MainWindow(QWidget):
             self.curve_b.setData(plot_seconds, self.temp_b_data)
             self.curve_c.setData(plot_seconds, self.duty_data)
 
-    def keyPressEvent(self, a0):
+    def key_press_handle(self, super_press_handler: Callable, ev):
         if self.pwm_input.hasFocus():
-            # If QLineEdit has focus, let it handle the key event
-            super().keyPressEvent(a0)
-        elif a0.key() == QtCore.Qt.Key_Space:
-            self.toggle_plot_view()
-        elif a0.key() == QtCore.Qt.Key_Escape:
-            sys.exit(0)
+            super_press_handler(ev)
+        else:
+            if ev.key() == QtCore.Qt.Key_Space:
+                self.toggle_plot_view()
+            elif ev.key() == QtCore.Qt.Key_Escape:
+                sys.exit(0)
 
 
 def arg_parse():
@@ -213,6 +227,7 @@ def main():
 
     app = QApplication([])
     main_w = MainWindow()
+    main_w.win.keyPressEvent = partial(main_w.key_press_handle, main_w.win.keyPressEvent)
 
     if port != "sim":
         try:
