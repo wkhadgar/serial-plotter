@@ -3,9 +3,9 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "serial-plotter"
+name = "thermal-plotter"
 version = "0.1.0"
-description = "Visualizador de dados via serial"
+description = "Visualizador de dados de uma planta térmica via serial"
 authors = [{ name = "Paulo Santos", email = "pauloxrms@gmail.com" }]
 license = { text = "GNU" }
 readme = "README.md"
@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = ["plotter"]
+py-modules = ["thermal_plotter"]
 
 [project.scripts]
-splot = "plotter:main"
+thp = "thermal_plotter:main"

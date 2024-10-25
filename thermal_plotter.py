@@ -218,7 +218,7 @@ def main():
         try:
             ser = serial.Serial(port, baud, timeout=1)
             main_w.set_serial(ser)
-            get_data = partial(main_w.get_data_serial, ser)
+            get_data = main_w.get_data_serial
         except serial.SerialException:
             print(f"Não foi possível abrir a porta serial {port}@{baud}")
             sys.exit(1)
@@ -243,7 +243,6 @@ def main():
         app.exec_()
     except KeyboardInterrupt:
         print("Exiting...")
-        ser.close()
         sys.exit()
 
 
