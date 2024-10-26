@@ -1,14 +1,15 @@
 #include <LiquidCrystal.h>
 
 /** Termos de cálculo da formula de Steinhart para a temperatura do NTC. */
+#define ZERO_K 273.0
 #define NTC_BETA 3435.0
 #define R0 10000.0
-#define T0 (273.0 + 25.0)
+#define T0 (ZERO_K + 25.0)
 #define R_A 9660.0
 #define R_B 9400.0
 
-/** Número de amostras a serem feitas para média de leitura dos NTCs. */
-#define AVERAGE_AMOUNT 100
+/** Número de amostras a serem feitas para média de leitura dos NTCs = (2^AVERAGE_AMOUNT_EXP). */
+#define AVERAGE_AMOUNT_EXP 7
 
 /** Definição dos pinos de controle da Peltier. */
 #define PWM_POS_PIN 5
@@ -31,16 +32,16 @@ static int pwm_pos_cyc = 0;
 static int pwm_neg_cyc = 0;
 static double duty_cycle = 0;
 const int RX = (R0 * exp(-NTC_BETA / T0));
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
 /** Função de leitura da temperatura do NTC A. */
-double ntc_a_temp(int raw_reading) {
-    return  BETA / log((((R_A * 1024.0) / raw_reading) - R_A) / RX);
+double ntc_a_temp(long long int raw_reading) {
+    return  NTC_BETA / log((((R_A * 1024.0) / raw_reading) - R_A) / RX);
 }
 
 /** Função de leitura da temperatura do NTC B. */
-double ntc_b_temp(int raw_reading) {
-	return  BETA / log((((R_B * 1024.0) / raw_reading) - R_B) / RX);
+double ntc_b_temp(long long int raw_reading) {
+	return  NTC_BETA / log((((R_B * 1024.0) / raw_reading) - R_B) / RX);
 }
 
 void setup() {
@@ -54,38 +55,37 @@ void setup() {
 }
 
 void loop() {
-	long int ntc_a_raw = 0;
-	long int ntc_b_raw = 0;
+	long long int ntc_a_raw = 0;
+	long long int ntc_b_raw = 0;
 
 	/** Média das leituras dos NTCs. */
-	for (int i = 0; i < AVERAGE_AMOUNT; i++){
+	for (int i = 0; i < (1 << AVERAGE_AMOUNT_EXP); i++){
 		ntc_a_raw += analogRead(NTC_A_PIN);
 		ntc_b_raw += analogRead(NTC_B_PIN);
-		delay(1);
 	}
-	ntc_a_raw /= AVERAGE_AMOUNT;
-	ntc_b_raw /= AVERAGE_AMOUNT;
+	ntc_a_raw >>= AVERAGE_AMOUNT_EXP;
+	ntc_b_raw >>= AVERAGE_AMOUNT_EXP;
 
 	/** Temperaturas medidas. */
-	double t_a = ntc_a_temp(ntc_a_raw) - 273;
-	double t_b = ntc_a_temp(ntc_b_raw) - 273;
+	double t_a = ntc_a_temp(ntc_a_raw) - ZERO_K;
+	double t_b = ntc_a_temp(ntc_b_raw) - ZERO_K;
 
 	/** Ajuste de tensão da Peltier, via serial. */
 	if (Serial.available() > 0) {
 		String input = Serial.readStringUntil('\n');
 
 		duty_cycle = input.toFloat();
-		if (duty_dycle > 100) {
+		if (duty_cycle > 100) {
 		  duty_cycle = 100;
-		} else if (duty_dycle < -100) {
-		  duty_dycle = -100;
+		} else if (duty_cycle < -100) {
+		  duty_cycle = -100;
 		}
 
-		if (duty_dycle > 0) {
-		  pwm_pos_cyc = map(duty_dycle, 0, 100, 0, 255);
+		if (duty_cycle > 0) {
+		  pwm_pos_cyc = map(duty_cycle, 0, 100, 0, 255);
 		  pwm_neg_cyc = 0;
 		} else {
-		  pwm_neg_cyc = map(abs(duty_dycle), 0, 100, 0, 255);
+		  pwm_neg_cyc = map(abs(duty_cycle), 0, 100, 0, 255);
 		  pwm_pos_cyc = 0;
 	    }
 
@@ -99,7 +99,7 @@ void loop() {
 	Serial.print(";");       /*< Separador de dados. */
 	Serial.print(t_b);       /*< Indica a temperatura em graus Celsius do NTC B. */
 	Serial.print(";");       /*< Separador de dados. */
-	Serial.print(dutyCycle); /*< Indica o ciclo de trabalho da peltier. */
+	Serial.print(duty_cycle); /*< Indica o ciclo de trabalho da peltier. */
 	Serial.print("\n");      /*< Indica o fim dos dados. */
 }
 
