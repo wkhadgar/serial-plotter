@@ -31,7 +31,7 @@
 static int pwm_pos_cyc = 0;
 static int pwm_neg_cyc = 0;
 static double duty_cycle = 0;
-const int RX = (R0 * exp(-NTC_BETA / T0));
+static const double RX = (R0 * exp(-NTC_BETA / T0));
 LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
 /** Função de leitura da temperatura do NTC A. */
