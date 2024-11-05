@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal as sig
 
-temp_log = ""
+temp_log = "temp_logs/log_2024-11-4-18-10-29.csv"
 
 
 def main():
