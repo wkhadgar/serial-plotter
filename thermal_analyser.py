@@ -14,30 +14,39 @@ def main():
     np.array(df["temp_b"])
 
     x = [float(row.iloc[0].split(':')[1]) for (_, row) in df.iterrows()]
-    y = temp_b_original
+    temps = (temp_a_original + temp_b_original) / 2
 
-    sav = np.array(sig.savgol_filter(y, int(len(x) * 0.05), 5))
-    sav_dt = np.gradient(sav, x, edge_order=1)
+    f_temps = np.array(sig.savgol_filter(temps, int(len(x) * 0.02), 3))
+    f_temps_dt = np.gradient(f_temps, x, edge_order=1)
 
-    max_dv_i = np.argmax(sav_dt)
-    print(max_dv_i, x[max_dv_i], sav_dt[max_dv_i])
-    print(sav[max_dv_i])
+    max_dv_i = np.argmax(f_temps_dt)
 
-    neighborhood = np.linspace(x[max_dv_i] - 100, x[max_dv_i] + 100)
-
-    fig, axs = plt.subplots(2,1, sharex='all')
-    axs[0].grid()
-    axs[0].plot(x, sav, label="Temperatura (°C)")
-    axs[0].scatter(x[max_dv_i], sav[max_dv_i], color='C1', s=10, label="Ponto de maior derivada")
-    axs[0].legend()
-    axs[0].plot(neighborhood, [(((x0 - x[max_dv_i]) * sav_dt[max_dv_i]) + sav[max_dv_i]) for x0 in neighborhood], 'C1--')
-
-    axs[0].title.set_text("Temperatura registrada")
+    fig, axs = plt.subplots(2, 1, sharex='all')
 
     axs[1].grid()
-    axs[1].plot(x, sav_dt)
-    axs[1].axvline(x[max_dv_i], color="r", linestyle="--")
-    axs[1].title.set_text("Derivada dT/dt")
+    axs[1].plot(x, f_temps, label="Temperatura (°C)")
+    axs[1].scatter(x[max_dv_i], f_temps[max_dv_i], color='C1', s=10, label="Ponto de maior derivada")
+
+    L = x[max_dv_i] - ((f_temps[max_dv_i] - f_temps[0]) / f_temps_dt[max_dv_i])
+    T = f_temps[-1] / f_temps_dt[max_dv_i]
+    axs[1].set_xticks([L, T])
+    axs[1].set_xticklabels([f"L = {L:.2f}", f"T = (L/tan(a)) = {T:.2f}"])
+
+    axs[1].legend()
+    axs[1].axvline(0, color="black", linestyle="--")
+    axs[1].axhline(f_temps[0], color="black", linestyle="--")
+    axs[1].axhline(f_temps[-1], color="gray", linestyle="--")
+    neighborhood = np.linspace(x[max_dv_i] - 100, x[max_dv_i] + 100)
+    axs[1].plot(neighborhood,
+                [(((x0 - x[max_dv_i]) * f_temps_dt[max_dv_i]) + f_temps[max_dv_i]) for x0 in neighborhood],
+                'C1--')
+
+    axs[1].title.set_text("Temperatura registrada")
+
+    axs[0].grid()
+    axs[0].plot(x, f_temps_dt)
+    axs[0].axvline(x[max_dv_i], color="r", linestyle="--")
+    axs[0].title.set_text("Derivada dT/dt")
 
     plt.show()
 
