@@ -9,7 +9,8 @@
 #define R_B 9400.0
 
 /** Número de amostras a serem feitas para média de leitura dos NTCs = (2^AVERAGE_AMOUNT_EXP). */
-#define AVERAGE_AMOUNT_EXP 7
+#define AVERAGE_AMOUNT 500
+#define AMP 100
 
 /** Definição dos pinos de controle da Peltier. */
 #define PWM_POS_PIN 5
@@ -35,17 +36,17 @@ static const double RX = (R0 * exp(-NTC_BETA / T0));
 LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
 /** Função de leitura da temperatura do NTC A. */
-double ntc_a_temp(long long int raw_reading) {
-    return  NTC_BETA / log((((R_A * 1024.0) / raw_reading) - R_A) / RX);
+double ntc_a_temp(double raw_reading) {
+    return  NTC_BETA / log((((R_A * (1024.0 * AMP)) / raw_reading) - R_A) / RX);
 }
 
 /** Função de leitura da temperatura do NTC B. */
-double ntc_b_temp(long long int raw_reading) {
-	return  NTC_BETA / log((((R_B * 1024.0) / raw_reading) - R_B) / RX);
+double ntc_b_temp(double raw_reading) {
+	return  NTC_BETA / log((((R_B * (1024.0 * AMP)) / raw_reading) - R_B) / RX);
 }
 
 void setup() {
-	Serial.begin(9600);
+	Serial.begin(115200);
 
 	pinMode(PWM_POS_PIN, OUTPUT);
 	pinMode(PWM_NEG_PIN, OUTPUT);
@@ -59,12 +60,12 @@ void loop() {
 	long long int ntc_b_raw = 0;
 
 	/** Média das leituras dos NTCs. */
-	for (int i = 0; i < (1 << AVERAGE_AMOUNT_EXP); i++){
+	for (int i = 0; i < AVERAGE_AMOUNT; i++){
 		ntc_a_raw += analogRead(NTC_A_PIN);
 		ntc_b_raw += analogRead(NTC_B_PIN);
 	}
-	ntc_a_raw >>= AVERAGE_AMOUNT_EXP;
-	ntc_b_raw >>= AVERAGE_AMOUNT_EXP;
+	ntc_a_raw /= (AVERAGE_AMOUNT / AMP);
+	ntc_b_raw /= (AVERAGE_AMOUNT / AMP);
 
 	/** Temperaturas medidas. */
 	double t_a = ntc_a_temp(ntc_a_raw) - ZERO_K;
@@ -101,5 +102,7 @@ void loop() {
 	Serial.print(";");       /*< Separador de dados. */
 	Serial.print(duty_cycle); /*< Indica o ciclo de trabalho da peltier. */
 	Serial.print("\n");      /*< Indica o fim dos dados. */
+  
+  delay(10);
 }
 
