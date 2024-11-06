@@ -171,7 +171,8 @@ class MainWindow(QWidget):
                     f"{int(plot_seconds[-1] / 60):02d}:{int(plot_seconds[-1]) % 60:02d}:{int((plot_seconds[-1] - int(plot_seconds[-1])) * 100):02d},"
                     f"{plot_seconds[-1]:.4f},"
                     f"{temp_a},"
-                    f"{temp_b}\n")
+                    f"{temp_b},"
+                    f"{duty}\n")
 
             self.curve_a_combined.setData(plot_seconds, self.temp_a_data)
             self.curve_b_combined.setData(plot_seconds, self.temp_b_data)
@@ -227,7 +228,7 @@ def main():
     log_path = args.output_log_path
 
     dt = pd.Timestamp.now()
-    df = pd.DataFrame(columns=["timestamp", "seconds", "temp_a", "temp_b"])
+    df = pd.DataFrame(columns=["timestamp", "seconds", "temp_a", "temp_b", "duty"])
 
     app = QApplication([])
     main_w = MainWindow()
