@@ -28,15 +28,15 @@ def main():
     axs[1].scatter(x[max_dv_i], f_temps[max_dv_i], color='C1', s=10, label="Ponto de maior derivada")
 
     L = x[max_dv_i] - ((f_temps[max_dv_i] - f_temps[0]) / f_temps_dt[max_dv_i])
-    T = f_temps[-1] / f_temps_dt[max_dv_i]
-    axs[1].set_xticks([L, T])
-    axs[1].set_xticklabels([f"L = {L:.2f}", f"T = (L/tan(a)) = {T:.2f}"])
+    T = ((f_temps[-1] - f_temps[0]) / f_temps_dt[max_dv_i])
+    axs[1].set_xticks([L, T + L])
+    axs[1].set_xticklabels([f"L = {L:.2f}", f"T (+L) = {T:.2f} (+{L:.2f})"])
 
     axs[1].legend()
     axs[1].axvline(0, color="black", linestyle="--")
     axs[1].axhline(f_temps[0], color="black", linestyle="--")
     axs[1].axhline(f_temps[-1], color="gray", linestyle="--")
-    neighborhood = np.linspace(x[max_dv_i] - 100, x[max_dv_i] + 100)
+    neighborhood = np.linspace(x[max_dv_i] - 100, x[max_dv_i] + 500)
     axs[1].plot(neighborhood,
                 [(((x0 - x[max_dv_i]) * f_temps_dt[max_dv_i]) + f_temps[max_dv_i]) for x0 in neighborhood],
                 'C1--')
