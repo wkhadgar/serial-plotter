@@ -24,7 +24,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = ["thermal_plotter"]
+py-modules = ["thermal_controller.thermal_plotter"]
 
 [project.scripts]
-thp = "thermal_plotter:main"
+tp = "thermal_controller.thermal_plotter:main"
