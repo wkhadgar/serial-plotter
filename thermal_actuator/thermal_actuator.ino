@@ -1,4 +1,4 @@
-#include <LiquidCrystal.h>
+#include "stdio.h"
 
 /** Termos de cálculo da formula de Steinhart para a temperatura do NTC. */
 #define ZERO_K 273.0
@@ -20,20 +20,11 @@
 #define NTC_A_PIN A0
 #define NTC_B_PIN A1
 
-/** Definição dos pinos de controle do display LCD. */
-#define LCD_RS 12
-#define LCD_EN 11
-#define LCD_D4 6
-#define LCD_D5 4
-#define LCD_D6 7
-#define LCD_D7 2
-
 /** Variáveis de controle. */
 static int pwm_pos_cyc = 0;
 static int pwm_neg_cyc = 0;
 static double duty_cycle = 0;
 static const double RX = (R0 * exp(-NTC_BETA / T0));
-LiquidCrystal lcd(LCD_RS, LCD_EN, LCD_D4, LCD_D5, LCD_D6, LCD_D7);
 
 /** Função de leitura da temperatura do NTC A. */
 double ntc_a_temp(double raw_reading) {
@@ -45,14 +36,17 @@ double ntc_b_temp(double raw_reading) {
 	return  NTC_BETA / log((((R_B * (1024.0 * AMP)) / raw_reading) - R_B) / RX);
 }
 
+void print_float(char* buffer,int buffer_len, float n) {
+	memset(buffer, 0, buffer_len);
+	snprintf(buffer, buffer_len, "%04d.%02d", (int)(n), abs((int)((n - ((int)(n))) * 100)));
+	Serial.print(buffer);
+}
+
 void setup() {
 	Serial.begin(115200);
 
 	pinMode(PWM_POS_PIN, OUTPUT);
 	pinMode(PWM_NEG_PIN, OUTPUT);
-
-	lcd.begin(16,2);
-	lcd.print("Hello world");
 }
 
 void loop() {
@@ -95,13 +89,14 @@ void loop() {
 	}
 
 	/** Escrita dos dados via serial. */
-	Serial.print("> ");      /*< Indica o ínicio dos dados. */
-	Serial.print(t_a);       /*< Indica a temperatura em graus Celsius do NTC A. */
-	Serial.print(";");       /*< Separador de dados. */
-	Serial.print(t_b);       /*< Indica a temperatura em graus Celsius do NTC B. */
-	Serial.print(";");       /*< Separador de dados. */
-	Serial.print(duty_cycle); /*< Indica o ciclo de trabalho da peltier. */
-	Serial.print("\n");      /*< Indica o fim dos dados. */
+	char float_buffer[10];
+	Serial.print("> ");                    /*< Indica o ínicio dos dados. */
+	print_float(float_buffer, 10, t_a);        /*< Indica a temperatura em graus Celsius do NTC A. */
+	Serial.print(";");                     /*< Separador de dados. */
+	print_float(float_buffer, 10, t_b);        /*< Indica a temperatura em graus Celsius do NTC B. */
+	Serial.print(";");                     /*< Separador de dados. */
+	print_float(float_buffer, 10, duty_cycle); /*< Indica o ciclo de trabalho da peltier. */
+	Serial.print("\n");                    /*< Indica o fim dos dados. */
   
   delay(10);
 }

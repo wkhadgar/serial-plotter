@@ -11,6 +11,25 @@ from functools import partial
 from PyQt5.QtWidgets import QApplication, QLineEdit, QGraphicsProxyWidget, QWidget
 from PyQt5 import QtCore
 
+I = 0
+
+# Constantes do controlador PI, calculadas pelo método de Ziegler-Nichols
+T = 9.02
+L = 344.21
+Ti = L / 0.3
+Kp = 0.9 * (T / L)
+Ki = Kp / Ti
+
+
+def PI(delta_t: float, desired: float, measured: float):
+    global I
+
+    err = desired - measured
+    P = Kp * err
+    I = I + (Ki * err * delta_t)
+    I = 0
+    return P + I
+
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -55,16 +74,16 @@ class MainWindow(QWidget):
         self.curve_c = self.plot_c.plot(pen="r", name="Duty")
         self.curve_c_label = self.c_leg.getLabel(self.curve_c)
 
-        self.pwm_input = QLineEdit()
-        self.pwm_input.setPlaceholderText("Defina o PWM de controle...")
-        self.pwm_input.setAlignment(QtCore.Qt.AlignCenter)
+        self.temp_input = QLineEdit()
+        self.temp_input.setPlaceholderText("Defina a temperatura desejada (°C)...")
+        self.temp_input.setAlignment(QtCore.Qt.AlignCenter)
 
         # Use QGraphicsProxyWidget to overlay the QLineEdit on the plot
         self.proxy = QGraphicsProxyWidget()
-        self.proxy.setWidget(self.pwm_input)
+        self.proxy.setWidget(self.temp_input)
         self.win.addItem(self.proxy, col=0, row=2)
 
-        self.pwm_input.returnPressed.connect(self.on_return_pressed)
+        self.temp_input.returnPressed.connect(self.on_return_pressed)
 
         self.temp_a_data = np.array([])
         self.temp_b_data = np.array([])
@@ -75,9 +94,9 @@ class MainWindow(QWidget):
 
         self.duty_data = np.array([])
         self.dummy_temp = random.randint(20, 45) + random.random()
-        self.dummy_duty = random.randint(-50, 50) + random.random()
+        self.desired_temp = random.randint(-50, 50) + random.random()
 
-        self.ser = None
+        self.ser: serial.Serial = None
 
     def toggle_plot_view(self):
 
@@ -113,42 +132,47 @@ class MainWindow(QWidget):
         t2 = self.dummy_temp + (random.random() - random.random())
         self.dummy_temp = (t1 + t2) / 2
 
-        self.dummy_duty = self.dummy_duty + (random.random() - random.random())
-        if self.dummy_duty > 100:
-            self.dummy_duty = 100
-        if self.dummy_duty < -100:
-            self.dummy_duty = -100
+        self.desired_temp = self.desired_temp + (random.random() - random.random())
+        if self.desired_temp > 100:
+            self.desired_temp = 100
+        if self.desired_temp < -100:
+            self.desired_temp = -100
 
-        data = f"> {t1:.2f};{t2:.2f};{self.dummy_duty:.2f}"
+        data = f"> {t1:.2f};{t2:.2f};{self.desired_temp:.2f}"
         return data
 
     def set_serial(self, ser: serial.Serial):
         self.ser = ser
 
     def get_data_serial(self):
-        data = self.ser.readline().decode("utf-8").strip()
-        return data
+        if not self.ser.in_waiting:
+            return ""
 
-    def send_data_serial(self):
-        self.ser.write(str(self.dummy_duty).encode('ascii'))
+        data = self.ser.read(1).decode("utf-8")
+        if data == ">":
+            data += self.ser.read(25).decode("utf-8")
+            return data
+
+        return ""
+
+    def send_data_serial(self, duty: float):
+        self.ser.write(str(duty).encode('ascii'))
 
     def on_return_pressed(self):
-        self.dummy_duty = float(self.pwm_input.text())
-        if self.dummy_duty > 100:
-            self.dummy_duty = 100
-        if self.dummy_duty < -100:
-            self.dummy_duty = -100
+        self.desired_temp = float(self.temp_input.text())
+        if self.desired_temp > 50:
+            self.desired_temp = 50
+        if self.desired_temp < 20:
+            self.desired_temp = 20
 
-        self.pwm_input.clear()
-
-        if self.ser is not None:
-            self.send_data_serial()
+        self.temp_input.clear()
 
     # Function to print the input text on 'Enter'
     def update_plots(self, get_data: Callable, log_f_path: str):
         data = get_data()
 
-        if data.startswith("> "):
+        if data != "":
+            print(data)
             temp_a, temp_b, duty = [float(t) for t in data[2:].split(";")]
 
             timestamp = pd.Timestamp.now()
@@ -180,8 +204,11 @@ class MainWindow(QWidget):
             self.curve_b.setData(plot_seconds, self.temp_b_data)
             self.curve_c.setData(plot_seconds, self.duty_data)
 
+            if len(plot_seconds) > 2:
+                self.send_data_serial(PI(plot_seconds[-1] - plot_seconds[-2], self.desired_temp, (temp_a + temp_b) / 2))
+
     def key_press_handle(self, super_press_handler: Callable, ev):
-        if self.pwm_input.hasFocus():
+        if self.temp_input.hasFocus():
             super_press_handler(ev)
         else:
             if ev.key() == QtCore.Qt.Key_Space:
@@ -200,6 +227,12 @@ def arg_parse():
         "baud",
         type=int,
         help="Baud rate da porta serial.")
+    parser.add_argument(
+        "--closed",
+        "-c",
+        action="store_true",
+        help="Indica se o controle de malha deve ser feito."
+    )
     parser.add_argument(
         "--update-delay",
         "-u",
@@ -220,6 +253,11 @@ def arg_parse():
     return parser.parse_args()
 
 
+def run_func_forever(func):
+    while True:
+        func()
+
+
 def main():
     args = arg_parse()
     port = args.port
@@ -236,7 +274,7 @@ def main():
 
     if port != "sim":
         try:
-            ser = serial.Serial(port, baud, timeout=1)
+            ser = serial.Serial(port, baud, timeout=0)
             main_w.set_serial(ser)
             get_data = main_w.get_data_serial
         except serial.SerialException:

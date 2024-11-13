@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal as sig
 
-temp_log = "temp_logs/log_2024-11-4-18-10-29.csv"
+temp_log = "temp_logs/log_2024-11-11-17-15-5.csv"
 
 
 def main():
@@ -13,7 +13,7 @@ def main():
     temp_b_original = np.array(df["temp_b"])
     np.array(df["temp_b"])
 
-    x = [float(row.iloc[0].split(':')[1]) for (_, row) in df.iterrows()]
+    x = [float(row.iloc[1]) - df.at[df.index[0], 'seconds'] for (_, row) in df.iterrows()]
     temps = (temp_a_original + temp_b_original) / 2
 
     f_temps = np.array(sig.savgol_filter(temps, int(len(x) * 0.02), 3))
