@@ -30,7 +30,9 @@ tp COM1 9600
 ```
 
 O plotter abrirá e será possível navegar entre as visões com <kbd>Space</kbd> ou enviar uma temperatura desejada via
-serial por meio da caixa de texto da visão combinada.
+serial por meio da caixa de texto da visão combinada:
+![image](https://github.com/user-attachments/assets/e177f56e-ef5b-4719-9aef-7c76a029f24e)
+
 
 Caso deseje finalizar o programa, basta pressionar <kbd>Escape</kbd>.
 
