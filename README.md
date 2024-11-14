@@ -1,4 +1,4 @@
-# serial-plotter
+# serial-plotter [thermal-plotter]
 
 Plotter serial para dados de sensores feito com PyQt5 e PyQtGraph. Este script surgiu como parte do desenvolvimento de
 uma planta térmica para a disciplina de Sistemas de Controle 1.
@@ -23,7 +23,7 @@ pip install .
 
 ### Como usar
 
-Para executar o `splot`, especifique a porta seria a ser usada, e qual baud rate de comunicação:
+Para executar o thermal plotter, especifique a porta serial a ser usada, e qual baud rate da comunicação:
 
 ```shell
 tp COM1 9600
