@@ -11,8 +11,8 @@ Garanta que você tem Python 3.7 ou mais recente instalado:
 python --version
 ```
 
-> [!NOTE]
-> [Opcional] Crie um ambiente virtual e o ative para instalação do script.
+> [!IMPORTANT]
+> Crie um ambiente virtual e o ative para instalação do script.
 
 Para instalar o plotter:
 
