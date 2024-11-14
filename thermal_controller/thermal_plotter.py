@@ -11,29 +11,12 @@ from functools import partial
 from PyQt5.QtWidgets import QApplication, QLineEdit, QGraphicsProxyWidget, QWidget
 from PyQt5 import QtCore
 
-I = 0
-
-# Constantes do controlador PI, calculadas pelo método de Ziegler-Nichols
-T = 9.02
-L = 344.21
-Ti = L / 0.3
-Kp = 0.9 * (T / L)
-Ki = Kp / Ti
-
-
-def PI(delta_t: float, desired: float, measured: float):
-    global I
-
-    err = desired - measured
-    P = Kp * err
-    I = I + (Ki * err * delta_t)
-    I = 0
-    return P + I
-
 
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
+
+        self.desired_temp = 25
 
         self.win = pg.GraphicsLayoutWidget(show=False, title="Plotter Serial SC")
         self.win.showFullScreen()
@@ -46,8 +29,14 @@ class MainWindow(QWidget):
         self.combined_leg = self.plot_combined.addLegend()
         self.curve_a_combined = self.plot_combined.plot(pen="c", name="Temperatura A")
         self.curve_b_combined = self.plot_combined.plot(pen="g", name="Temperatura B")
+        self.curve_m_combined = self.plot_combined.plot(pen="y", name="Temperatura média")
         self.curve_a_combined_label = self.combined_leg.getLabel(self.curve_a_combined)
         self.curve_b_combined_label = self.combined_leg.getLabel(self.curve_b_combined)
+        self.curve_m_combined_label = self.combined_leg.getLabel(self.curve_m_combined)
+
+        self.desired_temp_line = pg.InfiniteLine(pos=self.desired_temp, angle=0, movable=False, label="Temperatura desejada [-]",
+                                                 pen=pg.mkPen("orange", width=2))
+        self.plot_combined.addItem(self.desired_temp_line)
 
         # Plot individual dos dados
         self.plot_a = self.win.addPlot(title="Temperatura A", col=1, row=0)
@@ -66,16 +55,24 @@ class MainWindow(QWidget):
         self.curve_b = self.plot_b.plot(pen="g", name="Temperatura B")
         self.curve_b_label = self.b_leg.getLabel(self.curve_b)
 
-        self.plot_c = self.win.addPlot(title="Duty", col=0, row=1)
-        self.plot_c.setLabel('bottom', "Tempo decorrido (s)")
-        self.plot_c.setLabel('left', "Duty Cycle (%)")
-        self.plot_c.showGrid(x=True, y=True, alpha=0.5)
-        self.c_leg = self.plot_c.addLegend()
-        self.curve_c = self.plot_c.plot(pen="r", name="Duty")
-        self.curve_c_label = self.c_leg.getLabel(self.curve_c)
+        self.plot_m = self.win.addPlot(title="Temperatura Média", col=0, row=3)
+        self.plot_m.setLabel('bottom', "Tempo decorrido (s)")
+        self.plot_m.setLabel('left', "Temperatura (°C)")
+        self.plot_m.showGrid(x=True, y=True, alpha=0.5)
+        self.m_leg = self.plot_m.addLegend()
+        self.curve_m = self.plot_m.plot(pen="y", name="Temperatura Média")
+        self.curve_m_label = self.b_leg.getLabel(self.curve_m)
+
+        self.plot_d = self.win.addPlot(title="Duty", col=0, row=1)
+        self.plot_d.setLabel('bottom', "Tempo decorrido (s)")
+        self.plot_d.setLabel('left', "Duty Cycle (%)")
+        self.plot_d.showGrid(x=True, y=True, alpha=0.5)
+        self.d_leg = self.plot_d.addLegend()
+        self.curve_d = self.plot_d.plot(pen="r", name="Duty")
+        self.curve_d_label = self.d_leg.getLabel(self.curve_d)
 
         self.temp_input = QLineEdit()
-        self.temp_input.setPlaceholderText("Defina a temperatura desejada (°C)...")
+        self.temp_input.setPlaceholderText("Defina a temperatura desejada (°C). [Entre 20°C e 50°C]...")
         self.temp_input.setAlignment(QtCore.Qt.AlignCenter)
 
         # Use QGraphicsProxyWidget to overlay the QLineEdit on the plot
@@ -85,18 +82,17 @@ class MainWindow(QWidget):
 
         self.temp_input.returnPressed.connect(self.on_return_pressed)
 
+        self.init_timestamp = pd.Timestamp.now()
+        self.plot_seconds = np.array([])
+        self.duty_data = np.array([])
         self.temp_a_data = np.array([])
         self.temp_b_data = np.array([])
-        self.time_data = []
+        self.temp_m_data = np.array([])
 
-        self.plot_views = ["C", "IC", "A", "B"]
+        self.plot_views = ["C", "IC", "A", "B", "M"]
         self.current_mode = -1
 
-        self.duty_data = np.array([])
-        self.dummy_temp = random.randint(20, 45) + random.random()
-        self.desired_temp = random.randint(-50, 50) + random.random()
-
-        self.ser: serial.Serial = None
+        self.ser: serial.Serial | None = None
 
     def toggle_plot_view(self):
 
@@ -106,40 +102,37 @@ class MainWindow(QWidget):
                 self.plot_combined.show()
                 self.plot_a.hide()
                 self.plot_b.hide()
-                self.plot_c.show()
+                self.plot_m.hide()
+                self.plot_d.show()
                 self.proxy.show()
             case "IC":
                 self.plot_combined.hide()
                 self.plot_a.show()
                 self.plot_b.show()
-                self.plot_c.hide()
+                self.plot_m.hide()
+                self.plot_d.hide()
                 self.proxy.hide()
             case "A":
                 self.plot_combined.hide()
                 self.plot_a.show()
                 self.plot_b.hide()
-                self.plot_c.hide()
+                self.plot_m.hide()
+                self.plot_d.hide()
                 self.proxy.hide()
             case "B":
                 self.plot_combined.hide()
                 self.plot_a.hide()
                 self.plot_b.show()
-                self.plot_c.hide()
+                self.plot_m.hide()
+                self.plot_d.hide()
                 self.proxy.hide()
-
-    def get_data_dummy(self):
-        t1 = self.dummy_temp + (random.random() - random.random())
-        t2 = self.dummy_temp + (random.random() - random.random())
-        self.dummy_temp = (t1 + t2) / 2
-
-        self.desired_temp = self.desired_temp + (random.random() - random.random())
-        if self.desired_temp > 100:
-            self.desired_temp = 100
-        if self.desired_temp < -100:
-            self.desired_temp = -100
-
-        data = f"> {t1:.2f};{t2:.2f};{self.desired_temp:.2f}"
-        return data
+            case "M":
+                self.plot_combined.hide()
+                self.plot_a.hide()
+                self.plot_b.hide()
+                self.plot_m.show()
+                self.plot_d.hide()
+                self.proxy.hide()
 
     def set_serial(self, ser: serial.Serial):
         self.ser = ser
@@ -148,64 +141,82 @@ class MainWindow(QWidget):
         if not self.ser.in_waiting:
             return ""
 
-        data = self.ser.read(1).decode("utf-8")
-        if data == ">":
-            data += self.ser.read(25).decode("utf-8")
-            return data
+        data = self.ser.read().decode("utf-8")
+        if data != ">":
+            self.ser.reset_input_buffer();
+            return ""
 
-        return ""
+        while data[-1] != "<":
+            data += self.ser.read().decode("utf-8")
+        return data
 
     def send_data_serial(self, duty: float):
-        self.ser.write(str(duty).encode('ascii'))
+        self.ser.write(str(duty).encode('utf-8'))
 
     def on_return_pressed(self):
         self.desired_temp = float(self.temp_input.text())
-        if self.desired_temp > 50:
-            self.desired_temp = 50
-        if self.desired_temp < 20:
-            self.desired_temp = 20
 
         self.temp_input.clear()
+        self.send_data_serial(self.desired_temp)
+        self.desired_temp_line.setValue(self.desired_temp)
+        self.desired_temp_line.label.setText(f"Temperatura desejada [{self.desired_temp}°C]")
+        self.desired_temp_line.update()
 
     # Function to print the input text on 'Enter'
     def update_plots(self, get_data: Callable, log_f_path: str):
         data = get_data()
 
         if data != "":
-            print(data)
-            temp_a, temp_b, duty = [float(t) for t in data[2:].split(";")]
+            try:
+                temp_a, temp_b, duty = [float(t) for t in data[1:-1].split(";")]
+            except ValueError:
+                return
 
             timestamp = pd.Timestamp.now()
 
             self.temp_a_data = np.append(self.temp_a_data, temp_a)
             self.temp_b_data = np.append(self.temp_b_data, temp_b)
+            self.temp_m_data = np.append(self.temp_m_data, (temp_b + temp_a) / 2)
             self.duty_data = np.append(self.duty_data, duty)
 
-            self.curve_a_combined_label.setText(f"Temperatura A: {temp_a}")
-            self.curve_a_label.setText(f"Temperatura A: {temp_a}")
-            self.curve_b_combined_label.setText(f"Temperatura B: {temp_b}")
-            self.curve_b_label.setText(f"Temperatura B: {temp_b}")
-            self.curve_c_label.setText(f"Duty Cycle (%): {duty}")
-
-            self.time_data.append(timestamp)
-            plot_seconds = [(t - self.time_data[0]).total_seconds() for t in self.time_data]
+            self.plot_seconds = np.append(self.plot_seconds, (timestamp - self.init_timestamp).total_seconds())
 
             with open(log_f_path, "a") as f:
                 f.write(
-                    f"{int(plot_seconds[-1] / 60):02d}:{int(plot_seconds[-1]) % 60:02d}:{int((plot_seconds[-1] - int(plot_seconds[-1])) * 100):02d},"
-                    f"{plot_seconds[-1]:.4f},"
+                    f"{timestamp.strftime("%H:%M:%S")},"
+                    f"{self.plot_seconds[-1]:.4f},"
                     f"{temp_a},"
                     f"{temp_b},"
                     f"{duty}\n")
 
-            self.curve_a_combined.setData(plot_seconds, self.temp_a_data)
-            self.curve_b_combined.setData(plot_seconds, self.temp_b_data)
-            self.curve_a.setData(plot_seconds, self.temp_a_data)
-            self.curve_b.setData(plot_seconds, self.temp_b_data)
-            self.curve_c.setData(plot_seconds, self.duty_data)
+            match self.plot_views[self.current_mode]:
+                case "C":
+                    self.curve_a_combined.setData(self.plot_seconds, self.temp_a_data)
+                    self.curve_a_combined_label.setText(f"Temperatura A: {temp_a}")
 
-            if len(plot_seconds) > 2:
-                self.send_data_serial(PI(plot_seconds[-1] - plot_seconds[-2], self.desired_temp, (temp_a + temp_b) / 2))
+                    self.curve_b_combined.setData(self.plot_seconds, self.temp_b_data)
+                    self.curve_b_combined_label.setText(f"Temperatura B: {temp_b}")
+
+                    self.curve_m_combined.setData(self.plot_seconds, self.temp_m_data)
+                    self.curve_m_combined_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
+
+                    self.curve_d.setData(self.plot_seconds, self.duty_data)
+                    self.curve_d_label.setText(f"Duty Cycle (%): {duty}")
+                case "IC":
+                    self.curve_a.setData(self.plot_seconds, self.temp_a_data)
+                    self.curve_a_label.setText(f"Temperatura A: {temp_a}")
+
+                    self.curve_b.setData(self.plot_seconds, self.temp_b_data)
+                    self.curve_b_label.setText(f"Temperatura B: {temp_b}")
+                case "A":
+                    self.curve_a.setData(self.plot_seconds, self.temp_a_data)
+                    self.curve_a_label.setText(f"Temperatura A: {temp_a}")
+                case "B":
+                    self.curve_b.setData(self.plot_seconds, self.temp_b_data)
+                    self.curve_b_label.setText(f"Temperatura B: {temp_b}")
+                case "M":
+                    self.curve_m.setData(self.plot_seconds, self.temp_m_data)
+                    self.curve_m_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
 
     def key_press_handle(self, super_press_handler: Callable, ev):
         if self.temp_input.hasFocus():
@@ -238,7 +249,7 @@ def arg_parse():
         "-u",
         metavar="<delay_ms>",
         type=int,
-        default=100,
+        default=1,
         help="Tempo entre atualizações do plot, em milissegundos."
     )
     parser.add_argument(
