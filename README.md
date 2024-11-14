@@ -36,4 +36,4 @@ serial por meio da caixa de texto da visão combinada:
 
 Caso deseje finalizar o programa, basta pressionar <kbd>Escape</kbd>.
 
-Caso deseje especificar outras opções, consulte `splot -h` para mais informações.
+Caso deseje especificar outras opções, consulte `tp -h` para mais informações.
