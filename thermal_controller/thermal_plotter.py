@@ -34,9 +34,9 @@ class MainWindow(QWidget):
         self.curve_b_combined_label = self.combined_leg.getLabel(self.curve_b_combined)
         self.curve_m_combined_label = self.combined_leg.getLabel(self.curve_m_combined)
 
-        self.desired_temp_line = pg.InfiniteLine(pos=self.desired_temp, angle=0, movable=False, label="Temperatura desejada [-]",
+        self.desired_temp_line = pg.InfiniteLine(pos=self.desired_temp, angle=0, movable=False,
+                                                 label="Temperatura desejada [-]",
                                                  pen=pg.mkPen("orange", width=2))
-        self.plot_combined.addItem(self.desired_temp_line)
 
         # Plot individual dos dados
         self.plot_a = self.win.addPlot(title="Temperatura A", col=1, row=0)
@@ -61,7 +61,7 @@ class MainWindow(QWidget):
         self.plot_m.showGrid(x=True, y=True, alpha=0.5)
         self.m_leg = self.plot_m.addLegend()
         self.curve_m = self.plot_m.plot(pen="y", name="Temperatura Média")
-        self.curve_m_label = self.b_leg.getLabel(self.curve_m)
+        self.curve_m_label = self.m_leg.getLabel(self.curve_m)
 
         self.plot_d = self.win.addPlot(title="Duty", col=0, row=1)
         self.plot_d.setLabel('bottom', "Tempo decorrido (s)")
@@ -80,7 +80,7 @@ class MainWindow(QWidget):
         self.proxy.setWidget(self.temp_input)
         self.win.addItem(self.proxy, col=0, row=2)
 
-        self.temp_input.returnPressed.connect(self.on_return_pressed)
+        self.temp_input.returnPressed.connect(self.__on_return_pressed)
 
         self.init_timestamp = pd.Timestamp.now()
         self.plot_seconds = np.array([])
@@ -89,55 +89,25 @@ class MainWindow(QWidget):
         self.temp_b_data = np.array([])
         self.temp_m_data = np.array([])
 
-        self.plot_views = ["C", "IC", "A", "B", "M"]
+        self.plot_views = ["C", "A", "B", "M"]
         self.current_mode = -1
 
         self.ser: serial.Serial | None = None
 
-    def toggle_plot_view(self):
+    def __on_return_pressed(self):
+        self.desired_temp = float(self.temp_input.text())
+        self.temp_input.clear()
 
-        self.current_mode = (self.current_mode + 1) % len(self.plot_views)
-        match self.plot_views[self.current_mode]:
-            case "C":
-                self.plot_combined.show()
-                self.plot_a.hide()
-                self.plot_b.hide()
-                self.plot_m.hide()
-                self.plot_d.show()
-                self.proxy.show()
-            case "IC":
-                self.plot_combined.hide()
-                self.plot_a.show()
-                self.plot_b.show()
-                self.plot_m.hide()
-                self.plot_d.hide()
-                self.proxy.hide()
-            case "A":
-                self.plot_combined.hide()
-                self.plot_a.show()
-                self.plot_b.hide()
-                self.plot_m.hide()
-                self.plot_d.hide()
-                self.proxy.hide()
-            case "B":
-                self.plot_combined.hide()
-                self.plot_a.hide()
-                self.plot_b.show()
-                self.plot_m.hide()
-                self.plot_d.hide()
-                self.proxy.hide()
-            case "M":
-                self.plot_combined.hide()
-                self.plot_a.hide()
-                self.plot_b.hide()
-                self.plot_m.show()
-                self.plot_d.hide()
-                self.proxy.hide()
+        self.ser.write(str(self.desired_temp).encode('utf-8'))
+
+        self.desired_temp_line.setValue(self.desired_temp)
+        self.desired_temp_line.label.setText(f"Temperatura desejada [{self.desired_temp}°C]")
+        self.desired_temp_line.update()
 
     def set_serial(self, ser: serial.Serial):
         self.ser = ser
 
-    def get_data_serial(self):
+    def __get_data_serial(self):
         if not self.ser.in_waiting:
             return ""
 
@@ -150,21 +120,9 @@ class MainWindow(QWidget):
             data += self.ser.read().decode("utf-8")
         return data
 
-    def send_data_serial(self, duty: float):
-        self.ser.write(str(duty).encode('utf-8'))
-
-    def on_return_pressed(self):
-        self.desired_temp = float(self.temp_input.text())
-
-        self.temp_input.clear()
-        self.send_data_serial(self.desired_temp)
-        self.desired_temp_line.setValue(self.desired_temp)
-        self.desired_temp_line.label.setText(f"Temperatura desejada [{self.desired_temp}°C]")
-        self.desired_temp_line.update()
-
     # Function to print the input text on 'Enter'
-    def update_plots(self, get_data: Callable, log_f_path: str):
-        data = get_data()
+    def update_plots(self, log_f_path: str):
+        data = self.__get_data_serial()
 
         if data != "":
             try:
@@ -202,12 +160,6 @@ class MainWindow(QWidget):
 
                     self.curve_d.setData(self.plot_seconds, self.duty_data)
                     self.curve_d_label.setText(f"Duty Cycle (%): {duty}")
-                case "IC":
-                    self.curve_a.setData(self.plot_seconds, self.temp_a_data)
-                    self.curve_a_label.setText(f"Temperatura A: {temp_a}")
-
-                    self.curve_b.setData(self.plot_seconds, self.temp_b_data)
-                    self.curve_b_label.setText(f"Temperatura B: {temp_b}")
                 case "A":
                     self.curve_a.setData(self.plot_seconds, self.temp_a_data)
                     self.curve_a_label.setText(f"Temperatura A: {temp_a}")
@@ -217,6 +169,47 @@ class MainWindow(QWidget):
                 case "M":
                     self.curve_m.setData(self.plot_seconds, self.temp_m_data)
                     self.curve_m_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
+
+    def toggle_plot_view(self):
+        self.current_mode = (self.current_mode + 1) % len(self.plot_views)
+        match self.plot_views[self.current_mode]:
+            case "C":
+                self.plot_m.removeItem(self.desired_temp_line)
+                self.plot_combined.addItem(self.desired_temp_line)
+                self.plot_combined.show()
+                self.plot_a.hide()
+                self.plot_b.hide()
+                self.plot_m.hide()
+                self.plot_d.show()
+                self.proxy.show()
+
+            case "A":
+                self.plot_combined.hide()
+                self.plot_combined.removeItem(self.desired_temp_line)
+                self.plot_a.addItem(self.desired_temp_line)
+                self.plot_a.show()
+                self.plot_b.hide()
+                self.plot_m.hide()
+                self.plot_d.hide()
+                self.proxy.hide()
+            case "B":
+                self.plot_combined.hide()
+                self.plot_a.hide()
+                self.plot_a.removeItem(self.desired_temp_line)
+                self.plot_b.addItem(self.desired_temp_line)
+                self.plot_b.show()
+                self.plot_m.hide()
+                self.plot_d.hide()
+                self.proxy.hide()
+            case "M":
+                self.plot_combined.hide()
+                self.plot_a.hide()
+                self.plot_b.hide()
+                self.plot_b.removeItem(self.desired_temp_line)
+                self.plot_m.addItem(self.desired_temp_line)
+                self.plot_m.show()
+                self.plot_d.hide()
+                self.proxy.hide()
 
     def key_press_handle(self, super_press_handler: Callable, ev):
         if self.temp_input.hasFocus():
@@ -264,11 +257,6 @@ def arg_parse():
     return parser.parse_args()
 
 
-def run_func_forever(func):
-    while True:
-        func()
-
-
 def main():
     args = arg_parse()
     port = args.port
@@ -283,16 +271,12 @@ def main():
     main_w = MainWindow()
     main_w.win.keyPressEvent = partial(main_w.key_press_handle, main_w.win.keyPressEvent)
 
-    if port != "sim":
-        try:
-            ser = serial.Serial(port, baud, timeout=0)
-            main_w.set_serial(ser)
-            get_data = main_w.get_data_serial
-        except serial.SerialException:
-            print(f"Não foi possível abrir a porta serial {port}@{baud}")
-            sys.exit(1)
-    else:
-        get_data = main_w.get_data_dummy
+    try:
+        ser = serial.Serial(port, baud, timeout=0)
+        main_w.set_serial(ser)
+    except serial.SerialException:
+        print(f"Não foi possível abrir a porta serial {port}@{baud}")
+        sys.exit(1)
 
     try:
         os.mkdir(log_path)
@@ -304,7 +288,7 @@ def main():
     df.to_csv(log_file_path, index=False)
 
     timer = QtCore.QTimer()
-    timer.timeout.connect(partial(main_w.update_plots, get_data, log_file_path))
+    timer.timeout.connect(partial(main_w.update_plots, log_file_path))
     main_w.toggle_plot_view()
 
     timer.start(update_delay)
