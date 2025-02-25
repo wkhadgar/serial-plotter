@@ -1,11 +1,14 @@
+import struct
+
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 import argparse
 import os
 import random
-import serial
 import sys
+
+from pyocd.core.helpers import ConnectHelper, Session
 from collections.abc import Callable
 from functools import partial
 from PyQt5.QtWidgets import QApplication, QLineEdit, QGraphicsProxyWidget, QWidget
@@ -64,11 +67,14 @@ class MainWindow(QWidget):
         self.curve_m_label = self.m_leg.getLabel(self.curve_m)
 
         self.plot_d = self.win.addPlot(title="Duty", col=0, row=1)
+        self.plot_d.addItem(pg.InfiniteLine(pos=100, angle=0, movable=False, pen=pg.mkPen("red", width=2)))
+        self.plot_d.addItem(pg.InfiniteLine(pos=0, angle=0, movable=False, pen=pg.mkPen("white", width=2)))
+        self.plot_d.addItem(pg.InfiniteLine(pos=-100, angle=0, movable=False, pen=pg.mkPen("cyan", width=2)))
         self.plot_d.setLabel('bottom', "Tempo decorrido (s)")
         self.plot_d.setLabel('left', "Duty Cycle (%)")
         self.plot_d.showGrid(x=True, y=True, alpha=0.5)
         self.d_leg = self.plot_d.addLegend()
-        self.curve_d = self.plot_d.plot(pen="r", name="Duty")
+        self.curve_d = self.plot_d.plot(pen="yellow", name="Duty")
         self.curve_d_label = self.d_leg.getLabel(self.curve_d)
 
         self.temp_input = QLineEdit()
@@ -92,33 +98,40 @@ class MainWindow(QWidget):
         self.plot_views = ["C", "A", "B", "M"]
         self.current_mode = -1
 
-        self.ser: serial.Serial | None = None
+        self.ser: Session | None = None
+        self.ram = None
 
     def __on_return_pressed(self):
         self.desired_temp = float(self.temp_input.text())
         self.temp_input.clear()
 
-        self.ser.write(str(self.desired_temp).encode('utf-8'))
+        data_bytes = struct.pack("<f", self.desired_temp)
+        data = struct.unpack("<I", data_bytes)[0]
+        self.ser.target.write32(self.ram.start + (4 * 3), data)
 
         self.desired_temp_line.setValue(self.desired_temp)
         self.desired_temp_line.label.setText(f"Temperatura desejada [{self.desired_temp}°C]")
         self.desired_temp_line.update()
 
-    def set_serial(self, ser: serial.Serial):
+    def set_serial(self, ser: Session):
         self.ser = ser
+        self.ram = self.ser.target.get_memory_map()[1]
 
     def __get_data_serial(self):
-        if not self.ser.in_waiting:
-            return ""
+        def __read_float(_from: int) -> float:
+            data_bytes = struct.pack("<I", self.ser.target.read32(_from))
+            return struct.unpack("<f", data_bytes)[0]
 
-        data = self.ser.read().decode("utf-8")
-        if data != ">":
-            self.ser.reset_input_buffer();
-            return ""
+        control_floats = []
+        for i in range(3):
+            control_floats.append(__read_float(self.ram.start + (i * 4)))
 
-        while data[-1] != "<":
-            data += self.ser.read().decode("utf-8")
-        return data
+        ntc_a_temp = control_floats[0]
+        ntc_b_temp = control_floats[1]
+        duty = control_floats[2]
+
+        recv = f">{ntc_a_temp:.3f};{ntc_b_temp:.3f};{duty:.3f}<"
+        return recv
 
     # Function to print the input text on 'Enter'
     def update_plots(self, log_f_path: str):
@@ -224,14 +237,6 @@ class MainWindow(QWidget):
 def arg_parse():
     parser = argparse.ArgumentParser(description="Plotter serial para sensores.")
     parser.add_argument(
-        "port",
-        type=str,
-        help="Porta serial a ser plotada.")
-    parser.add_argument(
-        "baud",
-        type=int,
-        help="Baud rate da porta serial.")
-    parser.add_argument(
         "--closed",
         "-c",
         action="store_true",
@@ -259,8 +264,6 @@ def arg_parse():
 
 def main():
     args = arg_parse()
-    port = args.port
-    baud = args.baud
     update_delay = args.update_delay
     log_path = args.output_log_path
 
@@ -271,32 +274,28 @@ def main():
     main_w = MainWindow()
     main_w.win.keyPressEvent = partial(main_w.key_press_handle, main_w.win.keyPressEvent)
 
-    try:
-        ser = serial.Serial(port, baud, timeout=0)
-        main_w.set_serial(ser)
-    except serial.SerialException:
-        print(f"Não foi possível abrir a porta serial {port}@{baud}")
-        sys.exit(1)
+    with ConnectHelper.session_with_chosen_probe(target_override="stm32f103c8", connect_mode="attach") as session:
+        main_w.set_serial(session)
 
-    try:
-        os.mkdir(log_path)
-    except FileExistsError:
-        pass
+        try:
+            os.mkdir(log_path)
+        except FileExistsError:
+            pass
 
-    print(f"Salvando dados em {log_path}")
-    log_file_path = log_path + f"log_{dt.year}-{dt.month}-{dt.day}-{dt.hour}-{dt.minute}-{dt.second}.csv"
-    df.to_csv(log_file_path, index=False)
+        print(f"Salvando dados em {log_path}")
+        log_file_path = log_path + f"log_{dt.year}-{dt.month}-{dt.day}-{dt.hour}-{dt.minute}-{dt.second}.csv"
+        df.to_csv(log_file_path, index=False)
 
-    timer = QtCore.QTimer()
-    timer.timeout.connect(partial(main_w.update_plots, log_file_path))
-    main_w.toggle_plot_view()
+        timer = QtCore.QTimer()
+        timer.timeout.connect(partial(main_w.update_plots, log_file_path))
+        main_w.toggle_plot_view()
 
-    timer.start(update_delay)
-    try:
-        app.exec_()
-    except KeyboardInterrupt:
-        print("Exiting...")
-        sys.exit()
+        timer.start(update_delay)
+        try:
+            app.exec_()
+        except KeyboardInterrupt:
+            print("Exiting...")
+            sys.exit()
 
 
 if __name__ == "__main__":
