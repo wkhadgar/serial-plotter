@@ -5,7 +5,7 @@ import pandas as pd
 import pyqtgraph as pg
 import argparse
 import os
-import random
+import enum
 import sys
 
 from pyocd.core.helpers import ConnectHelper, Session
@@ -13,6 +13,52 @@ from collections.abc import Callable
 from functools import partial
 from PyQt5.QtWidgets import QApplication, QLineEdit, QGraphicsProxyWidget, QWidget
 from PyQt5 import QtCore
+
+L = 9.02
+T = 344.21
+
+
+class ControlBlock(enum.Enum):
+    BASE_OFFSET = 0
+    SENSOR_A_OFFSET = BASE_OFFSET.value + 4
+    SENSOR_B_OFFSET = SENSOR_A_OFFSET.value + 4
+    DUTY_CYCLE_OFFSET = SENSOR_B_OFFSET.value + 4
+
+
+class PIDBlock:
+    def __init__(self, l: float, t: float):
+        ## /** Constantes do controlador PI, calculadas por Ziegler-Nichols. */
+
+        ti = (2 * l)
+        td = (l / 2.0)
+        self.Kp = (1.2 * (t / l))
+        self.Ki = (self.Kp / ti)
+        self.Kd = (self.Kp * td)
+
+        self.error = 0
+        self.accumulated_I = 0
+
+    def PID(self, dt_us: float, desired: float, measured: float):
+        ## /** Ajuste do PID, com medidas anti-windup. */
+        dt_s = dt_us / 10 ** 6
+
+        err = desired - measured
+        P = self.Kp * err
+        I_inc = self.Ki * err * dt_s
+        D = self.Kd * (err - self.error) / (dt_s + 0.000001)
+
+        self.error = err
+
+        windup_check = P + self.accumulated_I + I_inc + D
+
+        if windup_check > 100:
+            return 100
+
+        if windup_check < -100:
+            return -100
+
+        self.accumulated_I += I_inc
+        return windup_check
 
 
 class MainWindow(QWidget):
@@ -89,6 +135,7 @@ class MainWindow(QWidget):
         self.temp_input.returnPressed.connect(self.__on_return_pressed)
 
         self.init_timestamp = pd.Timestamp.now()
+        self.last_timestamp = self.init_timestamp
         self.plot_seconds = np.array([])
         self.duty_data = np.array([])
         self.temp_a_data = np.array([])
@@ -100,14 +147,13 @@ class MainWindow(QWidget):
 
         self.ser: Session | None = None
         self.ram = None
+        self.control_block_addr = 0x0
+
+        self.pid = PIDBlock(L, T)
 
     def __on_return_pressed(self):
         self.desired_temp = float(self.temp_input.text())
         self.temp_input.clear()
-
-        data_bytes = struct.pack("<f", self.desired_temp)
-        data = struct.unpack("<I", data_bytes)[0]
-        self.ser.target.write32(self.ram.start + (4 * 3), data)
 
         self.desired_temp_line.setValue(self.desired_temp)
         self.desired_temp_line.label.setText(f"Temperatura desejada [{self.desired_temp}°C]")
@@ -117,6 +163,21 @@ class MainWindow(QWidget):
         self.ser = ser
         self.ram = self.ser.target.get_memory_map()[1]
 
+        print("Finding control block area...")
+        key = [ord(c) for c in "!CTR"]
+        for addr in range(self.ram.start, self.ram.end):
+            byte = self.ser.target.read8(addr)
+            if byte != key[0]:
+                continue
+
+            if self.ser.target.read_memory_block8(addr, len(key)) == key:
+                print(f"Control block area found at 0x{addr:X}!")
+                self.control_block_addr = addr + len(key)
+                break
+        else:
+            print("Block control area not found!!!")
+            sys.exit(1)
+
     def __get_data_serial(self):
         def __read_float(_from: int) -> float:
             data_bytes = struct.pack("<I", self.ser.target.read32(_from))
@@ -124,7 +185,7 @@ class MainWindow(QWidget):
 
         control_floats = []
         for i in range(3):
-            control_floats.append(__read_float(self.ram.start + (i * 4)))
+            control_floats.append(__read_float(self.control_block_addr + (i * 4)))
 
         ntc_a_temp = control_floats[0]
         ntc_b_temp = control_floats[1]
@@ -133,7 +194,11 @@ class MainWindow(QWidget):
         recv = f">{ntc_a_temp:.3f};{ntc_b_temp:.3f};{duty:.3f}<"
         return recv
 
-    # Function to print the input text on 'Enter'
+    def __feedback(self, out: float):
+        data_bytes = struct.pack("<f", out)
+        data = struct.unpack("<I", data_bytes)[0]
+        self.ser.target.write32(self.control_block_addr + ControlBlock.DUTY_CYCLE_OFFSET.value, data)
+
     def update_plots(self, log_f_path: str):
         data = self.__get_data_serial()
 
@@ -182,6 +247,12 @@ class MainWindow(QWidget):
                 case "M":
                     self.curve_m.setData(self.plot_seconds, self.temp_m_data)
                     self.curve_m_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
+
+            timestamp = pd.Timestamp.now()
+            out = self.pid.PID(timestamp.microsecond - self.last_timestamp.microsecond, self.desired_temp,
+                               (temp_a + temp_b) / 2)
+            self.last_timestamp = timestamp
+            self.__feedback(out)
 
     def toggle_plot_view(self):
         self.current_mode = (self.current_mode + 1) % len(self.plot_views)

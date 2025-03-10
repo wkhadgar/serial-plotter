@@ -5,8 +5,8 @@
 #define NTC_BETA 3435.0
 #define R0 10000.0
 #define T0 (ZERO_K + 25.0)
-#define R_A 9660.0
-#define R_B 9400.0
+#define R_A 9880.0
+#define R_B 9990.0
 
 /** Número de amostras a serem feitas para média de leitura dos NTCs. */
 #define AVERAGE_AMOUNT 200
@@ -92,7 +92,7 @@ void loop() {
 
 	/** Temperaturas medidas. */
 	double t_a = ntc_a_temp(ntc_a_raw) - ZERO_K;
-	double t_b = ntc_a_temp(ntc_b_raw) - ZERO_K;
+	double t_b = ntc_b_temp(ntc_b_raw) - ZERO_K;
 
 	/** Ajuste de temperatura da Peltier, via serial. */
 	if (Serial.available() > 0) {
