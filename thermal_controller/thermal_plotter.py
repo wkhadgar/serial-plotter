@@ -13,25 +13,19 @@ from collections.abc import Callable
 from functools import partial
 from PyQt5.QtWidgets import QApplication, QLineEdit, QGraphicsProxyWidget, QWidget
 from PyQt5 import QtCore
+import scipy.signal as sig
 
 L = 9.02
 T = 344.21
-
-
-class ControlBlock(enum.Enum):
-    BASE_OFFSET = 0
-    SENSOR_A_OFFSET = BASE_OFFSET.value + 4
-    SENSOR_B_OFFSET = SENSOR_A_OFFSET.value + 4
-    DUTY_CYCLE_OFFSET = SENSOR_B_OFFSET.value + 4
 
 
 class PIDBlock:
     def __init__(self, l: float, t: float):
         ## /** Constantes do controlador PI, calculadas por Ziegler-Nichols. */
 
-        ti = (2 * l)
-        td = (l / 2.0)
-        self.Kp = (1.2 * (t / l))
+        ti = (l / 0.3)
+        td = 0
+        self.Kp = (0.9 * (t / l))
         self.Ki = (self.Kp / ti)
         self.Kd = (self.Kp * td)
 
@@ -197,7 +191,7 @@ class MainWindow(QWidget):
     def __feedback(self, out: float):
         data_bytes = struct.pack("<f", out)
         data = struct.unpack("<I", data_bytes)[0]
-        self.ser.target.write32(self.control_block_addr + ControlBlock.DUTY_CYCLE_OFFSET.value, data)
+        self.ser.target.write32(self.control_block_addr + (2 * 4), data)
 
     def update_plots(self, log_f_path: str):
         data = self.__get_data_serial()
@@ -214,6 +208,11 @@ class MainWindow(QWidget):
             self.temp_b_data = np.append(self.temp_b_data, temp_b)
             self.temp_m_data = np.append(self.temp_m_data, (temp_b + temp_a) / 2)
             self.duty_data = np.append(self.duty_data, duty)
+
+            if len(self.temp_m_data) > 400:
+                f_temps = np.array(sig.savgol_filter(self.temp_m_data, int(len(self.temp_m_data) * 0.02), 6))
+            else:
+                f_temps = self.temp_m_data.copy()
 
             self.plot_seconds = np.append(self.plot_seconds, (timestamp - self.init_timestamp).total_seconds())
 
@@ -233,7 +232,7 @@ class MainWindow(QWidget):
                     self.curve_b_combined.setData(self.plot_seconds, self.temp_b_data)
                     self.curve_b_combined_label.setText(f"Temperatura B: {temp_b}")
 
-                    self.curve_m_combined.setData(self.plot_seconds, self.temp_m_data)
+                    self.curve_m_combined.setData(self.plot_seconds, f_temps)
                     self.curve_m_combined_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
 
                     self.curve_d.setData(self.plot_seconds, self.duty_data)
@@ -245,12 +244,12 @@ class MainWindow(QWidget):
                     self.curve_b.setData(self.plot_seconds, self.temp_b_data)
                     self.curve_b_label.setText(f"Temperatura B: {temp_b}")
                 case "M":
-                    self.curve_m.setData(self.plot_seconds, self.temp_m_data)
+                    self.curve_m.setData(self.plot_seconds, f_temps)
                     self.curve_m_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
 
             timestamp = pd.Timestamp.now()
-            out = self.pid.PID(timestamp.microsecond - self.last_timestamp.microsecond, self.desired_temp,
-                               (temp_a + temp_b) / 2)
+            dt_t = timestamp - self.last_timestamp
+            out = self.pid.PID(dt_us=dt_t.microseconds, desired=self.desired_temp, measured=(temp_a + temp_b) / 2)
             self.last_timestamp = timestamp
             self.__feedback(out)
 
