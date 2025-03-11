@@ -6,7 +6,7 @@ ZERO_K_C = 273.0
 NTC_BETA = 3435.0
 R0 = 10000.0
 T0 = (ZERO_K_C + 25.0)
-R_A = 9880.0
+R_A = 9985.0
 R_B = 9990.0
 RX = (R0 * np.exp(-NTC_BETA / T0))
 
@@ -27,18 +27,18 @@ def main():
     ntc_a_temperatures = []
     ntc_b_temperatures = []
     for r in range(2 ** 12):
-        sim_temp_a = round(ntc_a_temp(r), 3)
-        sim_temp_b = round(ntc_b_temp(r), 3)
+        sim_temp_a = ntc_a_temp(r)
+        sim_temp_b = ntc_b_temp(r)
 
-        if sim_temp_a < -20:
-            sim_temp_a = -20
-        elif sim_temp_a > 100:
-            sim_temp_a = 100
+        if sim_temp_a < -100:
+            sim_temp_a = -100
+        elif sim_temp_a > 150:
+            sim_temp_a = 150
 
-        if sim_temp_b < -20:
-            sim_temp_b = -20
-        elif sim_temp_b > 100:
-            sim_temp_b = 100
+        if sim_temp_b < -100:
+            sim_temp_b = -100
+        elif sim_temp_b > 150:
+            sim_temp_b = 150
 
         ntc_a_temperatures.append(sim_temp_a)
         ntc_b_temperatures.append(sim_temp_b)
@@ -54,7 +54,7 @@ def main():
         count = 0
         for value in ntc_a_temperatures:
             count += 1
-            lut_file.write(f"{value}, ")
+            lut_file.write(f"{value:.3f}f, ")
             if count % 15 == 0:
                 lut_file.write("\n\t")
         lut_file.write("\n}\n\n")
@@ -65,7 +65,7 @@ def main():
         count = 0
         for value in ntc_b_temperatures:
             count += 1
-            lut_file.write(f"{value}, ")
+            lut_file.write(f"{value:.3f}f, ")
             if count % 15 == 0:
                 lut_file.write("\n\t")
         lut_file.write("\n}\n")
