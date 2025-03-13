@@ -222,7 +222,8 @@ class MainWindow(QWidget):
                     f"{self.plot_seconds[-1]:.4f},"
                     f"{temp_a},"
                     f"{temp_b},"
-                    f"{duty}\n")
+                    f"{duty},"
+                    f"{self.desired_temp}\n")
 
             match self.plot_views[self.current_mode]:
                 case "C":
@@ -338,7 +339,7 @@ def main():
     log_path = args.output_log_path
 
     dt = pd.Timestamp.now()
-    df = pd.DataFrame(columns=["timestamp", "seconds", "temp_a", "temp_b", "duty"])
+    df = pd.DataFrame(columns=["timestamp", "seconds", "temp_a", "temp_b", "duty", "target"])
 
     app = QApplication([])
     main_w = MainWindow()
