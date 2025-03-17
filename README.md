@@ -1,7 +1,6 @@
-# serial-plotter
+# splot - Visualizador e Analisador de Controle Térmico
 
-Plotter serial para dados de sensores feito com PyQt5 e PyQtGraph. Este script surgiu como parte do desenvolvimento de
-uma planta térmica para a disciplina de Sistemas de Controle 1.
+O **splot** é uma ferramenta para visualizar e analisar o comportamento de um sistema de controle térmico. Ele permite **selecionar controladores ativos**, ajustar suas configurações em tempo real e visualizar a resposta do sistema. Além disso, é possível alternar para a aba **Analyzer** e **analisar logs de execuções anteriores**.
 
 ### Instalação
 
@@ -17,21 +16,79 @@ python --version
 Para instalar o plotter:
 
 ```shell
-cd serial-plotter/
-pip install .
+cd serial-plotter/controller_framework
+pip install -e .
 ```
 
-### Como usar
+## Como usar
 
-Para executar o `splot`, especifique a porta seria a ser usada, e qual baud rate de comunicação:
+Para executar o `splot`, utilize o seguinte comando:
 
-```shell
-tp COM1 9600
+```sh
+python3 examples/main.py
 ```
 
-O plotter abrirá e será possível navegar entre as visões com <kbd>Space</kbd> ou enviar uma temperatura desejada via
-serial por meio da caixa de texto da visão combinada.
+## Modos
 
-Caso deseje finalizar o programa, basta pressionar <kbd>Escape</kbd>.
+### Plotter (Execução em tempo real)
 
-Caso deseje especificar outras opções, consulte `splot -h` para mais informações.
+- Exibe os dados do controlador e da planta em tempo real.
+- Permite selecionar e configurar diferentes controladores.
+- Mostra a resposta da planta ao longo do tempo.
+
+### Analyzer (Análise de logs)
+
+- Permite carregar **logs de execuções anteriores**.
+- Plota **temperatura e derivada dT/dt** em gráficos interativos.
+- Indica **pontos críticos** (ex.: ponto de maior derivada).
+- Possibilita comparar diferentes execuções.
+
+## Funcionalidades do Plotter
+
+- Selecionar o controlador ativo e editá-lo em tempo real.
+- Ajustar parâmetros do controlador, como **Setpoint, Kp, Ki, Kd**.
+- Visualizar a resposta da planta em gráficos interativos.
+- Alternar entre os modos de exibição para melhor visualização.
+
+## Funcionalidades do Analyzer
+- Carregar e analisar logs de execuções anteriores.
+- Fazer analise em malha aberta para calcular parâmetros de sintonia
+- Fazer analise em malha fechada par analisar a resposta do sistema
+
+## Navegação
+
+- **Espaço** → Alterna entre as visões (`Plotter` e `Analyzer`).
+- **Escape** → Finaliza o programa.
+- **Campo de entrada** → Define a temperatura desejada (`Setpoint`) e a envia ao controlador.
+
+## Estrutura do Projeto
+
+```sh
+splot/
+├── controller_framework/
+│   ├── core/                 # Lógica principal do framework
+│   ├── gui/                  # Interface gráfica (Plotter e Analyzer)
+│   ├── __init__.py
+│   └── ...
+├── examples/
+│   ├── main.py               # Arquivo principal para rodar o splot
+│   ├── logs/                 # Pasta com logs de execuções anteriores
+├── setup.py                  # Configuração do pacote
+```
+
+## Exemplo de Uso
+
+1. **Executar o `splot`**  
+   ```sh
+   python3 examples/main.py
+   ```
+2. **Selecionar o controlador ativo** no menu lateral.
+3. **Editar os parâmetros** (Setpoint, Kp, Ki, Kd).
+4. **Visualizar a resposta da planta** no gráfico.
+5. **Alternar para `Analyzer`** para carregar logs anteriores.
+
+## Planta utilizada
+![Planta](https://raw.githubusercontent.com/limahigor/serial-plotter/c5f47e3c2436e8b601071a4ce413bb77daab515d/controller_framework/examples/thermal_plant.png)
+
+
+[Link para o modelo 3D](https://cad.onshape.com/documents/2719c8d20779534c7559f55d/w/e520d6a9af3b32d2f18ef8f3/e/bb6b8d18dfe883fe6632567b).
