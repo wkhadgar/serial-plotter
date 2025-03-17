@@ -8,7 +8,6 @@ from tkinter import filedialog as fd
 is_open_loop = False
 temp_log = ""
 
-
 def analyse_closed(df: pd.DataFrame):
     temp_a_original = np.array(df["temp_a"])
     temp_b_original = np.array(df["temp_b"])
@@ -46,7 +45,6 @@ def analyse_closed(df: pd.DataFrame):
 
     fig.tight_layout()
     plt.show()
-
 
 def analyse_open(df: pd.DataFrame):
     temp_a_original = np.array(df["temp_a"])
