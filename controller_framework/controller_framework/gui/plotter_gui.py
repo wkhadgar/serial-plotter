@@ -105,7 +105,7 @@ class ControlGUI(QWidget):
 
         self.win.keyPressEvent = partial(self.key_press_handle, self.win.keyPressEvent)
         
-        log_path = "./temp-logs/"
+        log_path = "./temp_logs/"
         if not os.path.exists(log_path):
             os.makedirs(log_path)
         print(f"Salvando dados em {log_path}")
