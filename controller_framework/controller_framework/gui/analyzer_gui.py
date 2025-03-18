@@ -47,7 +47,7 @@ class SidebarAnalyzer(QWidget):
 
     def update_file_list(self):
         self.file_list.clear()
-        log_dir = "logs"
+        log_dir = "./temp-logs"
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)
 

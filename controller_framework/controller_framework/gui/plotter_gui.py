@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from functools import partial
+import os
 import sys
 
 from controller_framework.core.controller import Controller
@@ -103,8 +104,12 @@ class ControlGUI(QWidget):
         self.temp_input.returnPressed.connect(self.__on_return_pressed)
 
         self.win.keyPressEvent = partial(self.key_press_handle, self.win.keyPressEvent)
-        log_path = "./logs/"
+        
+        log_path = "./temp-logs/"
+        if not os.path.exists(log_path):
+            os.makedirs(log_path)
         print(f"Salvando dados em {log_path}")
+        
         datetime = pd.Timestamp.now()
         df = pd.DataFrame(columns=["timestamp", "seconds", "temp_a", "temp_b", "duty", "target"])
         
@@ -113,8 +118,8 @@ class ControlGUI(QWidget):
         
         self.update_delay = 10
         self.plot_timer = QtCore.QTimer()
-        self.plot_timer.timeout.connect(partial(self.update_plots, log_file_path))  # Conecta a função de atualização dos plots
-        self.plot_timer.start(self.update_delay)  # Atualiza a cada X milissegundos
+        self.plot_timer.timeout.connect(partial(self.update_plots, log_file_path))
+        self.plot_timer.start(self.update_delay)
         self.toggle_plot_view()
 
     def key_press_handle(self, super_press_handler: Callable, ev):
