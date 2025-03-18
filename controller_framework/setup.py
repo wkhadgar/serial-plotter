@@ -4,7 +4,7 @@ setup(
     name='controller_framework',
     version='0.0.1',
     description='A framework to simplify creation of controllers',
-    author='Higor de Lima',
+    author='Higor Lima, Paulo Santos, Vinicius Carvalho, Rita Lemos',
     packages=find_packages(include=['controller_framework', 'controller_framework.*']),
     python_requires='>=3.7',
     classifiers=[
