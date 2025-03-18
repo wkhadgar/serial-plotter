@@ -1,145 +1,50 @@
-import struct
-import threading
-import time
-
-import numpy as np
-import pandas as pd
-import pyqtgraph as pg
-import argparse
+from collections.abc import Callable
+from functools import partial
 import os
 import sys
 
-from pyocd.core.helpers import ConnectHelper, Session
-from collections.abc import Callable
-from functools import partial
-from PyQt5.QtWidgets import QApplication, QLineEdit, QGraphicsProxyWidget, QWidget
+from controller_framework.core.controller import Controller
+import numpy as np
+import pandas as pd
+
+import pyqtgraph as pg
 from PyQt5 import QtCore
+from PyQt5.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QLabel, 
+                             QPushButton, QHBoxLayout, QLineEdit, QGraphicsProxyWidget, QListWidget )
+
 import scipy.signal as sig
 
-L = 9.02
-T = 344.21
-
-class PIDController:
-    def __init__(self, *, setpoint: float, l: float, t: float):
-        ## /** Constantes do controlador PI, calculadas por Ziegler-Nichols. */
-
-        self.target_setpoint = setpoint
-
-        ti = (l / 0.3)
-        td = 0
-        self.Kp = (0.9 * (t / l))
-        self.Ki = (self.Kp / ti)
-        self.Kd = (self.Kp * td)
-
-        self.error = 0
-        self.accumulated_I = 0
-
-        self.last_timestamp = pd.Timestamp.now()
-
-        self.ser: Session | None = None
-        self.ram = None
-        self.control_block_addr = 0x0
-
-        self.ntc_a_temp = 0
-        self.ntc_b_temp = 0
-        self.duty = 0
-
-    def __PID(self, dt_us: float, desired: float, measured: float):
-        ## /** Ajuste do PID, com medidas anti-windup. */
-        dt_s = dt_us / 10 ** 6
-
-        err = desired - measured
-        P = self.Kp * err
-        I_inc = self.Ki * err * dt_s
-        D = self.Kd * (err - self.error) / (dt_s + 0.000001)
-
-        self.error = err
-
-        windup_check = P + self.accumulated_I + I_inc + D
-
-        if windup_check > 100:
-            return 100
-
-        if windup_check < -100:
-            return -100
-
-        self.accumulated_I += I_inc
-        return windup_check
-
-    def set_serial(self, ser: Session):
-        self.ser = ser
-        self.ram = self.ser.target.get_memory_map()[1]
-
-        print("Finding control block area...")
-        key = [ord(c) for c in "!CTR"]
-        for addr in range(self.ram.start, self.ram.end):
-            byte = self.ser.target.read8(addr)
-            if byte != key[0]:
-                continue
-
-            if self.ser.target.read_memory_block8(addr, len(key)) == key:
-                print(f"Control block area found at 0x{addr:X}!")
-                self.control_block_addr = addr + len(key)
-                break
-        else:
-            print("Block control area not found!!!")
-            sys.exit(1)
-
-    def __get_data_serial(self):
-        def __read_float(_from: int) -> float:
-            data_bytes = struct.pack("<I", self.ser.target.read32(_from))
-            return struct.unpack("<f", data_bytes)[0]
-
-        control_floats = []
-        for i in range(3):
-            control_floats.append(__read_float(self.control_block_addr + (i * 4)))
-
-        self.ntc_a_temp = control_floats[0]
-        self.ntc_b_temp = control_floats[1]
-        self.duty = control_floats[2]
-
-        return self.ntc_a_temp, self.ntc_b_temp, self.duty
-
-    def __feedback(self, out: float):
-        data_bytes = struct.pack("<f", out)
-        data = struct.unpack("<I", data_bytes)[0]
-        self.ser.target.write32(self.control_block_addr + (2 * 4), data)
-
-    def update_setpoint(self, new_setpoint: float):
-        self.target_setpoint = new_setpoint
-
-    def control(self):
-        data = self.__get_data_serial()
-        measure = (data[0] + data[1]) / 2  # Média das temperaturas
-        timestamp = pd.Timestamp.now()
-        dt_t = timestamp - self.last_timestamp
-        out = self.__PID(dt_us=dt_t.microseconds, desired=self.target_setpoint, measured=measure)
-        self.last_timestamp = timestamp
-        self.__feedback(out)
-
 class ControlGUI(QWidget):
-    def __init__(self, *, controller: PIDController, x_label: str, y_label: str):
-        super().__init__()
+    def __init__(self, *, parent = None, app_manager, x_label: str, y_label: str):
+        super().__init__(parent)
 
-        self.controller = controller
-
+        from controller_framework.core import AppManager
+        assert isinstance(app_manager, AppManager)
+        self.app_manager = app_manager
+        
+        self.parent = parent
+        
+        self.fullscreen = False
+        
         self.init_timestamp = pd.Timestamp.now()
         self.plot_seconds = np.array([])
         self.duty_data = np.array([])
         self.temp_a_data = np.array([])
         self.temp_b_data = np.array([])
         self.temp_m_data = np.array([])
-
+        
         self.plot_views = ["C", "A", "B", "M"]
         self.current_mode = -1
 
         self.win = pg.GraphicsLayoutWidget(show=False, title="Plotter Serial SC")
-        self.win.showFullScreen()
-        self.current_setpoint_line = pg.InfiniteLine(pos=self.controller.target_setpoint, angle=0, movable=False,
+        layout = QVBoxLayout()
+        layout.addWidget(self.win)
+        self.setLayout(layout)
+        
+        self.current_setpoint_line = pg.InfiniteLine(pos=app_manager.get_setpoint(), angle=0, movable=False,
                                                      label="Temperatura desejada [-]",
                                                      pen=pg.mkPen("orange", width=2))
 
-        # Plot combinado dos dados
         self.plot_combined = self.win.addPlot(title="Temperatura A e B", col=0, row=0)
         self.plot_combined.setLabel('bottom', x_label)
         self.plot_combined.setLabel('left', y_label)
@@ -199,6 +104,23 @@ class ControlGUI(QWidget):
         self.temp_input.returnPressed.connect(self.__on_return_pressed)
 
         self.win.keyPressEvent = partial(self.key_press_handle, self.win.keyPressEvent)
+        
+        log_path = "./temp_logs/"
+        if not os.path.exists(log_path):
+            os.makedirs(log_path)
+        print(f"Salvando dados em {log_path}")
+        
+        datetime = pd.Timestamp.now()
+        df = pd.DataFrame(columns=["timestamp", "seconds", "temp_a", "temp_b", "duty", "target"])
+        
+        log_file_path = log_path + f"log_{datetime.year}-{datetime.month}-{datetime.day}-{datetime.hour}-{datetime.minute}-{datetime.second}.csv"
+        df.to_csv(log_file_path, index=False)
+        
+        self.update_delay = 10
+        self.plot_timer = QtCore.QTimer()
+        self.plot_timer.timeout.connect(partial(self.update_plots, log_file_path))
+        self.plot_timer.start(self.update_delay)
+        self.toggle_plot_view()
 
     def key_press_handle(self, super_press_handler: Callable, ev):
         if self.temp_input.hasFocus():
@@ -208,17 +130,22 @@ class ControlGUI(QWidget):
                 self.toggle_plot_view()
             elif ev.key() == QtCore.Qt.Key_Escape:
                 sys.exit(0)
+            elif ev.key() == QtCore.Qt.Key_F:
+                self.toggle_hide_mode()
 
     def __on_return_pressed(self):
-        self.controller.update_setpoint(float(self.temp_input.text()))
+        self.app_manager.update_setpoint(float(self.temp_input.text()))
         self.temp_input.clear()
+        
+        self.update_setpoint_label()
 
-        self.current_setpoint_line.setValue(self.controller.target_setpoint)
-        self.current_setpoint_line.label.setText(f"Temperatura desejada [{self.controller.target_setpoint}°C]")
+    def update_setpoint_label(self):
+        self.current_setpoint_line.setValue(self.app_manager.get_setpoint())
+        self.current_setpoint_line.label.setText(f"Temperatura desejada [{self.app_manager.get_setpoint()}°C]")
         self.current_setpoint_line.update()
 
     def update_plots(self, log_f_path: str):
-        temp_a, temp_b, duty = self.controller.ntc_a_temp, self.controller.ntc_b_temp, self.controller.duty
+        temp_a, temp_b, duty = self.app_manager.sensor_a, self.app_manager.sensor_b, self.app_manager.duty
 
         timestamp = pd.Timestamp.now()
         self.plot_seconds = np.append(self.plot_seconds, (timestamp - self.init_timestamp).total_seconds())
@@ -234,7 +161,7 @@ class ControlGUI(QWidget):
                 f"{temp_a},"
                 f"{temp_b},"
                 f"{duty},"
-                f"{self.current_setpoint}\n")
+                f"{self.app_manager.setpoint}\n")
 
         if len(self.temp_m_data) > 400:
             f_temps = np.array(sig.savgol_filter(self.temp_m_data, int(len(self.temp_m_data) * 0.02), 6))
@@ -261,6 +188,10 @@ class ControlGUI(QWidget):
             case "M":
                 self.curve_m.setData(self.plot_seconds, f_temps)
                 self.curve_m_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
+                
+    def toggle_hide_mode(self):
+        if self.parent != None:
+            self.parent.toggle_hide_mode()
 
     def toggle_plot_view(self):
         self.current_mode = (self.current_mode + 1) % len(self.plot_views)
@@ -303,81 +234,135 @@ class ControlGUI(QWidget):
                 self.plot_d.hide()
                 self.proxy.hide()
 
-def arg_parse():
-    parser = argparse.ArgumentParser(description="Plotter serial para sensores.")
-    parser.add_argument(
-        "--setpoint",
-        "-s",
-        type=float,
-        default=25,
-        help="Valor desejado inicial."
-    )
-    parser.add_argument(
-        "--closed",
-        "-c",
-        action="store_true",
-        help="Indica se o controle de malha deve ser feito."
-    )
-    parser.add_argument(
-        "--update-delay",
-        "-u",
-        metavar="<delay_ms>",
-        type=int,
-        default=1,
-        help="Tempo entre atualizações do plot, em milissegundos."
-    )
-    parser.add_argument(
-        "--output-log-path",
-        "-o",
-        metavar="<path/to/out>",
-        type=str,
-        default="./temp_logs/",
-        help="Diretório de saída dos logs de gravação."
-    )
+class SidebarGUI(QWidget):
+    def __init__(self, app_manager, control_gui, parent=None):
+        super().__init__(parent)
+        
+        from controller_framework.core import AppManager
+        assert isinstance(app_manager, AppManager)
+        self.app_manager = app_manager
+        
+        self.control_gui = control_gui
 
-    return parser.parse_args()
+        self.current_control = None
+        self.input_fields = {}
 
-def control_thread(controller: PIDController):
-    while True:
-        controller.control()
-        time.sleep(0.01)
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout)
 
-def main():
-    args = arg_parse()
-    update_delay = args.update_delay
-    log_path = args.output_log_path
+        self.controls_group = QGroupBox("Controles Disponíveis")
+        self.controls_layout = QVBoxLayout()
+        self.controls_group.setLayout(self.controls_layout)
 
-    datetime = pd.Timestamp.now()
-    df = pd.DataFrame(columns=["timestamp", "seconds", "temp_a", "temp_b", "duty", "target"])
+        self.control_list = QListWidget()
+        self.controls_layout.addWidget(self.control_list)
+        
+        self.btn_activate_control = QPushButton("Ativar Controle")
+        self.btn_activate_control.clicked.connect(self.activate_control)
 
-    controller = PIDController(setpoint=args.setpoint, l=L, t=T)
-    main_w = ControlGUI(controller=controller, x_label="Tempo decorrido (s)", y_label="Temperatura (°C)")
-    main_w.toggle_plot_view()
+        self.layout.addWidget(self.controls_group)
+        self.layout.addWidget(self.btn_activate_control)
 
-    print(f"Salvando dados em {log_path}")
-    log_file_path = log_path + f"log_{datetime.year}-{datetime.month}-{datetime.day}-{datetime.hour}-{datetime.minute}-{datetime.second}.csv"
-    df.to_csv(log_file_path, index=False)
+        self.settings_group = QGroupBox("Configurações do Controle")
+        self.settings_layout = QFormLayout()
+        self.settings_group.setLayout(self.settings_layout)
 
-    timer = QtCore.QTimer()
-    timer.timeout.connect(partial(main_w.update_plots, log_file_path))
-    timer.start(update_delay)
+        self.btn_update_settings = QPushButton("Atualizar Configurações")
+        self.layout.addWidget(self.settings_group)
+        self.layout.addWidget(self.btn_update_settings)
 
-    with ConnectHelper.session_with_chosen_probe(target_override="stm32f103c8", connect_mode="attach") as session:
-        controller.set_serial(session)
-        control_t = threading.Thread(target=partial(control_thread, controller))
+        self.control_list.itemSelectionChanged.connect(self.update_config_fields)
+        self.btn_update_settings.clicked.connect(self.update_control_settings)
+        
+        self.controls_group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; }")
+        self.settings_group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; }")
+        self.control_list.setStyleSheet("QListWidget { font-size: 14px; }")
+        self.btn_activate_control.setStyleSheet("QPushButton { font-size: 14px; }")
+        self.btn_update_settings.setStyleSheet("QPushButton { font-size: 14px; }")
 
-        try:
-            os.mkdir(log_path)
-        except FileExistsError:
-            pass
+        self.update_control_list()
 
-        try:
-            app = QApplication([])
-            control_t.start()
-            app.exec_()
-        except KeyboardInterrupt:
-            print("Exiting...")
-            sys.exit()
+    def update_control_list(self):
+        self.control_list.clear()
+        for control_name in self.app_manager.list_instances():
+            self.control_list.addItem(control_name)
 
-if __name__ == "__main__":
-    main()
+    def update_config_fields(self):
+        selected_item = self.control_list.currentItem()
+        
+        if selected_item:
+            control_name = selected_item.text()
+            self.current_control:Controller = self.app_manager.control_instances[control_name]
+                
+            for i in reversed(range(self.settings_layout.count())):
+                self.settings_layout.itemAt(i).widget().deleteLater()
+            self.input_fields.clear()
+
+            for var_name, value in self.current_control.configurable_vars.items():
+                input_field = QLineEdit()
+                input_field.setText(str(value))
+                input_field.setStyleSheet("QLineEdit { font-size: 14px; }")
+                
+                label = QLabel(f"{var_name}")
+                label.setStyleSheet("QLabel { font-size: 14px; }")
+                                    
+                self.settings_layout.addRow(label, input_field)
+                self.input_fields[var_name] = input_field
+
+            self.settings_group.setTitle(f"Configurações de {control_name}")
+
+    def update_control_settings(self):
+        if self.current_control:
+            print(self.current_control.configurable_vars)
+            for var_name, input_field in self.input_fields.items():
+                try:
+                    new_value = float(input_field.text())
+                    self.current_control.update_variable(var_name, new_value)
+                except ValueError:
+                    print(f"Entrada inválida para '{var_name}'")
+            
+            if(self.app_manager.running_instance == self.current_control):
+                self.app_manager.update_setpoint(self.current_control.setpoint)
+                self.control_gui.update_setpoint_label()
+                
+            print(self.current_control.configurable_vars)
+                    
+    def activate_control(self):
+        current_control = self.control_list.currentItem()
+        
+        if(current_control != None):
+            current_control_label = current_control.text()
+            self.app_manager.start_controller(current_control_label)
+            self.app_manager.update_setpoint(self.current_control.setpoint)
+            self.control_gui.update_setpoint_label()
+
+class PlotterGUI(QWidget):
+    def __init__(self, app_manager):
+        super().__init__()
+        
+        from controller_framework.core import AppManager
+        assert isinstance(app_manager, AppManager)
+        self.app_manager = app_manager
+
+        self.layout = QHBoxLayout()
+        self.setLayout(self.layout)
+
+        self.plotter_gui = ControlGUI(parent=self, app_manager=self.app_manager, x_label="Tempo decorrido (s)", y_label="Temperatura (°C)")
+        self.sidebar = SidebarGUI(self.app_manager, self.plotter_gui)
+
+        self.layout.addWidget(self.sidebar, 1)
+        self.layout.addWidget(self.plotter_gui, 4)
+        
+        self.hide_mode = False
+        
+    def toggle_hide_mode(self):
+        if self.hide_mode:
+            self.sidebar.show()
+            self.layout.insertWidget(0, self.sidebar, 1)
+            self.layout.setStretchFactor(self.sidebar, 1)
+            self.layout.setStretchFactor(self.plotter_gui, 4)
+        else:
+            self.sidebar.hide()
+            self.layout.setStretchFactor(self, 5)
+
+        self.hide_mode = not self.hide_mode
