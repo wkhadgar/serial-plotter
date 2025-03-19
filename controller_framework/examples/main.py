@@ -28,15 +28,7 @@ class PIDControl(Controller):
 
         windup_check = P + self.accumulated_I + i_inc + D
 
-        if windup_check > 100:
-            self.out = 100
-
-        if windup_check < -100:
-            self.out = -100
-
-        self.accumulated_I += i_inc
-        self.out = windup_check
-        # print(self.setpoint)     
+        self.out = max(-100, min(100, windup_check))
 
 class PIDControl2(Controller):
     def __init__(self, label, setpoint, l, t):
