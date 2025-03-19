@@ -102,8 +102,8 @@ class AppManager:
         if self.running_instance != None:
             self.running_instance.setpoint = setpoint
             
-        if "setpoint" in self.running_instance.configurable_vars:
-            self.running_instance.configurable_vars["setpoint"] = setpoint
+            if "setpoint" in self.running_instance.configurable_vars:
+                self.running_instance.configurable_vars["setpoint"] = setpoint
             
     def generate_random_sensor_data(self):
         self.sensor_a = round(np.random.uniform(20, 50), 2)  # Temperatura entre 20°C e 50°C
