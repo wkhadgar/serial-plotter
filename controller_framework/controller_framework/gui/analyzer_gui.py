@@ -56,7 +56,7 @@ class SidebarAnalyzer(QWidget):
                 self.file_list.addItem(file)
 
     def file_selected(self, item):
-        self.parent_gui.selected_file = os.path.join("logs", item.text())
+        self.parent_gui.selected_file = os.path.join("temp_logs", item.text())
         self.analyze_button.setEnabled(True)
 
     def start_analysis(self):
@@ -219,6 +219,7 @@ class AnalyzerGUI(QWidget):
 
     def start_analysis(self, file_path, mode):
         if file_path:
+            print(file_path)
             self.df = pd.read_csv(file_path)
             x_data = [float(row["seconds"]) - self.df.iloc[0]["seconds"] for _, row in self.df.iterrows()]
             temps = (self.df["temp_a"] + self.df["temp_b"]) / 2
