@@ -1,13 +1,15 @@
 from abc import ABC, abstractmethod
 from enum import Enum
+import random
 import struct
-import sys
+import numpy as np
 from pyocd.core.helpers import ConnectHelper, Session
 
 class MCUType(Enum):
     STM32 = "STM32"
+    RDATA = "RDATA"
 
-class MCUDriver(ABC):
+class MCUDriver(ABC):    
     def __init__(self, mcu_type, port, baud_rate):
         self.baud_rate = baud_rate
         self.port = port
@@ -26,9 +28,11 @@ class MCUDriver(ABC):
         pass
     
     @staticmethod
-    def create_driver(mcu_type: MCUType, port: str, baud_rate: int):
+    def create_driver(mcu_type: MCUType, port: str, baud_rate: int):       
         if mcu_type == MCUType.STM32:
             return STM32Driver(mcu_type, port, baud_rate)
+        elif mcu_type == MCUType.RDATA:
+            return RandomDataDriver(mcu_type, port, baud_rate)
         else:
             raise ValueError(f"MCU não suportada: {mcu_type}")
     
@@ -78,3 +82,22 @@ class STM32Driver(MCUDriver):
         else:
             print("Block control area not found!!!")
             raise ValueError("Error")
+
+class RandomDataDriver(MCUDriver):
+    def __init__(self, mcu_type, port, baud_rate):
+        super().__init__(mcu_type, port, baud_rate)
+    
+    def read(self):
+        self.sensor_a = round(np.random.uniform(20, 50), 2)  # Temperatura entre 20°C e 50°C
+        self.sensor_b = round(np.random.uniform(20, 50), 2)  # Temperatura entre 20°C e 50°C
+        self.duty = round(random.uniform(-100, 100), 2)      # Duty cycle entre -100% e 100%
+            
+        return self.sensor_a, self.sensor_b, self.duty
+    
+    def send(self, out):
+        # Not necessary logic to send function
+        pass
+    
+    def connect(self):
+        # Not necessary logic to connect function
+        pass

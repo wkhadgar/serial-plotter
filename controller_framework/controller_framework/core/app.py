@@ -1,10 +1,8 @@
 
-import random
 import threading
 import time
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 
 from .mcu_driver import MCUDriver, MCUType
@@ -49,19 +47,17 @@ class AppManager:
         
     def __control_thread(self):
         while not self.stop_event.is_set():
-            # self.__read_values()
-            self.generate_random_sensor_data()
+            self.__read_values()
             timestamp = pd.Timestamp.now()
             dt_t = timestamp - self.__last_timestamp
             self.dt = dt_t.microseconds
             self.running_instance.set_dt(self.dt)
             self.running_instance.control()
-            # self.__feedback()
+            self.__feedback()
             time.sleep(0.01)
     
     def __connect(self):
-        pass
-        # self.__mcu.connect()
+        self.__mcu.connect()
         
     def init(self):
         print("Connect")
@@ -104,14 +100,3 @@ class AppManager:
             
             if "setpoint" in self.running_instance.configurable_vars:
                 self.running_instance.configurable_vars["setpoint"] = setpoint
-            
-    def generate_random_sensor_data(self):
-        self.sensor_a = round(np.random.uniform(20, 50), 2)  # Temperatura entre 20°C e 50°C
-        self.sensor_b = round(np.random.uniform(20, 50), 2)  # Temperatura entre 20°C e 50°C
-        self.duty = round(random.uniform(-100, 100), 2)  # Duty cycle entre -100% e 100%
-        
-        if self.running_instance != None:
-            self.running_instance.sensor_a = self.sensor_a
-            self.running_instance.sensor_b = self.sensor_b
-        
-        # print(f"Sensor A: {self.sensor_a}°C | Sensor B: {self.sensor_b}°C | Duty: {self.duty}%")
