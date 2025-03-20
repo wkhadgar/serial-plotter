@@ -129,9 +129,9 @@ class ControlGUI(QWidget):
             if ev.key() == QtCore.Qt.Key_Space:
                 self.toggle_plot_view()
             elif ev.key() == QtCore.Qt.Key_Escape:
-                sys.exit(0)
+                super_press_handler(ev)
             elif ev.key() == QtCore.Qt.Key_F:
-                self.toggle_hide_mode()
+                super_press_handler(ev)
 
     def __on_return_pressed(self):
         self.app_manager.update_setpoint(float(self.temp_input.text()))
@@ -188,10 +188,6 @@ class ControlGUI(QWidget):
             case "M":
                 self.curve_m.setData(self.plot_seconds, f_temps)
                 self.curve_m_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
-                
-    def toggle_hide_mode(self):
-        if self.parent != None:
-            self.parent.toggle_hide_mode()
 
     def toggle_plot_view(self):
         self.current_mode = (self.current_mode + 1) % len(self.plot_views)

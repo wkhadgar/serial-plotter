@@ -208,14 +208,14 @@ class AnalyzerGUI(QWidget):
         self.setWindowTitle("Thermal Analyzer")
         self.setMinimumSize(900, 600)
 
-        self.main_layout = QHBoxLayout()
-        self.setLayout(self.main_layout)
+        self.layout = QHBoxLayout()
+        self.setLayout(self.layout)
 
         self.sidebar = SidebarAnalyzer(self)
-        self.plotter = PlotterAnalyzer(self)
+        self.plotter_gui = PlotterAnalyzer(self)
 
-        self.main_layout.addWidget(self.sidebar)
-        self.main_layout.addWidget(self.plotter, 1)
+        self.layout.addWidget(self.sidebar, 1)
+        self.layout.addWidget(self.plotter_gui, 4)
 
     def start_analysis(self, file_path, mode):
         if file_path:

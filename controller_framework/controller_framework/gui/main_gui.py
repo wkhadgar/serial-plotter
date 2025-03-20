@@ -24,9 +24,20 @@ class MainGUI(QMainWindow):
         self.tabs.addTab(self.plotter_gui, "PLOTTER")
         self.tabs.addTab(self.analyzer_gui, "ANALYZER")
         
-        self.fullscreen_mode = False
+        self.hide_mode = False
         
-        self.keyPressEvent = partial(self.key_press_handle, self.keyPressEvent)
+        self.setFocusPolicy(QtCore.Qt.StrongFocus)
+        self.installEventFilter(self) 
+    
+    def eventFilter(self, obj, event):
+        if event.type() == QtCore.QEvent.KeyPress:
+            print(f"Evento de tecla detectado: {event.key()}")
+            if event.key() == QtCore.Qt.Key_F:
+                self.toggle_hide_mode()
+            elif event.key() == QtCore.Qt.Key_Escape:
+                sys.exit(0)
+            return True
+        return super().eventFilter(obj, event)
 
     @staticmethod
     def start_gui(app_manager):
@@ -36,19 +47,29 @@ class MainGUI(QMainWindow):
         sys.exit(app.exec_())
         
     def key_press_handle(self, super_press_handler, ev):
+        print(f"teste {ev.key()} {QtCore.Qt.Key_F}")
         if ev.key() == QtCore.Qt.Key_Escape:
             sys.exit(0)
-        if ev.key() == QtCore.Qt.Key_F:
-            self.toggle_fullscreen()
+        elif ev.key() == QtCore.Qt.Key_F or ev.key() == 16777216:
+            self.toggle_hide_mode()
         
-    def toggle_fullscreen(self):
-        if self.fullscreen_mode:
-            self.plotter_gui.sidebar.show()
-            self.main_layout.insertWidget(0, self.sidebar, 1)
-            self.main_layout.setStretchFactor(self.sidebar, 1)
-            self.main_layout.setStretchFactor(self.content_area, 4)
+    def toggle_hide_mode(self):
+        if self.hide_mode:
+            if self.tabs.currentIndex() == 0:
+                self.plotter_gui.sidebar.show()
+                self.plotter_gui.layout.insertWidget(0, self.plotter_gui.sidebar, 1)
+                self.plotter_gui.layout.setStretchFactor(self.plotter_gui.sidebar, 1)
+                self.plotter_gui.layout.setStretchFactor(self.plotter_gui.plotter_gui, 4)
+            elif self.tabs.currentIndex() == 1:
+                self.analyzer_gui.sidebar.show()
+                self.analyzer_gui.layout.insertWidget(0, self.analyzer_gui.sidebar, 1)
+                self.analyzer_gui.layout.setStretchFactor(self.analyzer_gui.sidebar, 1)
+                self.analyzer_gui.layout.setStretchFactor(self.analyzer_gui.plotter_gui, 4)
         else:
-            self.plotter_gui.sidebar.hide()
-            self.main_layout.setStretchFactor(self.content_area, 5)
-
-        self.fullscreen_mode = not self.fullscreen_mode
+            if self.tabs.currentIndex() == 0:
+                self.plotter_gui.sidebar.hide()
+                self.analyzer_gui.layout.setStretchFactor(self.plotter_gui, 5)
+            elif self.tabs.currentIndex() == 1:
+                self.analyzer_gui.sidebar.hide()
+                self.analyzer_gui.layout.setStretchFactor(self.analyzer_gui, 5)
+        self.hide_mode = not self.hide_mode
