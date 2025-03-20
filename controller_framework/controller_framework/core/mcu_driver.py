@@ -28,13 +28,16 @@ class MCUDriver(ABC):
         pass
     
     @staticmethod
-    def create_driver(mcu_type: MCUType, port: str, baud_rate: int):       
-        if mcu_type == MCUType.STM32:
-            return STM32Driver(mcu_type, port, baud_rate)
-        elif mcu_type == MCUType.RDATA:
-            return RandomDataDriver(mcu_type, port, baud_rate)
-        else:
+    def create_driver(mcu_type: MCUType, port: str, baud_rate: int):
+        driver_map = {
+            MCUType.RDATA: RandomDataDriver,
+            MCUType.STM32: STM32Driver
+        }
+        
+        if mcu_type not in driver_map:
             raise ValueError(f"MCU não suportada: {mcu_type}")
+        
+        return driver_map[mcu_type](mcu_type, port, baud_rate)
     
 class STM32Driver(MCUDriver):
     def __init__(self, mcu_type, port, baud_rate):
