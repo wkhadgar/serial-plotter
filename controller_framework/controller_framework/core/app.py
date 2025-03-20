@@ -21,7 +21,10 @@ class AppManager:
         
         self.running_instance: Optional[Controller] = None
         self.running_thread = None
-        self.stop_event = threading.Event()
+        self.running_stop_event = threading.Event()
+        
+        self.reading_thread = None
+        self.reading_stop_event = threading.Event()
         
         self.gui = None
         self.setpoint = 0
@@ -30,11 +33,14 @@ class AppManager:
         self.duty = 0
     
     def __read_values(self):
-        self.sensor_a, self.sensor_b, self.duty = self.__mcu.read()
-        
-        if self.running_instance != None:
-            self.running_instance.sensor_a = self.sensor_a
-            self.running_instance.sensor_b = self.sensor_b
+        while not self.reading_stop_event.is_set():
+            self.sensor_a, self.sensor_b, self.duty = self.__mcu.read()
+            
+            if self.running_instance != None:
+                self.running_instance.sensor_a = self.sensor_a
+                self.running_instance.sensor_b = self.sensor_b
+                
+            time.sleep(0.01)
     
     def __feedback(self):
         self.__mcu.send(self.running_instance.out)
@@ -46,8 +52,7 @@ class AppManager:
             print('nenhuma rodando')
         
     def __control_thread(self):
-        while not self.stop_event.is_set():
-            self.__read_values()
+        while not self.running_stop_event.is_set():
             timestamp = pd.Timestamp.now()
             dt_t = timestamp - self.__last_timestamp
             self.dt = dt_t.microseconds
@@ -60,17 +65,22 @@ class AppManager:
         self.__mcu.connect()
         
     def init(self):
+        print("Start reading values!")
+        self.reading_thread = threading.Thread(target=self.__read_values, daemon=True)
+        self.reading_thread.start()
+        
         print("Connect")
         self.__connect()
+        
         self.gui = MainGUI.start_gui(app_manager=self)
         
     def start_controller(self, label):
          if label in self.control_instances:
             if self.running_thread and self.running_thread.is_alive():
                 print(f"Stop cotnroller: {self.running_instance.label}")
-                self.stop_event.set()
+                self.running_stop_event.set()
                 self.running_thread.join()
-                self.stop_event.clear()
+                self.running_stop_event.clear()
                 self.running_instance = None
                 self.running_thread = None
             
