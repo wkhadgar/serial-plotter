@@ -9,7 +9,7 @@ import pandas as pd
 
 import pyqtgraph as pg
 from PyQt5 import QtCore
-from PyQt5.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QLabel, 
+from PyQt5.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QLabel, QScrollArea,
                              QPushButton, QHBoxLayout, QLineEdit, QGraphicsProxyWidget, QListWidget )
 
 import scipy.signal as sig
@@ -239,7 +239,6 @@ class SidebarGUI(QWidget):
         self.app_manager = app_manager
         
         self.control_gui = control_gui
-
         self.current_control = None
         self.input_fields = {}
 
@@ -255,26 +254,61 @@ class SidebarGUI(QWidget):
         
         self.btn_activate_control = QPushButton("Ativar Controle")
         self.btn_activate_control.clicked.connect(self.activate_control)
+        
+        self.btn_deactivate_control = QPushButton("Desativar Controle")
+        self.btn_deactivate_control.clicked.connect(self.deactivate_control)
+        self.btn_deactivate_control.setEnabled(False)
 
         self.layout.addWidget(self.controls_group)
-        self.layout.addWidget(self.btn_activate_control)
+        
+        self.hbox = QHBoxLayout()
+        self.hbox.addWidget(self.btn_activate_control)
+        self.hbox.addWidget(self.btn_deactivate_control)
+        
+        self.layout.addLayout(self.hbox)
 
         self.settings_group = QGroupBox("Configurações do Controle")
+        self.settings_group.setAlignment(QtCore.Qt.AlignCenter)
         self.settings_layout = QFormLayout()
         self.settings_group.setLayout(self.settings_layout)
+        
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFixedHeight(300)
+        self.scroll_area.setWidget(self.settings_group)
 
         self.btn_update_settings = QPushButton("Atualizar Configurações")
-        self.layout.addWidget(self.settings_group)
+        self.layout.addWidget(self.scroll_area)
         self.layout.addWidget(self.btn_update_settings)
 
         self.control_list.itemSelectionChanged.connect(self.update_config_fields)
         self.btn_update_settings.clicked.connect(self.update_control_settings)
         
         self.controls_group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; }")
-        self.settings_group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; }")
+        self.settings_group.setStyleSheet("QGroupBox { background: white; font-size: 16px; font-weight: bold; }")
         self.control_list.setStyleSheet("QListWidget { font-size: 14px; }")
-        self.btn_activate_control.setStyleSheet("QPushButton { font-size: 14px; }")
-        self.btn_update_settings.setStyleSheet("QPushButton { font-size: 14px; }")
+        
+        btn_label_style = "QPushButton { font-size: 14px; }"
+        self.btn_activate_control.setStyleSheet(btn_label_style)
+        self.btn_deactivate_control.setStyleSheet(btn_label_style)
+        self.btn_update_settings.setStyleSheet(btn_label_style)
+        
+        self.scroll_area.setStyleSheet("""
+                                            QScrollBar:vertical {
+                                                background: white;
+                                                width: 10px;
+                                            }
+                                            QScrollBar:horizontal {
+                                                background: white;
+                                                height: 10px;
+                                            }
+                                            QScrollBar::handle:vertical {
+                                                background: #f0f0f0;
+                                            }
+                                            QScrollBar::handle:horizontal {
+                                                background: #f0f0f0;
+                                            }
+                                        """)
 
         self.update_control_list()
 
@@ -299,10 +333,24 @@ class SidebarGUI(QWidget):
                 input_field.setText(str(value))
                 input_field.setStyleSheet("QLineEdit { font-size: 14px; }")
                 
+                input_field2 = QLineEdit()
+                input_field2.setText(str(value))
+                input_field2.setStyleSheet("QLineEdit { font-size: 14px; }")
+                
+                input_field3 = QLineEdit()
+                input_field3.setText(str(value))
+                input_field3.setStyleSheet("QLineEdit { font-size: 14px; }")
+                
                 label = QLabel(f"{var_name}")
                 label.setStyleSheet("QLabel { font-size: 14px; }")
+                label2 = QLabel(f"{var_name}")
+                label2.setStyleSheet("QLabel { font-size: 14px; }")
+                label3 = QLabel(f"{var_name}")
+                label3.setStyleSheet("QLabel { font-size: 14px; }")
                                     
                 self.settings_layout.addRow(label, input_field)
+                self.settings_layout.addRow(label2, input_field2)
+                self.settings_layout.addRow(label3, input_field3)
                 self.input_fields[var_name] = input_field
 
             self.settings_group.setTitle(f"Configurações de {control_name}")
@@ -331,6 +379,14 @@ class SidebarGUI(QWidget):
             self.app_manager.start_controller(current_control_label)
             self.app_manager.update_setpoint(self.current_control.setpoint)
             self.control_gui.update_setpoint_label()
+            
+            self.btn_deactivate_control.setEnabled(True)
+    
+    def deactivate_control(self):
+        self.app_manager.stop_controller()
+        
+        self.btn_deactivate_control.setEnabled(False)
+        # self.btn_activate_control.
 
 class PlotterGUI(QWidget):
     def __init__(self, app_manager):

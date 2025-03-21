@@ -28,7 +28,7 @@ class MainGUI(QMainWindow):
         
         self.setFocusPolicy(QtCore.Qt.StrongFocus)
         self.installEventFilter(self) 
-    
+
     def eventFilter(self, obj, event):
         if event.type() == QtCore.QEvent.KeyPress:
             print(f"Evento de tecla detectado: {event.key()}")
@@ -45,14 +45,14 @@ class MainGUI(QMainWindow):
         window = MainGUI(app_manager)
         window.showFullScreen()
         sys.exit(app.exec_())
-        
+
     def key_press_handle(self, super_press_handler, ev):
         print(f"teste {ev.key()} {QtCore.Qt.Key_F}")
         if ev.key() == QtCore.Qt.Key_Escape:
             sys.exit(0)
         elif ev.key() == QtCore.Qt.Key_F or ev.key() == 16777216:
             self.toggle_hide_mode()
-        
+
     def toggle_hide_mode(self):
         if self.hide_mode:
             if self.tabs.currentIndex() == 0:
