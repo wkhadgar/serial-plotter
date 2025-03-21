@@ -75,23 +75,27 @@ class AppManager:
         self.gui = MainGUI.start_gui(app_manager=self)
         
     def start_controller(self, label):
-         if label in self.control_instances:
-            if self.running_thread and self.running_thread.is_alive():
-                print(f"Stop cotnroller: {self.running_instance.label}")
-                self.running_stop_event.set()
-                self.running_thread.join()
-                self.running_stop_event.clear()
-                self.running_instance = None
-                self.running_thread = None
+        if label in self.control_instances:
+            if self.running_instance != None:
+                self.stop_controller()
             
             try:
                 self.running_instance = self.control_instances[label]
                 self.setpoint = self.running_instance.setpoint
                 self.running_thread = threading.Thread(target=self.__control_thread, daemon=True)
-                print(f"Start cotnroller: {label}")
+                print(f"Start controller: {label}")
                 self.running_thread.start()
             except Exception as e:
                 print(f"value error {e}")
+    
+    def stop_controller(self):
+        if self.running_thread and self.running_thread.is_alive():
+            print(f"Stop controller: {self.running_instance.label}")
+            self.running_stop_event.set()
+            self.running_thread.join()
+            self.running_stop_event.clear()
+            self.running_instance = None
+            self.running_thread = None
             
     def append_instance(self, instance:Controller):
         self.control_instances[instance.label] = instance
