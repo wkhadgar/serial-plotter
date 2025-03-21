@@ -1,10 +1,8 @@
 
-import random
 import threading
 import time
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 
 from .mcu_driver import MCUDriver, MCUType
@@ -23,7 +21,10 @@ class AppManager:
         
         self.running_instance: Optional[Controller] = None
         self.running_thread = None
-        self.stop_event = threading.Event()
+        self.running_stop_event = threading.Event()
+        
+        self.reading_thread = None
+        self.reading_stop_event = threading.Event()
         
         self.gui = None
         self.setpoint = 0
@@ -32,11 +33,14 @@ class AppManager:
         self.duty = 0
     
     def __read_values(self):
-        self.sensor_a, self.sensor_b, self.duty = self.__mcu.read()
-        
-        if self.running_instance != None:
-            self.running_instance.sensor_a = self.sensor_a
-            self.running_instance.sensor_b = self.sensor_b
+        while not self.reading_stop_event.is_set():
+            self.sensor_a, self.sensor_b, self.duty = self.__mcu.read()
+            
+            if self.running_instance != None:
+                self.running_instance.sensor_a = self.sensor_a
+                self.running_instance.sensor_b = self.sensor_b
+                
+            time.sleep(0.01)
     
     def __feedback(self):
         self.__mcu.send(self.running_instance.out)
@@ -48,44 +52,50 @@ class AppManager:
             print('nenhuma rodando')
         
     def __control_thread(self):
-        while not self.stop_event.is_set():
-            # self.__read_values()
-            self.generate_random_sensor_data()
+        while not self.running_stop_event.is_set():
             timestamp = pd.Timestamp.now()
             dt_t = timestamp - self.__last_timestamp
             self.dt = dt_t.microseconds
             self.running_instance.set_dt(self.dt)
             self.running_instance.control()
-            # self.__feedback()
+            self.__feedback()
             time.sleep(0.01)
     
     def __connect(self):
-        pass
-        # self.__mcu.connect()
+        self.__mcu.connect()
         
     def init(self):
+        print("Start reading values!")
+        self.reading_thread = threading.Thread(target=self.__read_values, daemon=True)
+        self.reading_thread.start()
+        
         print("Connect")
         self.__connect()
+        
         self.gui = MainGUI.start_gui(app_manager=self)
         
     def start_controller(self, label):
-         if label in self.control_instances:
-            if self.running_thread and self.running_thread.is_alive():
-                print(f"Stop cotnroller: {self.running_instance.label}")
-                self.stop_event.set()
-                self.running_thread.join()
-                self.stop_event.clear()
-                self.running_instance = None
-                self.running_thread = None
+        if label in self.control_instances:
+            if self.running_instance != None:
+                self.stop_controller()
             
             try:
                 self.running_instance = self.control_instances[label]
                 self.setpoint = self.running_instance.setpoint
                 self.running_thread = threading.Thread(target=self.__control_thread, daemon=True)
-                print(f"Start cotnroller: {label}")
+                print(f"Start controller: {label}")
                 self.running_thread.start()
             except Exception as e:
                 print(f"value error {e}")
+    
+    def stop_controller(self):
+        if self.running_thread and self.running_thread.is_alive():
+            print(f"Stop controller: {self.running_instance.label}")
+            self.running_stop_event.set()
+            self.running_thread.join()
+            self.running_stop_event.clear()
+            self.running_instance = None
+            self.running_thread = None
             
     def append_instance(self, instance:Controller):
         self.control_instances[instance.label] = instance
@@ -102,16 +112,5 @@ class AppManager:
         if self.running_instance != None:
             self.running_instance.setpoint = setpoint
             
-        if "setpoint" in self.running_instance.configurable_vars:
-            self.running_instance.configurable_vars["setpoint"] = setpoint
-            
-    def generate_random_sensor_data(self):
-        self.sensor_a = round(np.random.uniform(20, 50), 2)  # Temperatura entre 20°C e 50°C
-        self.sensor_b = round(np.random.uniform(20, 50), 2)  # Temperatura entre 20°C e 50°C
-        self.duty = round(random.uniform(-100, 100), 2)  # Duty cycle entre -100% e 100%
-        
-        if self.running_instance != None:
-            self.running_instance.sensor_a = self.sensor_a
-            self.running_instance.sensor_b = self.sensor_b
-        
-        # print(f"Sensor A: {self.sensor_a}°C | Sensor B: {self.sensor_b}°C | Duty: {self.duty}%")
+            if "setpoint" in self.running_instance.configurable_vars:
+                self.running_instance.configurable_vars["setpoint"] = setpoint
