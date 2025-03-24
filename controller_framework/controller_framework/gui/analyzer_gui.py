@@ -1,5 +1,5 @@
 import os
-from PyQt5.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget, QPushButton, QVBoxLayout, QFileDialog,
     QRadioButton, QButtonGroup, QListWidget, QHBoxLayout
 )

@@ -1,16 +1,15 @@
 from collections.abc import Callable
 from functools import partial
 import os
-import sys
 
 from controller_framework.core.controller import Controller
 import numpy as np
 import pandas as pd
 
-import pyqtgraph as pg
-from PyQt5 import QtCore
-from PyQt5.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QLabel, QScrollArea,
+from PySide6 import QtCore
+from PySide6.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QLabel, QScrollArea,
                              QPushButton, QHBoxLayout, QLineEdit, QGraphicsProxyWidget, QListWidget )
+import pyqtgraph as pg
 
 import scipy.signal as sig
 
@@ -95,7 +94,7 @@ class ControlGUI(QWidget):
 
         self.temp_input = QLineEdit()
         self.temp_input.setPlaceholderText("Defina a temperatura desejada (°C). [Entre 20°C e 50°C]...")
-        self.temp_input.setAlignment(QtCore.Qt.AlignCenter)
+        self.temp_input.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
         self.proxy = QGraphicsProxyWidget()
         self.proxy.setWidget(self.temp_input)
@@ -116,7 +115,7 @@ class ControlGUI(QWidget):
         log_file_path = log_path + f"log_{datetime.year}-{datetime.month}-{datetime.day}-{datetime.hour}-{datetime.minute}-{datetime.second}.csv"
         df.to_csv(log_file_path, index=False)
         
-        self.update_delay = 10
+        self.update_delay = 15
         self.plot_timer = QtCore.QTimer()
         self.plot_timer.timeout.connect(partial(self.update_plots, log_file_path))
         self.plot_timer.start(self.update_delay)
@@ -126,11 +125,11 @@ class ControlGUI(QWidget):
         if self.temp_input.hasFocus():
             super_press_handler(ev)
         else:
-            if ev.key() == QtCore.Qt.Key_Space:
+            if ev.key() == QtCore.Qt.Key.Key_Space:
                 self.toggle_plot_view()
-            elif ev.key() == QtCore.Qt.Key_Escape:
+            elif ev.key() == QtCore.Qt.Key.Key_Escape:
                 super_press_handler(ev)
-            elif ev.key() == QtCore.Qt.Key_F:
+            elif ev.key() == QtCore.Qt.Key.Key_F:
                 super_press_handler(ev)
 
     def __on_return_pressed(self):
@@ -145,8 +144,9 @@ class ControlGUI(QWidget):
         self.current_setpoint_line.update()
 
     def update_plots(self, log_f_path: str):
+        temp_a, temp_b, duty = 0,0,0
         temp_a, temp_b, duty = self.app_manager.sensor_a, self.app_manager.sensor_b, self.app_manager.duty
-
+        
         timestamp = pd.Timestamp.now()
         self.plot_seconds = np.append(self.plot_seconds, (timestamp - self.init_timestamp).total_seconds())
         self.duty_data = np.append(self.duty_data, duty)
@@ -268,7 +268,7 @@ class SidebarGUI(QWidget):
         self.layout.addLayout(self.hbox)
 
         self.settings_group = QGroupBox("Configurações do Controle")
-        self.settings_group.setAlignment(QtCore.Qt.AlignCenter)
+        self.settings_group.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.settings_layout = QFormLayout()
         self.settings_group.setLayout(self.settings_layout)
         
@@ -379,6 +379,7 @@ class SidebarGUI(QWidget):
             self.app_manager.start_controller(current_control_label)
             self.app_manager.update_setpoint(self.current_control.setpoint)
             self.control_gui.update_setpoint_label()
+            print(self.control_gui)
             
             self.btn_deactivate_control.setEnabled(True)
     

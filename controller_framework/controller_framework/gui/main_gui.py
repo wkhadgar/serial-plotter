@@ -2,8 +2,8 @@ from collections.abc import Callable
 from functools import partial
 import sys
 
-from PyQt5 import QtCore
-from PyQt5.QtWidgets import QTabWidget, QApplication, QMainWindow
+from PySide6 import QtCore
+from PySide6.QtWidgets import QTabWidget, QApplication, QMainWindow
 
 from .plotter_gui import PlotterGUI
 from .analyzer_gui import AnalyzerGUI
@@ -26,15 +26,15 @@ class MainGUI(QMainWindow):
         
         self.hide_mode = False
         
-        self.setFocusPolicy(QtCore.Qt.StrongFocus)
+        self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         self.installEventFilter(self) 
 
     def eventFilter(self, obj, event):
-        if event.type() == QtCore.QEvent.KeyPress:
+        if event.type() == QtCore.QEvent.Type.KeyPress:
             print(f"Evento de tecla detectado: {event.key()}")
-            if event.key() == QtCore.Qt.Key_F:
+            if event.key() == QtCore.Qt.Key.Key_F:
                 self.toggle_hide_mode()
-            elif event.key() == QtCore.Qt.Key_Escape:
+            elif event.key() == QtCore.Qt.Key.Key_Escape:
                 sys.exit(0)
             return True
         return super().eventFilter(obj, event)
@@ -44,7 +44,7 @@ class MainGUI(QMainWindow):
         app = QApplication(sys.argv)
         window = MainGUI(app_manager)
         window.showFullScreen()
-        sys.exit(app.exec_())
+        sys.exit(app.exec())
 
     def key_press_handle(self, super_press_handler, ev):
         print(f"teste {ev.key()} {QtCore.Qt.Key_F}")
