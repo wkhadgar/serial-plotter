@@ -47,7 +47,9 @@ class ThermalControler(Controller):
         return [op,P,I,D]
 
     def control(self):
+        print(f'[control] {self.setpoint}')
         if self.closed_loop:
+            print(f'[control] {self.setpoint}')
             if self.sensor_a_last == 0:
                 self.sensor_a_last = self.sensor_a
 

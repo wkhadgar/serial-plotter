@@ -28,8 +28,7 @@ class PIDControl(Controller):
 
         windup_check = P + self.accumulated_I + i_inc + D
 
-        self.out = max(-100, min(100, windup_check))
-        print(self.out)
+        self.out1 = max(-100, min(100, windup_check))
 
 class PIDControl2(Controller):
     def __init__(self, label, setpoint, l, t):
@@ -69,14 +68,14 @@ class PIDControl2(Controller):
 teste = AppManager(MCUType.RDATA, "COM1", 14000)
 
 pidcontrol1 = PIDControl("PID Control 1", 25, 9.02, 344.21)
-pidcontrol1.set_config_variable("setpoint")
-pidcontrol1.set_config_variable("Kp")
-pidcontrol1.set_config_variable("Ki")
-pidcontrol1.set_config_variable("Kd")
+pidcontrol1.set_config_variable(("setpoint", float))
+pidcontrol1.set_config_variable(("Kp", float))
+pidcontrol1.set_config_variable(("Ki", float))
+pidcontrol1.set_config_variable(("Kd", float))
 
 pidcontrol2 = PIDControl2("PID Control 2", 250, 15.02, 18.21)
-pidcontrol2.set_config_variable("Kp")
-pidcontrol2.set_config_variable("Ki")
+pidcontrol2.set_config_variable(("Kp", float))
+pidcontrol2.set_config_variable(("Ki", float))
 
 teste.append_instance(pidcontrol1)
 teste.append_instance(pidcontrol2)

@@ -116,7 +116,7 @@ class ControlGUI(QWidget):
         
         self.update_delay = 15
         self.plot_timer = QtCore.QTimer()
-        self.plot_timer.timeout.connect(partial(self.update_plots, log_file_path))
+        self.plot_timer.timeout.connect(partial(self.update_data, log_file_path))
         self.plot_timer.start(self.update_delay)
         self.toggle_plot_view()
 
@@ -136,68 +136,88 @@ class ControlGUI(QWidget):
 
         self.app_mirror.update_setpoint(setpoint)
 
-        self.parent.command_triggered.emit("update_setpoint", setpoint)
-        
-        self.temp_input.clear()
-        self.update_setpoint_label()
+        self.parent.command_triggered.emit("update_setpoint", {"value": setpoint})
 
     def update_setpoint_label(self):
         self.current_setpoint_line.setValue(self.app_mirror.get_setpoint())
         self.current_setpoint_line.label.setText(f"Temperatura desejada [{self.app_mirror.get_setpoint()}°C]")
         self.current_setpoint_line.update()
 
-    def update_plots(self, log_f_path: str):
-        temp_a, temp_b, duty = 0,0,0
-
+    def update_data(self, log_f_path: str):
         try:
-            data = self.app_mirror.gui_data_queue.get(timeout=0.01)  # Espera até 10ms
-            temp_a, temp_b, duty, _ = data
+            data = self.app_mirror.queue_to_gui.get(timeout=0.01)  # Espera até 10ms
 
-            self.update_setpoint_label()
+            command = data.get('type')
+            payload = data.get('payload')
+            # print(f'[PlotterGUI] recever data: {command, payload}')
 
-            timestamp = pd.Timestamp.now()
-            self.plot_seconds = np.append(self.plot_seconds, (timestamp - self.init_timestamp).total_seconds())
-            self.duty_data = np.append(self.duty_data, duty)
-            self.temp_a_data = np.append(self.temp_a_data, temp_a)
-            self.temp_b_data = np.append(self.temp_b_data, temp_b)
-            self.temp_m_data = np.append(self.temp_m_data, (temp_b + temp_a) / 2)
+            if command == "full_state":
+                sensor_a = payload.get('sensor_a')
+                sensor_b = payload.get('sensor_b')
+                duty1 = payload.get('duty1')
+                duty2 = payload.get('duty2')
+                setpoint = payload.get('setpoint')
+                running_instance = payload.get('running_instance')
+                control_instances_data = payload.get('control_instances')
 
-            with open(log_f_path, "a") as f:
-                f.write(
-                    f"{timestamp.strftime('%H:%M:%S')},"
-                    f"{self.plot_seconds[-1]:.4f},"
-                    f"{temp_a},"
-                    f"{temp_b},"
-                    f"{duty},"
-                    f"{self.app_mirror.setpoint}\n")
+                self.app_mirror.sensor_a = sensor_a
+                self.app_mirror.sensor_b = sensor_b
+                self.app_mirror.duty1 = duty1
+                self.app_mirror.duty2 = duty2
+                self.app_mirror.running_instance = running_instance
+                self.app_mirror.control_instances = control_instances_data
+                self.app_mirror.update_setpoint(setpoint)
 
-            if len(self.temp_m_data) > 400:
-                f_temps = np.array(sig.savgol_filter(self.temp_m_data, int(len(self.temp_m_data) * 0.02), 6))
-            else:
-                f_temps = self.temp_m_data.copy()
-
-            match self.plot_views[self.current_mode]:
-                case "C":
-                    self.curve_a_combined.setData(self.plot_seconds, self.temp_a_data)
-                    self.curve_b_combined.setData(self.plot_seconds, self.temp_b_data)
-                    self.curve_m_combined.setData(self.plot_seconds, f_temps)
-                    self.curve_d.setData(self.plot_seconds, self.duty_data)
-
-                    self.curve_a_combined_label.setText(f"Temperatura A: {temp_a}")
-                    self.curve_b_combined_label.setText(f"Temperatura B: {temp_b}")
-                    self.curve_m_combined_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
-                    self.curve_d_label.setText(f"Duty Cycle (%): {duty}")
-                case "A":
-                    self.curve_a.setData(self.plot_seconds, self.temp_a_data)
-                    self.curve_a_label.setText(f"Temperatura A: {temp_a}")
-                case "B":
-                    self.curve_b.setData(self.plot_seconds, self.temp_b_data)
-                    self.curve_b_label.setText(f"Temperatura B: {temp_b}")
-                case "M":
-                    self.curve_m.setData(self.plot_seconds, f_temps)
-                    self.curve_m_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
+                self.update_plots(log_f_path)
         except:
             pass
+
+    def update_plots(self, log_f_path):
+        temp_a, temp_b, duty = self.app_mirror.sensor_a, self.app_mirror.sensor_b, self.app_mirror.duty1
+
+        self.update_setpoint_label()
+
+        timestamp = pd.Timestamp.now()
+        self.plot_seconds = np.append(self.plot_seconds, (timestamp - self.init_timestamp).total_seconds())
+        self.duty_data = np.append(self.duty_data, duty)
+        self.temp_a_data = np.append(self.temp_a_data, temp_a)
+        self.temp_b_data = np.append(self.temp_b_data, temp_b)
+        self.temp_m_data = np.append(self.temp_m_data, (temp_b + temp_a) / 2)
+
+        with open(log_f_path, "a") as f:
+            f.write(
+                f"{timestamp.strftime('%H:%M:%S')},"
+                f"{self.plot_seconds[-1]:.4f},"
+                f"{temp_a},"
+                f"{temp_b},"
+                f"{duty},"
+                f"{self.app_mirror.setpoint}\n")
+
+        if len(self.temp_m_data) > 400:
+            f_temps = np.array(sig.savgol_filter(self.temp_m_data, int(len(self.temp_m_data) * 0.02), 6))
+        else:
+            f_temps = self.temp_m_data.copy()
+
+        match self.plot_views[self.current_mode]:
+            case "C":
+                self.curve_a_combined.setData(self.plot_seconds, self.temp_a_data)
+                self.curve_b_combined.setData(self.plot_seconds, self.temp_b_data)
+                self.curve_m_combined.setData(self.plot_seconds, f_temps)
+                self.curve_d.setData(self.plot_seconds, self.duty_data)
+
+                self.curve_a_combined_label.setText(f"Temperatura A: {temp_a}")
+                self.curve_b_combined_label.setText(f"Temperatura B: {temp_b}")
+                self.curve_m_combined_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
+                self.curve_d_label.setText(f"Duty Cycle (%): {duty}")
+            case "A":
+                self.curve_a.setData(self.plot_seconds, self.temp_a_data)
+                self.curve_a_label.setText(f"Temperatura A: {temp_a}")
+            case "B":
+                self.curve_b.setData(self.plot_seconds, self.temp_b_data)
+                self.curve_b_label.setText(f"Temperatura B: {temp_b}")
+            case "M":
+                self.curve_m.setData(self.plot_seconds, f_temps)
+                self.curve_m_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
 
     def toggle_plot_view(self):
         self.current_mode = (self.current_mode + 1) % len(self.plot_views)
@@ -375,15 +395,22 @@ class SidebarGUI(QWidget):
                         continue
 
                     self.current_control.update_variable(var_name, new_value)
-                    self.parent.command_triggered.emit("update_variable", [self.current_control.label, var_name, new_value])
+
+                    command = "update_variable"
+                    payload = {
+                        "control_name": self.current_control.label,
+                        "var_name": var_name,
+                        "new_value": new_value
+                    }
+
+                    self.parent.command_triggered.emit(command, payload)
                     
                 except ValueError:
                     print(f"Entrada inválida para '{var_name}'")
             
-            if(self.app_mirror.running_instance == self.current_control):
+            if(self.app_mirror.running_instance.label == self.current_control.label):
                 self.app_mirror.update_setpoint(self.current_control.setpoint)
-                self.parent.command_triggered.emit("update_setpoint", self.current_control.setpoint)
-                self.control_gui.update_setpoint_label()
+                self.parent.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoint})
                     
     def activate_control(self):
         current_control = self.control_list.currentItem()
@@ -393,8 +420,8 @@ class SidebarGUI(QWidget):
             self.app_mirror.update_setpoint(self.current_control.setpoint)
 
             self.app_mirror.running_instance = self.app_mirror.get_instance(current_control_label)
-            self.parent.command_triggered.emit("start_controller", current_control_label)
-            self.parent.command_triggered.emit("update_setpoint", self.current_control.setpoint)
+            self.parent.command_triggered.emit("start_controller", {"control_name": current_control_label})
+            self.parent.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoint})
 
             self.control_gui.update_setpoint_label()
             
@@ -402,9 +429,9 @@ class SidebarGUI(QWidget):
     
     def deactivate_control(self):
         self.app_mirror.stop_controller()
+        self.parent.command_triggered.emit("stop_controller", {})
         
         self.btn_deactivate_control.setEnabled(False)
-        # self.btn_activate_control.
 
 class PlotterGUI(QWidget):
     command_triggered = QtCore.Signal(str, object)

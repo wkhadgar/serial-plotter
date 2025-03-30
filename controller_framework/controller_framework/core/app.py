@@ -7,6 +7,7 @@ from typing import Optional
 
 from .mcu_driver import MCUDriver, MCUType
 from .controller import Controller
+from .ipcmanager import IPCManager
 from controller_framework.gui import MainGUI
 
 import multiprocessing as mp
@@ -40,12 +41,15 @@ class AppManager:
         self.setpoint = 0
         self.sensor_a = 0
         self.sensor_b = 0
-        self.duty = 0
+        self.duty1 = 0
         self.duty2 = 0
 
         self.reading_buffer = Queue()
-        self.gui_data_queue = mp.Queue()
-        self.command_data_queue = mp.Queue()
+
+        self.queue_to_gui = mp.Queue()
+        self.queue_from_gui = mp.Queue()
+
+        self.ipcmanager = IPCManager(self, self.queue_to_gui, self.queue_from_gui)
 
     def __read_command(self):
         while not self.command_stop_event.is_set():
@@ -96,11 +100,12 @@ class AppManager:
                 self.sensor_a, self.sensor_b, self.duty1, self.duty2 = self.__mcu.read()
                 print(f'[APP:read] {self.sensor_a}, {self.sensor_b}, {self.duty1}, {self.duty2}')
 
-                data = [self.sensor_a, self.sensor_b, self.duty1, self.duty2]
-                self.gui_data_queue.put(data)
+                # data = [self.sensor_a, self.sensor_b, self.duty1, self.duty2]
+                # self.gui_data_queue.put(data)
 
                 if self.running_instance is not None:
-                    self.reading_buffer.put(data)
+                    
+                    # self.reading_buffer.put(data)
                     # self.reading_buffer_semaphore.release()
                     self.__control_thread()
             except Exception as e:
@@ -126,21 +131,18 @@ class AppManager:
             pass
 
     def __control_thread(self):
-        if not self.reading_buffer.empty():
-            a, b, _, _ = self.reading_buffer.get()
+        now = time.perf_counter()
+        dt = now - self.__last_control_timestamp
+        self.__last_control_timestamp = now
+        self.dt = dt * 1e3
 
-            now = time.perf_counter()
-            dt = now - self.__last_control_timestamp
-            self.__last_control_timestamp = now
-            self.dt = dt * 1e3
+        self.running_instance.set_dt(dt)
+        self.running_instance.sensor_a = self.sensor_a
+        self.running_instance.sensor_b = self.sensor_b
 
-            self.running_instance.set_dt(dt)
-            self.running_instance.sensor_a = a
-            self.running_instance.sensor_b = b
-
-            self.running_instance.control()
-            self.__feedback()
-            self.control_dts.append(self.dt)
+        self.running_instance.control()
+        self.__feedback()
+        self.control_dts.append(self.dt)
 
     def __connect(self):
         self.__mcu.connect()
@@ -153,18 +155,22 @@ class AppManager:
         self.reading_thread = threading.Thread(target=self.__read_values, daemon=True)
         self.reading_thread.start()
 
-        self.command_thread = threading.Thread(target=self.__read_command, daemon=True)
-        self.command_thread.start()
+        self.ipcmanager.init()
+
+        # self.command_thread = threading.Thread(target=self.__read_command, daemon=True)
+        # self.command_thread.start()
 
         self.gui_process = mp.Process(target=MainGUI.start_gui, args=(self,))
         self.gui_process.start()
-
         self.gui_process.join()
+
         self.reading_stop_event.set()
         self.reading_thread.join()
 
-        self.command_stop_event.set()
-        self.command_thread.join()
+        self.ipcmanager.stop()
+
+        # self.command_stop_event.set()
+        # self.command_thread.join()
 
     def start_controller(self, label):
         if label in self.control_instances:
@@ -172,9 +178,9 @@ class AppManager:
                 self.stop_controller()
 
             try:
-                print(f"[APP] Start controller: {label}")
                 self.running_instance = self.control_instances[label]
                 self.setpoint = self.running_instance.setpoint
+                print(f"[APP] Start controller: {label}")
             except Exception as e:
                 print(f"value error {e}")
 

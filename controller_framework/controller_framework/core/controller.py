@@ -5,12 +5,35 @@ class Controller(ABC):
         self.setpoint = setpoint
         self.sensor_a = 0
         self.sensor_b = 0
-        self.out = 0
+        self.out1 = 0
+        self.out2 = 0
         self.dt = 0
         
         self.configurable_vars = {}
         self.label = label
     
+    def __getstate__(self):
+        return {
+            "label": self.label,
+            "setpoint": self.setpoint,
+            "sensor_a": self.sensor_a,
+            "sensor_b": self.sensor_b,
+            "out1": self.out1,
+            "out2": self.out2,
+            "dt": self.dt,
+            "configurable_vars": self.configurable_vars
+        }
+
+    def __setstate__(self, state):
+        self.label = state["label"]
+        self.setpoint = state["setpoint"]
+        self.sensor_a = state["sensor_a"]
+        self.sensor_b = state["sensor_b"]
+        self.out1 = state["out1"]
+        self.out2 = state["out2"]
+        self.dt = state["dt"]
+        self.configurable_vars = state["configurable_vars"]
+
     @abstractmethod
     def control(self):
         pass

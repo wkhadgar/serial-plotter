@@ -1,6 +1,3 @@
-from collections.abc import Callable
-from functools import partial
-import queue
 import sys
 
 from PySide6 import QtCore
@@ -85,5 +82,10 @@ class MainGUI(QMainWindow):
 
     @QtCore.Slot(str, object)
     def send_command(self, command, value):
-        self.app_mirror.command_data_queue.put((command, value))
+        data = {
+            "type": command,
+            "payload": value
+        }
+        
+        self.app_mirror.queue_from_gui.put(data)
         print(f"[MainGUI] Enviou '{command}' com valor {value} para o [APP]")
