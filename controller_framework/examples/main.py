@@ -29,6 +29,7 @@ class PIDControl(Controller):
         windup_check = P + self.accumulated_I + i_inc + D
 
         self.out = max(-100, min(100, windup_check))
+        print(self.out)
 
 class PIDControl2(Controller):
     def __init__(self, label, setpoint, l, t):
@@ -43,7 +44,7 @@ class PIDControl2(Controller):
         self.accumulated_I = 0
         
     def control(self):
-        dt_s = self.dt / 10 ** 6
+        dt_s = self.dt
         
         measure = (self.sensor_a + self.sensor_b) / 2
 

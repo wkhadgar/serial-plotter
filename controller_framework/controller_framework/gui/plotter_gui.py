@@ -8,21 +8,20 @@ import pandas as pd
 
 from PySide6 import QtCore
 from PySide6.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QLabel, QScrollArea,
-                             QPushButton, QHBoxLayout, QLineEdit, QGraphicsProxyWidget, QListWidget )
+                             QPushButton, QHBoxLayout, QLineEdit, QGraphicsProxyWidget, QListWidget, QCheckBox )
 import pyqtgraph as pg
-
 import scipy.signal as sig
 
 class ControlGUI(QWidget):
-    def __init__(self, *, parent = None, app_manager, x_label: str, y_label: str):
+    def __init__(self, *, parent, app_manager, x_label: str, y_label: str):
         super().__init__(parent)
+
+        self.parent = parent
 
         from controller_framework.core import AppManager
         assert isinstance(app_manager, AppManager)
         self.app_manager = app_manager
-        
-        self.parent = parent
-        
+
         self.fullscreen = False
         
         self.init_timestamp = pd.Timestamp.now()
@@ -133,9 +132,13 @@ class ControlGUI(QWidget):
                 super_press_handler(ev)
 
     def __on_return_pressed(self):
-        self.app_manager.update_setpoint(float(self.temp_input.text()))
-        self.temp_input.clear()
+        setpoint = float(self.temp_input.text())
+
+        self.app_manager.update_setpoint(setpoint)
+
+        self.parent.command_triggered.emit("update_setpoint", setpoint)
         
+        self.temp_input.clear()
         self.update_setpoint_label()
 
     def update_setpoint_label(self):
@@ -145,49 +148,56 @@ class ControlGUI(QWidget):
 
     def update_plots(self, log_f_path: str):
         temp_a, temp_b, duty = 0,0,0
-        temp_a, temp_b, duty = self.app_manager.sensor_a, self.app_manager.sensor_b, self.app_manager.duty
-        
-        timestamp = pd.Timestamp.now()
-        self.plot_seconds = np.append(self.plot_seconds, (timestamp - self.init_timestamp).total_seconds())
-        self.duty_data = np.append(self.duty_data, duty)
-        self.temp_a_data = np.append(self.temp_a_data, temp_a)
-        self.temp_b_data = np.append(self.temp_b_data, temp_b)
-        self.temp_m_data = np.append(self.temp_m_data, (temp_b + temp_a) / 2)
 
-        with open(log_f_path, "a") as f:
-            f.write(
-                f"{timestamp.strftime('%H:%M:%S')},"
-                f"{self.plot_seconds[-1]:.4f},"
-                f"{temp_a},"
-                f"{temp_b},"
-                f"{duty},"
-                f"{self.app_manager.setpoint}\n")
+        try:
+            data = self.app_manager.gui_data_queue.get(timeout=0.01)  # Espera até 10ms
+            temp_a, temp_b, duty, _ = data
 
-        if len(self.temp_m_data) > 400:
-            f_temps = np.array(sig.savgol_filter(self.temp_m_data, int(len(self.temp_m_data) * 0.02), 6))
-        else:
-            f_temps = self.temp_m_data.copy()
+            self.update_setpoint_label()
 
-        match self.plot_views[self.current_mode]:
-            case "C":
-                self.curve_a_combined.setData(self.plot_seconds, self.temp_a_data)
-                self.curve_b_combined.setData(self.plot_seconds, self.temp_b_data)
-                self.curve_m_combined.setData(self.plot_seconds, f_temps)
-                self.curve_d.setData(self.plot_seconds, self.duty_data)
+            timestamp = pd.Timestamp.now()
+            self.plot_seconds = np.append(self.plot_seconds, (timestamp - self.init_timestamp).total_seconds())
+            self.duty_data = np.append(self.duty_data, duty)
+            self.temp_a_data = np.append(self.temp_a_data, temp_a)
+            self.temp_b_data = np.append(self.temp_b_data, temp_b)
+            self.temp_m_data = np.append(self.temp_m_data, (temp_b + temp_a) / 2)
 
-                self.curve_a_combined_label.setText(f"Temperatura A: {temp_a}")
-                self.curve_b_combined_label.setText(f"Temperatura B: {temp_b}")
-                self.curve_m_combined_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
-                self.curve_d_label.setText(f"Duty Cycle (%): {duty}")
-            case "A":
-                self.curve_a.setData(self.plot_seconds, self.temp_a_data)
-                self.curve_a_label.setText(f"Temperatura A: {temp_a}")
-            case "B":
-                self.curve_b.setData(self.plot_seconds, self.temp_b_data)
-                self.curve_b_label.setText(f"Temperatura B: {temp_b}")
-            case "M":
-                self.curve_m.setData(self.plot_seconds, f_temps)
-                self.curve_m_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
+            with open(log_f_path, "a") as f:
+                f.write(
+                    f"{timestamp.strftime('%H:%M:%S')},"
+                    f"{self.plot_seconds[-1]:.4f},"
+                    f"{temp_a},"
+                    f"{temp_b},"
+                    f"{duty},"
+                    f"{self.app_manager.setpoint}\n")
+
+            if len(self.temp_m_data) > 400:
+                f_temps = np.array(sig.savgol_filter(self.temp_m_data, int(len(self.temp_m_data) * 0.02), 6))
+            else:
+                f_temps = self.temp_m_data.copy()
+
+            match self.plot_views[self.current_mode]:
+                case "C":
+                    self.curve_a_combined.setData(self.plot_seconds, self.temp_a_data)
+                    self.curve_b_combined.setData(self.plot_seconds, self.temp_b_data)
+                    self.curve_m_combined.setData(self.plot_seconds, f_temps)
+                    self.curve_d.setData(self.plot_seconds, self.duty_data)
+
+                    self.curve_a_combined_label.setText(f"Temperatura A: {temp_a}")
+                    self.curve_b_combined_label.setText(f"Temperatura B: {temp_b}")
+                    self.curve_m_combined_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
+                    self.curve_d_label.setText(f"Duty Cycle (%): {duty}")
+                case "A":
+                    self.curve_a.setData(self.plot_seconds, self.temp_a_data)
+                    self.curve_a_label.setText(f"Temperatura A: {temp_a}")
+                case "B":
+                    self.curve_b.setData(self.plot_seconds, self.temp_b_data)
+                    self.curve_b_label.setText(f"Temperatura B: {temp_b}")
+                case "M":
+                    self.curve_m.setData(self.plot_seconds, f_temps)
+                    self.curve_m_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
+        except:
+            pass
 
     def toggle_plot_view(self):
         self.current_mode = (self.current_mode + 1) % len(self.plot_views)
@@ -231,16 +241,19 @@ class ControlGUI(QWidget):
                 self.proxy.hide()
 
 class SidebarGUI(QWidget):
-    def __init__(self, app_manager, control_gui, parent=None):
+    def __init__(self, parent, app_manager, control_gui):
         super().__init__(parent)
         
         from controller_framework.core import AppManager
         assert isinstance(app_manager, AppManager)
         self.app_manager = app_manager
-        
+
+        self.parent = parent
+
         self.control_gui = control_gui
         self.current_control = None
         self.input_fields = {}
+
 
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
@@ -328,58 +341,62 @@ class SidebarGUI(QWidget):
                 self.settings_layout.itemAt(i).widget().deleteLater()
             self.input_fields.clear()
 
-            for var_name, value in self.current_control.configurable_vars.items():
-                input_field = QLineEdit()
-                input_field.setText(str(value))
-                input_field.setStyleSheet("QLineEdit { font-size: 14px; }")
-                
-                input_field2 = QLineEdit()
-                input_field2.setText(str(value))
-                input_field2.setStyleSheet("QLineEdit { font-size: 14px; }")
-                
-                input_field3 = QLineEdit()
-                input_field3.setText(str(value))
-                input_field3.setStyleSheet("QLineEdit { font-size: 14px; }")
+            for var_name, var_data in self.current_control.configurable_vars.items():
+                value = var_data['value']
+                var_type = var_data['type']
                 
                 label = QLabel(f"{var_name}")
                 label.setStyleSheet("QLabel { font-size: 14px; }")
-                label2 = QLabel(f"{var_name}")
-                label2.setStyleSheet("QLabel { font-size: 14px; }")
-                label3 = QLabel(f"{var_name}")
-                label3.setStyleSheet("QLabel { font-size: 14px; }")
-                                    
+
+                if var_type == bool:
+                    input_field = QCheckBox()
+                    input_field.setChecked(bool(value))
+                    input_field.setStyleSheet("QCheckBox { font-size: 14px; }")
+                else:
+                    input_field = QLineEdit()
+                    input_field.setText(str(value))
+                    input_field.setStyleSheet("QLineEdit { font-size: 14px; }")
+
                 self.settings_layout.addRow(label, input_field)
-                self.settings_layout.addRow(label2, input_field2)
-                self.settings_layout.addRow(label3, input_field3)
+
                 self.input_fields[var_name] = input_field
 
             self.settings_group.setTitle(f"Configurações de {control_name}")
 
     def update_control_settings(self):
         if self.current_control:
-            print(self.current_control.configurable_vars)
-            for var_name, input_field in self.input_fields.items():
+            for var_name, widget in self.input_fields.items():
                 try:
-                    new_value = float(input_field.text())
+                    if isinstance(widget, QCheckBox):
+                        new_value = widget.isChecked()
+                    elif isinstance(widget, QLineEdit):
+                        new_value = widget.text()
+                    else:
+                        continue
+
                     self.current_control.update_variable(var_name, new_value)
+                    self.parent.command_triggered.emit("update_variable", [self.current_control.label, var_name, new_value])
+                    
                 except ValueError:
                     print(f"Entrada inválida para '{var_name}'")
             
             if(self.app_manager.running_instance == self.current_control):
                 self.app_manager.update_setpoint(self.current_control.setpoint)
+                self.parent.command_triggered.emit("update_setpoint", self.current_control.setpoint)
                 self.control_gui.update_setpoint_label()
-                
-            print(self.current_control.configurable_vars)
                     
     def activate_control(self):
         current_control = self.control_list.currentItem()
         
         if(current_control != None):
             current_control_label = current_control.text()
-            self.app_manager.start_controller(current_control_label)
             self.app_manager.update_setpoint(self.current_control.setpoint)
+
+            self.app_manager.running_instance = self.app_manager.get_instance(current_control_label)
+            self.parent.command_triggered.emit("start_controller", current_control_label)
+            self.parent.command_triggered.emit("update_setpoint", self.current_control.setpoint)
+
             self.control_gui.update_setpoint_label()
-            print(self.control_gui)
             
             self.btn_deactivate_control.setEnabled(True)
     
@@ -390,6 +407,8 @@ class SidebarGUI(QWidget):
         # self.btn_activate_control.
 
 class PlotterGUI(QWidget):
+    command_triggered = QtCore.Signal(str, object)
+
     def __init__(self, app_manager):
         super().__init__()
         
@@ -401,13 +420,13 @@ class PlotterGUI(QWidget):
         self.setLayout(self.layout)
 
         self.plotter_gui = ControlGUI(parent=self, app_manager=self.app_manager, x_label="Tempo decorrido (s)", y_label="Temperatura (°C)")
-        self.sidebar = SidebarGUI(self.app_manager, self.plotter_gui)
+        self.sidebar = SidebarGUI(parent=self, app_manager=self.app_manager, control_gui=self.plotter_gui)
 
         self.layout.addWidget(self.sidebar, 1)
         self.layout.addWidget(self.plotter_gui, 4)
         
         self.hide_mode = False
-        
+   
     def toggle_hide_mode(self):
         if self.hide_mode:
             self.sidebar.show()

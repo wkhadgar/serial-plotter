@@ -3,11 +3,13 @@ from enum import Enum
 import random
 import struct
 import numpy as np
+import tclab
 from pyocd.core.helpers import ConnectHelper, Session
 
 class MCUType(Enum):
     STM32 = "STM32"
     RDATA = "RDATA"
+    TCLAB = "TCLAB"
 
 class MCUDriver(ABC):    
     def __init__(self, mcu_type, port, baud_rate):
@@ -31,7 +33,8 @@ class MCUDriver(ABC):
     def create_driver(mcu_type: MCUType, port: str, baud_rate: int):
         driver_map = {
             MCUType.RDATA: RandomDataDriver,
-            MCUType.STM32: STM32Driver
+            MCUType.STM32: STM32Driver,
+            MCUType.TCLAB: TCLABDriver
         }
         
         if mcu_type not in driver_map:
@@ -71,7 +74,7 @@ class STM32Driver(MCUDriver):
         self.ser = ConnectHelper.session_with_chosen_probe(target_override="stm32f103c8", connect_mode="attach")
         self.ram = self.ser.target.get_memory_map()[1]
 
-        print("Finding control block area...")
+        print("[MCU] Finding control block area...")
         key = [ord(c) for c in "!CTR"]
         for addr in range(self.ram.start, self.ram.end):
             byte = self.ser.target.read8(addr)
@@ -79,11 +82,11 @@ class STM32Driver(MCUDriver):
                 continue
 
             if self.ser.target.read_memory_block8(addr, len(key)) == key:
-                print(f"Control block area found at 0x{addr:X}!")
+                print(f"[MCU] Control block area found at 0x{addr:X}!")
                 self.control_block_addr = addr + len(key)
                 break
         else:
-            print("Block control area not found!!!")
+            print("[MCU] Block control area not found!!!")
             raise ValueError("Error")
 
 class RandomDataDriver(MCUDriver):
@@ -104,3 +107,21 @@ class RandomDataDriver(MCUDriver):
     def connect(self):
         # Not necessary logic to connect function
         pass
+
+class TCLABDriver(MCUDriver):
+    def __init__(self, mcu_type, port, baud_rate):
+        super().__init__(mcu_type, port, baud_rate)
+
+        self.a:tclab.TCLab = None
+
+    def connect(self):
+        self.a = tclab.TCLab(debug=False)
+
+    def read(self):
+        self.sensor_a, self.sensor_b, self.duty1, self.duty2 = self.a.T1, self.a.T2, self.a.Q1(None), self.a.Q2(None)
+
+        return self.sensor_a, self.sensor_b, self.duty1, self.duty2
+
+    def send(self, out1 = 0.0, out2 = 0.0):
+        self.a.Q1(out1)
+        # self.a.Q2(out2)
