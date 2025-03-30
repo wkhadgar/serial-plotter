@@ -10,12 +10,12 @@ from .plotter_gui import PlotterGUI
 from .analyzer_gui import AnalyzerGUI
 
 class MainGUI(QMainWindow):
-    def __init__(self, app_manager):
+    def __init__(self, app_mirror):
         super().__init__()
 
         from controller_framework.core import AppManager
-        assert isinstance(app_manager, AppManager)
-        self.app_manager = app_manager
+        assert isinstance(app_mirror, AppManager)
+        self.app_mirror = app_mirror
 
         self.setWindowTitle("Control System GUI")
         self.setGeometry(100, 100, 1200, 800)
@@ -23,8 +23,8 @@ class MainGUI(QMainWindow):
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        self.plotter_gui = PlotterGUI(app_manager=self.app_manager)
-        self.analyzer_gui = AnalyzerGUI(app_manager=self.app_manager)
+        self.plotter_gui = PlotterGUI(app_mirror=self.app_mirror)
+        self.analyzer_gui = AnalyzerGUI(app_mirror=self.app_mirror)
 
         self.tabs.addTab(self.plotter_gui, "PLOTTER")
         self.tabs.addTab(self.analyzer_gui, "ANALYZER")
@@ -46,9 +46,9 @@ class MainGUI(QMainWindow):
         return super().eventFilter(obj, event)
 
     @staticmethod
-    def start_gui(app_manager):
+    def start_gui(app_mirror):
         app = QApplication(sys.argv)
-        window = MainGUI(app_manager)
+        window = MainGUI(app_mirror)
         window.showFullScreen()
         sys.exit(app.exec())
 
@@ -85,5 +85,5 @@ class MainGUI(QMainWindow):
 
     @QtCore.Slot(str, object)
     def send_command(self, command, value):
-        self.app_manager.command_data_queue.put((command, value))
+        self.app_mirror.command_data_queue.put((command, value))
         print(f"[MainGUI] Enviou '{command}' com valor {value} para o [APP]")

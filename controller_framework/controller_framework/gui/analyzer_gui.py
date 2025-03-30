@@ -200,9 +200,9 @@ class PlotterAnalyzer(QWidget):
         self.repaint()
         
 class AnalyzerGUI(QWidget):
-    def __init__(self, app_manager):
+    def __init__(self, app_mirror):
         super().__init__()
-        self.app_manager = app_manager
+        self.app_mirror = app_mirror
         self.selected_file = None
 
         self.setWindowTitle("Thermal Analyzer")

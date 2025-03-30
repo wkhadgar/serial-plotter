@@ -13,14 +13,14 @@ import pyqtgraph as pg
 import scipy.signal as sig
 
 class ControlGUI(QWidget):
-    def __init__(self, *, parent, app_manager, x_label: str, y_label: str):
+    def __init__(self, *, parent, app_mirror, x_label: str, y_label: str):
         super().__init__(parent)
 
         self.parent = parent
 
         from controller_framework.core import AppManager
-        assert isinstance(app_manager, AppManager)
-        self.app_manager = app_manager
+        assert isinstance(app_mirror, AppManager)
+        self.app_mirror = app_mirror
 
         self.fullscreen = False
         
@@ -39,7 +39,7 @@ class ControlGUI(QWidget):
         layout.addWidget(self.win)
         self.setLayout(layout)
         
-        self.current_setpoint_line = pg.InfiniteLine(pos=app_manager.get_setpoint(), angle=0, movable=False,
+        self.current_setpoint_line = pg.InfiniteLine(pos=app_mirror.get_setpoint(), angle=0, movable=False,
                                                      label="Temperatura desejada [-]",
                                                      pen=pg.mkPen("orange", width=2))
 
@@ -134,7 +134,7 @@ class ControlGUI(QWidget):
     def __on_return_pressed(self):
         setpoint = float(self.temp_input.text())
 
-        self.app_manager.update_setpoint(setpoint)
+        self.app_mirror.update_setpoint(setpoint)
 
         self.parent.command_triggered.emit("update_setpoint", setpoint)
         
@@ -142,15 +142,15 @@ class ControlGUI(QWidget):
         self.update_setpoint_label()
 
     def update_setpoint_label(self):
-        self.current_setpoint_line.setValue(self.app_manager.get_setpoint())
-        self.current_setpoint_line.label.setText(f"Temperatura desejada [{self.app_manager.get_setpoint()}°C]")
+        self.current_setpoint_line.setValue(self.app_mirror.get_setpoint())
+        self.current_setpoint_line.label.setText(f"Temperatura desejada [{self.app_mirror.get_setpoint()}°C]")
         self.current_setpoint_line.update()
 
     def update_plots(self, log_f_path: str):
         temp_a, temp_b, duty = 0,0,0
 
         try:
-            data = self.app_manager.gui_data_queue.get(timeout=0.01)  # Espera até 10ms
+            data = self.app_mirror.gui_data_queue.get(timeout=0.01)  # Espera até 10ms
             temp_a, temp_b, duty, _ = data
 
             self.update_setpoint_label()
@@ -169,7 +169,7 @@ class ControlGUI(QWidget):
                     f"{temp_a},"
                     f"{temp_b},"
                     f"{duty},"
-                    f"{self.app_manager.setpoint}\n")
+                    f"{self.app_mirror.setpoint}\n")
 
             if len(self.temp_m_data) > 400:
                 f_temps = np.array(sig.savgol_filter(self.temp_m_data, int(len(self.temp_m_data) * 0.02), 6))
@@ -241,12 +241,12 @@ class ControlGUI(QWidget):
                 self.proxy.hide()
 
 class SidebarGUI(QWidget):
-    def __init__(self, parent, app_manager, control_gui):
+    def __init__(self, parent, app_mirror, control_gui):
         super().__init__(parent)
         
         from controller_framework.core import AppManager
-        assert isinstance(app_manager, AppManager)
-        self.app_manager = app_manager
+        assert isinstance(app_mirror, AppManager)
+        self.app_mirror = app_mirror
 
         self.parent = parent
 
@@ -327,7 +327,7 @@ class SidebarGUI(QWidget):
 
     def update_control_list(self):
         self.control_list.clear()
-        for control_name in self.app_manager.list_instances():
+        for control_name in self.app_mirror.list_instances():
             self.control_list.addItem(control_name)
 
     def update_config_fields(self):
@@ -335,7 +335,7 @@ class SidebarGUI(QWidget):
         
         if selected_item:
             control_name = selected_item.text()
-            self.current_control:Controller = self.app_manager.control_instances[control_name]
+            self.current_control:Controller = self.app_mirror.control_instances[control_name]
                 
             for i in reversed(range(self.settings_layout.count())):
                 self.settings_layout.itemAt(i).widget().deleteLater()
@@ -380,8 +380,8 @@ class SidebarGUI(QWidget):
                 except ValueError:
                     print(f"Entrada inválida para '{var_name}'")
             
-            if(self.app_manager.running_instance == self.current_control):
-                self.app_manager.update_setpoint(self.current_control.setpoint)
+            if(self.app_mirror.running_instance == self.current_control):
+                self.app_mirror.update_setpoint(self.current_control.setpoint)
                 self.parent.command_triggered.emit("update_setpoint", self.current_control.setpoint)
                 self.control_gui.update_setpoint_label()
                     
@@ -390,9 +390,9 @@ class SidebarGUI(QWidget):
         
         if(current_control != None):
             current_control_label = current_control.text()
-            self.app_manager.update_setpoint(self.current_control.setpoint)
+            self.app_mirror.update_setpoint(self.current_control.setpoint)
 
-            self.app_manager.running_instance = self.app_manager.get_instance(current_control_label)
+            self.app_mirror.running_instance = self.app_mirror.get_instance(current_control_label)
             self.parent.command_triggered.emit("start_controller", current_control_label)
             self.parent.command_triggered.emit("update_setpoint", self.current_control.setpoint)
 
@@ -401,7 +401,7 @@ class SidebarGUI(QWidget):
             self.btn_deactivate_control.setEnabled(True)
     
     def deactivate_control(self):
-        self.app_manager.stop_controller()
+        self.app_mirror.stop_controller()
         
         self.btn_deactivate_control.setEnabled(False)
         # self.btn_activate_control.
@@ -409,18 +409,18 @@ class SidebarGUI(QWidget):
 class PlotterGUI(QWidget):
     command_triggered = QtCore.Signal(str, object)
 
-    def __init__(self, app_manager):
+    def __init__(self, app_mirror):
         super().__init__()
         
         from controller_framework.core import AppManager
-        assert isinstance(app_manager, AppManager)
-        self.app_manager = app_manager
+        assert isinstance(app_mirror, AppManager)
+        self.app_mirror = app_mirror
 
         self.layout = QHBoxLayout()
         self.setLayout(self.layout)
 
-        self.plotter_gui = ControlGUI(parent=self, app_manager=self.app_manager, x_label="Tempo decorrido (s)", y_label="Temperatura (°C)")
-        self.sidebar = SidebarGUI(parent=self, app_manager=self.app_manager, control_gui=self.plotter_gui)
+        self.plotter_gui = ControlGUI(parent=self, app_mirror=self.app_mirror, x_label="Tempo decorrido (s)", y_label="Temperatura (°C)")
+        self.sidebar = SidebarGUI(parent=self, app_mirror=self.app_mirror, control_gui=self.plotter_gui)
 
         self.layout.addWidget(self.sidebar, 1)
         self.layout.addWidget(self.plotter_gui, 4)
