@@ -409,7 +409,7 @@ class SidebarGUI(QWidget):
                 except ValueError:
                     print(f"Entrada inválida para '{var_name}'")
             
-            if(self.app_mirror.running_instance.label == self.current_control.label):
+            if(self.app_mirror.running_instance and self.app_mirror.running_instance.label == self.current_control.label):
                 self.app_mirror.update_setpoint(self.current_control.setpoint)
                 self.parent.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoint})
                     
