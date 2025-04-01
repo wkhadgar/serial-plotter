@@ -133,6 +133,7 @@ class ControlGUI(QWidget):
 
     def __on_return_pressed(self):
         setpoint = float(self.temp_input.text())
+        self.temp_input.clear()
 
         self.app_mirror.update_setpoint(setpoint)
 
