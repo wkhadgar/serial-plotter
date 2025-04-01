@@ -150,7 +150,6 @@ class ControlGUI(QWidget):
 
             command = data.get('type')
             payload = data.get('payload')
-            # print(f'[PlotterGUI] recever data: {command, payload}')
 
             if command == "full_state":
                 sensor_a = payload.get('sensor_a')

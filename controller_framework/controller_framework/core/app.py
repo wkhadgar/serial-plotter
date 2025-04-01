@@ -21,7 +21,7 @@ class AppManager:
         self.control_instances: dict[Controller] = {}
         self.running_instance: Optional[Controller] = None
 
-        self.sample_time = 600 # ms
+        self.sample_time = 1000.0 # ms
         self.setpoint = 0
         self.sensor_a = 0
         self.sensor_b = 0
@@ -119,6 +119,7 @@ class AppManager:
             time.sleep(0.05)
 
     def __read_values(self):
+        print('[APP:read] started')
         now = time.perf_counter()
         target_dt_s = self.sample_time / 1000.0
         next_read_time = now + target_dt_s
@@ -239,18 +240,17 @@ class AppManager:
         print("Connect")
         self.__connect()
 
-        self.gui_process = mp.Process(target=MainGUI.start_gui, args=(self,))
-        self.gui_process.start()
-
-        print("Start reading values!")
         self.reading_thread = threading.Thread(target=self.__read_values, daemon=True)
         self.reading_thread.start()
 
+        time.sleep(1)
         self.ipcmanager.init()
 
         # self.command_thread = threading.Thread(target=self.__read_command, daemon=True)
         # self.command_thread.start()
 
+        self.gui_process = mp.Process(target=MainGUI.start_gui, args=(self,))
+        self.gui_process.start()
         self.gui_process.join()
 
         self.reading_stop_event.set()
