@@ -32,7 +32,7 @@ class ThermalControler(Controller):
         # calculate the integral error
         ierr = ierr + KI * error * dt
         # calculate the measurement derivative
-        dpv = (pv - pv_last) / dt
+        dpv = (pv - pv_last) / (dt + 0.000001)
         # calculate the PID output
         P = KP * error
         I = ierr
@@ -47,9 +47,7 @@ class ThermalControler(Controller):
         return [op,P,I,D]
 
     def control(self):
-        print(f'[control] {self.setpoint}')
         if self.closed_loop:
-            print(f'[control] {self.setpoint}')
             if self.sensor_a_last == 0:
                 self.sensor_a_last = self.sensor_a
 
@@ -58,13 +56,15 @@ class ThermalControler(Controller):
             self.sensor_a_last = self.sensor_a
             self.ierr = ierr
             self.out1 = out
+            return self.out1
 
-thermal = ThermalControler("Thermal Controller", 25)
-thermal.set_config_variable(("out1", float))
-thermal.set_config_variable(("out2", float))
-thermal.set_config_variable(("closed_loop", bool))
-thermal.set_config_variable(("setpoint", float))
+if __name__ == '__main__':
+    thermal = ThermalControler("Thermal Controller", 25)
+    thermal.set_config_variable(("out1", float))
+    thermal.set_config_variable(("out2", float))
+    thermal.set_config_variable(("closed_loop", bool))
+    thermal.set_config_variable(("setpoint", float))
 
-app = AppManager(MCUType.TCLAB, "tty", 12000)
-app.append_instance(thermal)
-app.init()
+    app = AppManager(MCUType.TCLAB, "tty", 12000)
+    app.append_instance(thermal)
+    app.init()

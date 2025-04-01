@@ -15,7 +15,7 @@ class MCUDriver(ABC):
     def __init__(self, mcu_type, port, baud_rate):
         self.baud_rate = baud_rate
         self.port = port
-        self.mcu_type = mcu_type
+        self.mcu_type: MCUType = mcu_type
         
     @abstractmethod
     def send(self, out):

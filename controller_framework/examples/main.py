@@ -1,3 +1,4 @@
+import time
 from controller_framework import AppManager
 from controller_framework import Controller
 from controller_framework import MCUType
@@ -43,6 +44,8 @@ class PIDControl2(Controller):
         self.accumulated_I = 0
         
     def control(self):
+        time.sleep(0.48)
+
         dt_s = self.dt
         
         measure = (self.sensor_a + self.sensor_b) / 2
