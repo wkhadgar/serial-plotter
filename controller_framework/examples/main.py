@@ -64,20 +64,21 @@ class PIDControl2(Controller):
 
         self.accumulated_I += i_inc
         self.out = windup_check
-         
-teste = AppManager(MCUType.RDATA, "COM1", 14000)
 
-pidcontrol1 = PIDControl("PID Control 1", 25, 9.02, 344.21)
-pidcontrol1.set_config_variable(("setpoint", float))
-pidcontrol1.set_config_variable(("Kp", float))
-pidcontrol1.set_config_variable(("Ki", float))
-pidcontrol1.set_config_variable(("Kd", float))
+if __name__ == '__main__':
+    teste = AppManager(MCUType.RDATA, "COM1", 14000)
 
-pidcontrol2 = PIDControl2("PID Control 2", 250, 15.02, 18.21)
-pidcontrol2.set_config_variable(("Kp", float))
-pidcontrol2.set_config_variable(("Ki", float))
+    pidcontrol1 = PIDControl("PID Control 1", 25, 9.02, 344.21)
+    pidcontrol1.set_config_variable(("setpoint", float))
+    pidcontrol1.set_config_variable(("Kp", float))
+    pidcontrol1.set_config_variable(("Ki", float))
+    pidcontrol1.set_config_variable(("Kd", float))
 
-teste.append_instance(pidcontrol1)
-teste.append_instance(pidcontrol2)
+    pidcontrol2 = PIDControl2("PID Control 2", 250, 15.02, 18.21)
+    pidcontrol2.set_config_variable(("Kp", float))
+    pidcontrol2.set_config_variable(("Ki", float))
 
-teste.init()
+    teste.append_instance(pidcontrol1)
+    teste.append_instance(pidcontrol2)
+
+    teste.init()

@@ -318,7 +318,7 @@ class SidebarGUI(QWidget):
         self.btn_update_settings.clicked.connect(self.update_control_settings)
         
         self.controls_group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; }")
-        self.settings_group.setStyleSheet("QGroupBox { background: white; font-size: 16px; font-weight: bold; }")
+        self.settings_group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; }")
         self.control_list.setStyleSheet("QListWidget { font-size: 14px; }")
         
         btn_label_style = "QPushButton { font-size: 14px; }"

@@ -18,7 +18,6 @@ class AppManager:
             raise ValueError(f"MCU inválida: {mcu}. Escolha entre {list(MCUType)}")
 
         self.__mcu = MCUDriver.create_driver(mcu_type, port, baud_rate)
-
         self.__last_read_timestamp = 0
         self.__last_control_timestamp = 0
 
@@ -28,7 +27,6 @@ class AppManager:
         self.read_dts = list()
 
         self.control_instances = {}
-
         self.running_instance: Optional[Controller] = None
 
         self.reading_thread = None
@@ -49,6 +47,30 @@ class AppManager:
         self.queue_to_gui = mp.Queue()
         self.queue_from_gui = mp.Queue()
 
+        self.ipcmanager = IPCManager(self, self.queue_to_gui, self.queue_from_gui)
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        
+        del state['reading_buffer_semaphore']
+        del state['reading_stop_event']
+        del state['command_stop_event']
+        del state['reading_thread']
+        del state['command_thread']
+        del state['reading_buffer']
+        del state['ipcmanager']
+        
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        
+        self.reading_buffer_semaphore = threading.Semaphore()
+        self.reading_stop_event = threading.Event()
+        self.command_stop_event = threading.Event()
+        self.reading_thread = None
+        self.command_thread = None
+        self.reading_buffer = Queue()
         self.ipcmanager = IPCManager(self, self.queue_to_gui, self.queue_from_gui)
 
     def __read_command(self):
@@ -98,7 +120,7 @@ class AppManager:
                 #     f"{dt_ms:.3f} ms, {now:.6f} s, {self.__last_read_timestamp:.6f} s"
                 # )
                 self.sensor_a, self.sensor_b, self.duty1, self.duty2 = self.__mcu.read()
-                print(f'[APP:read] {self.sensor_a}, {self.sensor_b}, {self.duty1}, {self.duty2}')
+                print(f'[APP:read] {self.sensor_a}, {self.sensor_b}, {self.duty1}, {self.duty2}, dt: {dt_ms}')
 
                 # data = [self.sensor_a, self.sensor_b, self.duty1, self.duty2]
                 # self.gui_data_queue.put(data)
@@ -151,6 +173,9 @@ class AppManager:
         print("Connect")
         self.__connect()
 
+        self.gui_process = mp.Process(target=MainGUI.start_gui, args=(self,))
+        self.gui_process.start()
+
         print("Start reading values!")
         self.reading_thread = threading.Thread(target=self.__read_values, daemon=True)
         self.reading_thread.start()
@@ -160,8 +185,6 @@ class AppManager:
         # self.command_thread = threading.Thread(target=self.__read_command, daemon=True)
         # self.command_thread.start()
 
-        self.gui_process = mp.Process(target=MainGUI.start_gui, args=(self,))
-        self.gui_process.start()
         self.gui_process.join()
 
         self.reading_stop_event.set()

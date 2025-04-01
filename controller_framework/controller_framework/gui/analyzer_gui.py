@@ -227,4 +227,4 @@ class AnalyzerGUI(QWidget):
             if mode == "open":
                 temps = np.array(sig.savgol_filter(temps, int(len(x_data) * 0.02), 6))
 
-            self.plotter.update_plot(x_data, temps, mode)
+            self.plotter_gui.update_plot(x_data, temps, mode)
