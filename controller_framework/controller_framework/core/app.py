@@ -142,7 +142,7 @@ class AppManager:
             try:
                 read_start = time.perf_counter()
 
-                self.sensor_a, self.sensor_b, self.duty1, self.duty2 = self.__mcu.read()
+                self.sensor_a, self.sensor_b, self.duty1, self.duty2 = self.__mcu.read(self.duty1, self.duty2)
 
                 read_elapsed = (time.perf_counter() - read_start) * 1e3
             except Exception as e:
