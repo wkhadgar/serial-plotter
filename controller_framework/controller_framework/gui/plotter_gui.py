@@ -1,29 +1,27 @@
 from collections.abc import Callable
 from functools import partial
 import os
-import sys
 
 from controller_framework.core.controller import Controller
 import numpy as np
 import pandas as pd
 
+from PySide6 import QtCore
+from PySide6.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QLabel, QScrollArea,
+                             QPushButton, QHBoxLayout, QLineEdit, QGraphicsProxyWidget, QListWidget, QCheckBox )
 import pyqtgraph as pg
-from PyQt5 import QtCore
-from PyQt5.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QLabel, 
-                             QPushButton, QHBoxLayout, QLineEdit, QGraphicsProxyWidget, QListWidget )
-
 import scipy.signal as sig
 
 class ControlGUI(QWidget):
-    def __init__(self, *, parent = None, app_manager, x_label: str, y_label: str):
+    def __init__(self, *, parent, app_mirror, x_label: str, y_label: str):
         super().__init__(parent)
 
-        from controller_framework.core import AppManager
-        assert isinstance(app_manager, AppManager)
-        self.app_manager = app_manager
-        
         self.parent = parent
-        
+
+        from controller_framework.core import AppManager
+        assert isinstance(app_mirror, AppManager)
+        self.app_mirror = app_mirror
+
         self.fullscreen = False
         
         self.init_timestamp = pd.Timestamp.now()
@@ -41,7 +39,7 @@ class ControlGUI(QWidget):
         layout.addWidget(self.win)
         self.setLayout(layout)
         
-        self.current_setpoint_line = pg.InfiniteLine(pos=app_manager.get_setpoint(), angle=0, movable=False,
+        self.current_setpoint_line = pg.InfiniteLine(pos=app_mirror.get_setpoint(), angle=0, movable=False,
                                                      label="Temperatura desejada [-]",
                                                      pen=pg.mkPen("orange", width=2))
 
@@ -95,7 +93,7 @@ class ControlGUI(QWidget):
 
         self.temp_input = QLineEdit()
         self.temp_input.setPlaceholderText("Defina a temperatura desejada (°C). [Entre 20°C e 50°C]...")
-        self.temp_input.setAlignment(QtCore.Qt.AlignCenter)
+        self.temp_input.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
         self.proxy = QGraphicsProxyWidget()
         self.proxy.setWidget(self.temp_input)
@@ -116,9 +114,9 @@ class ControlGUI(QWidget):
         log_file_path = log_path + f"log_{datetime.year}-{datetime.month}-{datetime.day}-{datetime.hour}-{datetime.minute}-{datetime.second}.csv"
         df.to_csv(log_file_path, index=False)
         
-        self.update_delay = 10
+        self.update_delay = 15
         self.plot_timer = QtCore.QTimer()
-        self.plot_timer.timeout.connect(partial(self.update_plots, log_file_path))
+        self.plot_timer.timeout.connect(partial(self.update_data, log_file_path))
         self.plot_timer.start(self.update_delay)
         self.toggle_plot_view()
 
@@ -126,26 +124,58 @@ class ControlGUI(QWidget):
         if self.temp_input.hasFocus():
             super_press_handler(ev)
         else:
-            if ev.key() == QtCore.Qt.Key_Space:
+            if ev.key() == QtCore.Qt.Key.Key_Space:
                 self.toggle_plot_view()
-            elif ev.key() == QtCore.Qt.Key_Escape:
-                sys.exit(0)
-            elif ev.key() == QtCore.Qt.Key_F:
-                self.toggle_hide_mode()
+            elif ev.key() == QtCore.Qt.Key.Key_Escape:
+                super_press_handler(ev)
+            elif ev.key() == QtCore.Qt.Key.Key_F:
+                super_press_handler(ev)
 
     def __on_return_pressed(self):
-        self.app_manager.update_setpoint(float(self.temp_input.text()))
-        self.temp_input.clear()
-        
-        self.update_setpoint_label()
+        setpoint = float(self.temp_input.text())
+
+        self.app_mirror.update_setpoint(setpoint)
+
+        self.parent.command_triggered.emit("update_setpoint", {"value": setpoint})
 
     def update_setpoint_label(self):
-        self.current_setpoint_line.setValue(self.app_manager.get_setpoint())
-        self.current_setpoint_line.label.setText(f"Temperatura desejada [{self.app_manager.get_setpoint()}°C]")
+        self.current_setpoint_line.setValue(self.app_mirror.get_setpoint())
+        self.current_setpoint_line.label.setText(f"Temperatura desejada [{self.app_mirror.get_setpoint()}°C]")
         self.current_setpoint_line.update()
 
-    def update_plots(self, log_f_path: str):
-        temp_a, temp_b, duty = self.app_manager.sensor_a, self.app_manager.sensor_b, self.app_manager.duty
+    def update_data(self, log_f_path: str):
+        try:
+            data = self.app_mirror.queue_to_gui.get(timeout=0.01)  # Espera até 10ms
+
+            command = data.get('type')
+            payload = data.get('payload')
+            # print(f'[PlotterGUI] recever data: {command, payload}')
+
+            if command == "full_state":
+                sensor_a = payload.get('sensor_a')
+                sensor_b = payload.get('sensor_b')
+                duty1 = payload.get('duty1')
+                duty2 = payload.get('duty2')
+                setpoint = payload.get('setpoint')
+                running_instance = payload.get('running_instance')
+                control_instances_data = payload.get('control_instances')
+
+                self.app_mirror.sensor_a = sensor_a
+                self.app_mirror.sensor_b = sensor_b
+                self.app_mirror.duty1 = duty1
+                self.app_mirror.duty2 = duty2
+                self.app_mirror.running_instance = running_instance
+                self.app_mirror.control_instances = control_instances_data
+                self.app_mirror.update_setpoint(setpoint)
+
+                self.update_plots(log_f_path)
+        except:
+            pass
+
+    def update_plots(self, log_f_path):
+        temp_a, temp_b, duty = self.app_mirror.sensor_a, self.app_mirror.sensor_b, self.app_mirror.duty1
+
+        self.update_setpoint_label()
 
         timestamp = pd.Timestamp.now()
         self.plot_seconds = np.append(self.plot_seconds, (timestamp - self.init_timestamp).total_seconds())
@@ -161,7 +191,7 @@ class ControlGUI(QWidget):
                 f"{temp_a},"
                 f"{temp_b},"
                 f"{duty},"
-                f"{self.app_manager.setpoint}\n")
+                f"{self.app_mirror.setpoint}\n")
 
         if len(self.temp_m_data) > 400:
             f_temps = np.array(sig.savgol_filter(self.temp_m_data, int(len(self.temp_m_data) * 0.02), 6))
@@ -188,10 +218,6 @@ class ControlGUI(QWidget):
             case "M":
                 self.curve_m.setData(self.plot_seconds, f_temps)
                 self.curve_m_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
-                
-    def toggle_hide_mode(self):
-        if self.parent != None:
-            self.parent.toggle_hide_mode()
 
     def toggle_plot_view(self):
         self.current_mode = (self.current_mode + 1) % len(self.plot_views)
@@ -235,17 +261,19 @@ class ControlGUI(QWidget):
                 self.proxy.hide()
 
 class SidebarGUI(QWidget):
-    def __init__(self, app_manager, control_gui, parent=None):
+    def __init__(self, parent, app_mirror, control_gui):
         super().__init__(parent)
         
         from controller_framework.core import AppManager
-        assert isinstance(app_manager, AppManager)
-        self.app_manager = app_manager
-        
-        self.control_gui = control_gui
+        assert isinstance(app_mirror, AppManager)
+        self.app_mirror = app_mirror
 
+        self.parent = parent
+
+        self.control_gui = control_gui
         self.current_control = None
         self.input_fields = {}
+
 
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
@@ -259,32 +287,67 @@ class SidebarGUI(QWidget):
         
         self.btn_activate_control = QPushButton("Ativar Controle")
         self.btn_activate_control.clicked.connect(self.activate_control)
+        
+        self.btn_deactivate_control = QPushButton("Desativar Controle")
+        self.btn_deactivate_control.clicked.connect(self.deactivate_control)
+        self.btn_deactivate_control.setEnabled(False)
 
         self.layout.addWidget(self.controls_group)
-        self.layout.addWidget(self.btn_activate_control)
+        
+        self.hbox = QHBoxLayout()
+        self.hbox.addWidget(self.btn_activate_control)
+        self.hbox.addWidget(self.btn_deactivate_control)
+        
+        self.layout.addLayout(self.hbox)
 
         self.settings_group = QGroupBox("Configurações do Controle")
+        self.settings_group.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.settings_layout = QFormLayout()
         self.settings_group.setLayout(self.settings_layout)
+        
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setFixedHeight(300)
+        self.scroll_area.setWidget(self.settings_group)
 
         self.btn_update_settings = QPushButton("Atualizar Configurações")
-        self.layout.addWidget(self.settings_group)
+        self.layout.addWidget(self.scroll_area)
         self.layout.addWidget(self.btn_update_settings)
 
         self.control_list.itemSelectionChanged.connect(self.update_config_fields)
         self.btn_update_settings.clicked.connect(self.update_control_settings)
         
         self.controls_group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; }")
-        self.settings_group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; }")
+        self.settings_group.setStyleSheet("QGroupBox { background: white; font-size: 16px; font-weight: bold; }")
         self.control_list.setStyleSheet("QListWidget { font-size: 14px; }")
-        self.btn_activate_control.setStyleSheet("QPushButton { font-size: 14px; }")
-        self.btn_update_settings.setStyleSheet("QPushButton { font-size: 14px; }")
+        
+        btn_label_style = "QPushButton { font-size: 14px; }"
+        self.btn_activate_control.setStyleSheet(btn_label_style)
+        self.btn_deactivate_control.setStyleSheet(btn_label_style)
+        self.btn_update_settings.setStyleSheet(btn_label_style)
+        
+        self.scroll_area.setStyleSheet("""
+                                            QScrollBar:vertical {
+                                                background: white;
+                                                width: 10px;
+                                            }
+                                            QScrollBar:horizontal {
+                                                background: white;
+                                                height: 10px;
+                                            }
+                                            QScrollBar::handle:vertical {
+                                                background: #f0f0f0;
+                                            }
+                                            QScrollBar::handle:horizontal {
+                                                background: #f0f0f0;
+                                            }
+                                        """)
 
         self.update_control_list()
 
     def update_control_list(self):
         self.control_list.clear()
-        for control_name in self.app_manager.list_instances():
+        for control_name in self.app_mirror.list_instances():
             self.control_list.addItem(control_name)
 
     def update_config_fields(self):
@@ -292,69 +355,105 @@ class SidebarGUI(QWidget):
         
         if selected_item:
             control_name = selected_item.text()
-            self.current_control:Controller = self.app_manager.control_instances[control_name]
+            self.current_control:Controller = self.app_mirror.control_instances[control_name]
                 
             for i in reversed(range(self.settings_layout.count())):
                 self.settings_layout.itemAt(i).widget().deleteLater()
             self.input_fields.clear()
 
-            for var_name, value in self.current_control.configurable_vars.items():
-                input_field = QLineEdit()
-                input_field.setText(str(value))
-                input_field.setStyleSheet("QLineEdit { font-size: 14px; }")
+            for var_name, var_data in self.current_control.configurable_vars.items():
+                value = var_data['value']
+                var_type = var_data['type']
                 
                 label = QLabel(f"{var_name}")
                 label.setStyleSheet("QLabel { font-size: 14px; }")
-                                    
+
+                if var_type == bool:
+                    input_field = QCheckBox()
+                    input_field.setChecked(bool(value))
+                    input_field.setStyleSheet("QCheckBox { font-size: 14px; }")
+                else:
+                    input_field = QLineEdit()
+                    input_field.setText(str(value))
+                    input_field.setStyleSheet("QLineEdit { font-size: 14px; }")
+
                 self.settings_layout.addRow(label, input_field)
+
                 self.input_fields[var_name] = input_field
 
             self.settings_group.setTitle(f"Configurações de {control_name}")
 
     def update_control_settings(self):
         if self.current_control:
-            print(self.current_control.configurable_vars)
-            for var_name, input_field in self.input_fields.items():
+            for var_name, widget in self.input_fields.items():
                 try:
-                    new_value = float(input_field.text())
+                    if isinstance(widget, QCheckBox):
+                        new_value = widget.isChecked()
+                    elif isinstance(widget, QLineEdit):
+                        new_value = widget.text()
+                    else:
+                        continue
+
                     self.current_control.update_variable(var_name, new_value)
+
+                    command = "update_variable"
+                    payload = {
+                        "control_name": self.current_control.label,
+                        "var_name": var_name,
+                        "new_value": new_value
+                    }
+
+                    self.parent.command_triggered.emit(command, payload)
+                    
                 except ValueError:
                     print(f"Entrada inválida para '{var_name}'")
             
-            if(self.app_manager.running_instance == self.current_control):
-                self.app_manager.update_setpoint(self.current_control.setpoint)
-                self.control_gui.update_setpoint_label()
-                
-            print(self.current_control.configurable_vars)
+            if(self.app_mirror.running_instance.label == self.current_control.label):
+                self.app_mirror.update_setpoint(self.current_control.setpoint)
+                self.parent.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoint})
                     
     def activate_control(self):
         current_control = self.control_list.currentItem()
         
         if(current_control != None):
             current_control_label = current_control.text()
-            self.app_manager.start_controller(current_control_label)
-            self.app_manager.update_setpoint(self.current_control.setpoint)
+            self.app_mirror.update_setpoint(self.current_control.setpoint)
+
+            self.app_mirror.running_instance = self.app_mirror.get_instance(current_control_label)
+            self.parent.command_triggered.emit("start_controller", {"control_name": current_control_label})
+            self.parent.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoint})
+
             self.control_gui.update_setpoint_label()
+            
+            self.btn_deactivate_control.setEnabled(True)
+    
+    def deactivate_control(self):
+        self.app_mirror.stop_controller()
+        self.parent.command_triggered.emit("stop_controller", {})
+        
+        self.btn_deactivate_control.setEnabled(False)
 
 class PlotterGUI(QWidget):
-    def __init__(self, app_manager):
+    command_triggered = QtCore.Signal(str, object)
+
+    def __init__(self, app_mirror):
         super().__init__()
         
         from controller_framework.core import AppManager
-        assert isinstance(app_manager, AppManager)
-        self.app_manager = app_manager
+        assert isinstance(app_mirror, AppManager)
+        self.app_mirror = app_mirror
 
         self.layout = QHBoxLayout()
         self.setLayout(self.layout)
 
-        self.plotter_gui = ControlGUI(parent=self, app_manager=self.app_manager, x_label="Tempo decorrido (s)", y_label="Temperatura (°C)")
-        self.sidebar = SidebarGUI(self.app_manager, self.plotter_gui)
+        self.plotter_gui = ControlGUI(parent=self, app_mirror=self.app_mirror, x_label="Tempo decorrido (s)", y_label="Temperatura (°C)")
+        self.sidebar = SidebarGUI(parent=self, app_mirror=self.app_mirror, control_gui=self.plotter_gui)
 
         self.layout.addWidget(self.sidebar, 1)
         self.layout.addWidget(self.plotter_gui, 4)
         
         self.hide_mode = False
-        
+   
     def toggle_hide_mode(self):
         if self.hide_mode:
             self.sidebar.show()
