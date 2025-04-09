@@ -1,5 +1,5 @@
 import os
-from PyQt5.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget, QPushButton, QVBoxLayout, QFileDialog,
     QRadioButton, QButtonGroup, QListWidget, QHBoxLayout
 )
@@ -56,7 +56,7 @@ class SidebarAnalyzer(QWidget):
                 self.file_list.addItem(file)
 
     def file_selected(self, item):
-        self.parent_gui.selected_file = os.path.join("logs", item.text())
+        self.parent_gui.selected_file = os.path.join("temp_logs", item.text())
         self.analyze_button.setEnabled(True)
 
     def start_analysis(self):
@@ -200,25 +200,26 @@ class PlotterAnalyzer(QWidget):
         self.repaint()
         
 class AnalyzerGUI(QWidget):
-    def __init__(self, app_manager):
+    def __init__(self, app_mirror):
         super().__init__()
-        self.app_manager = app_manager
+        self.app_mirror = app_mirror
         self.selected_file = None
 
         self.setWindowTitle("Thermal Analyzer")
         self.setMinimumSize(900, 600)
 
-        self.main_layout = QHBoxLayout()
-        self.setLayout(self.main_layout)
+        self.layout = QHBoxLayout()
+        self.setLayout(self.layout)
 
         self.sidebar = SidebarAnalyzer(self)
-        self.plotter = PlotterAnalyzer(self)
+        self.plotter_gui = PlotterAnalyzer(self)
 
-        self.main_layout.addWidget(self.sidebar)
-        self.main_layout.addWidget(self.plotter, 1)
+        self.layout.addWidget(self.sidebar, 1)
+        self.layout.addWidget(self.plotter_gui, 4)
 
     def start_analysis(self, file_path, mode):
         if file_path:
+            print(file_path)
             self.df = pd.read_csv(file_path)
             x_data = [float(row["seconds"]) - self.df.iloc[0]["seconds"] for _, row in self.df.iterrows()]
             temps = (self.df["temp_a"] + self.df["temp_b"]) / 2
