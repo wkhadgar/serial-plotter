@@ -47,6 +47,7 @@ class MainGUI(QMainWindow):
         app = QApplication(sys.argv)
         window = MainGUI(app_mirror)
         window.showFullScreen()
+        print('[GUI] started')
         sys.exit(app.exec())
 
     def key_press_handle(self, super_press_handler, ev):

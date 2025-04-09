@@ -33,6 +33,7 @@ class IPCManager:
         }
 
     def __run(self):
+        print('[IPC] started')
         while not self.stop_event.is_set():
             self.__parse_command()
             self.__send_full_state()
