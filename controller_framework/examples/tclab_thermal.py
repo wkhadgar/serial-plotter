@@ -65,6 +65,6 @@ if __name__ == '__main__':
     thermal.set_config_variable(("closed_loop", bool))
     thermal.set_config_variable(("setpoint", float))
 
-    app = AppManager(MCUType.TCLAB, "tty", 12000)
+    app = AppManager(MCUType.TCLAB, "COM5", 9600)
     app.append_instance(thermal)
     app.init()

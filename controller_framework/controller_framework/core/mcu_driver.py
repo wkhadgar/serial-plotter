@@ -117,7 +117,7 @@ class TCLABDriver(MCUDriver):
         self.timeout = timeout
 
     def connect(self):
-        self.ser = serial.Serial(self.port, self.baud_rate, self.timeout)
+        self.ser = serial.Serial(port=self.port, baudrate=self.baud_rate, timeout=self.timeout)
         time.sleep(2)
 
     def read(self, out1=0.0, out2=0.0):

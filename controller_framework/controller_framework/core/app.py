@@ -139,14 +139,14 @@ class AppManager:
             dt_ms = dt_s * 1000.0
             self.read_dts.append(dt_s)
 
+            read_start = time.perf_counter()
             try:
-                read_start = time.perf_counter()
 
                 self.sensor_a, self.sensor_b, self.duty1, self.duty2 = self.__mcu.read(self.duty1, self.duty2)
 
-                read_elapsed = (time.perf_counter() - read_start) * 1e3
             except Exception as e:
                 print(f"[APP:read] Erro ao ler dados dos sensores: {e}")
+            read_elapsed = (time.perf_counter() - read_start) * 1e3
 
             if self.running_instance is not None:
                 control_start = time.perf_counter()
