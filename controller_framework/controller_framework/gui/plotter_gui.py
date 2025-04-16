@@ -133,6 +133,7 @@ class ControlGUI(QWidget):
 
     def __on_return_pressed(self):
         setpoint = float(self.temp_input.text())
+        self.temp_input.clear()
 
         self.app_mirror.update_setpoint(setpoint)
 
@@ -149,7 +150,6 @@ class ControlGUI(QWidget):
 
             command = data.get('type')
             payload = data.get('payload')
-            # print(f'[PlotterGUI] recever data: {command, payload}')
 
             if command == "full_state":
                 sensor_a = payload.get('sensor_a')
@@ -318,7 +318,7 @@ class SidebarGUI(QWidget):
         self.btn_update_settings.clicked.connect(self.update_control_settings)
         
         self.controls_group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; }")
-        self.settings_group.setStyleSheet("QGroupBox { background: white; font-size: 16px; font-weight: bold; }")
+        self.settings_group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; }")
         self.control_list.setStyleSheet("QListWidget { font-size: 14px; }")
         
         btn_label_style = "QPushButton { font-size: 14px; }"
@@ -408,7 +408,7 @@ class SidebarGUI(QWidget):
                 except ValueError:
                     print(f"Entrada inválida para '{var_name}'")
             
-            if(self.app_mirror.running_instance.label == self.current_control.label):
+            if(self.app_mirror.running_instance and self.app_mirror.running_instance.label == self.current_control.label):
                 self.app_mirror.update_setpoint(self.current_control.setpoint)
                 self.parent.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoint})
                     

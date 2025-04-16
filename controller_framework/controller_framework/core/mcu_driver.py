@@ -2,7 +2,9 @@ from abc import ABC, abstractmethod
 from enum import Enum
 import random
 import struct
+import time
 import numpy as np
+import serial
 import tclab
 from pyocd.core.helpers import ConnectHelper, Session
 
@@ -15,7 +17,7 @@ class MCUDriver(ABC):
     def __init__(self, mcu_type, port, baud_rate):
         self.baud_rate = baud_rate
         self.port = port
-        self.mcu_type = mcu_type
+        self.mcu_type: MCUType = mcu_type
         
     @abstractmethod
     def send(self, out):
@@ -110,19 +112,28 @@ class RandomDataDriver(MCUDriver):
         pass
 
 class TCLABDriver(MCUDriver):
-    def __init__(self, mcu_type, port, baud_rate):
+    def __init__(self, mcu_type, port, baud_rate, timeout=0.1):
         super().__init__(mcu_type, port, baud_rate)
-
-        self.a:tclab.TCLab = None
+        self.timeout = timeout
 
     def connect(self):
-        self.a = tclab.TCLab(debug=False)
+        self.ser = serial.Serial(port=self.port, baudrate=self.baud_rate, timeout=self.timeout)
+        time.sleep(2)
 
-    def read(self):
-        self.sensor_a, self.sensor_b, self.duty1, self.duty2 = self.a.T1, self.a.T2, self.a.Q1(None), self.a.Q2(None)
+    def read(self, out1=0.0, out2=0.0):
+        def convert_raw(raw_adc, aref=3.3):
+            return raw_adc * (aref / 1023.0 * 100.0) - 50.0
+        
+        self.ser.write(b"GET_TEMP\n")
 
-        return self.sensor_a, self.sensor_b, self.duty1, self.duty2
+        raw_temps = [int(x) for x in self.ser.readline().decode().strip().split(',')]
+
+        celsius_temps = [convert_raw(raw_temp) for raw_temp in raw_temps]
+        dutys = self.send(out1, out2)
+
+        return celsius_temps + dutys
 
     def send(self, out1 = 0.0, out2 = 0.0):
-        self.a.Q1(out1)
-        # self.a.Q2(out2)
+        self.ser.write(f"SET_PWM:{out1},{out2}\n".encode())
+
+        return [int(x) for x in self.ser.readline().decode().strip()[4:].split(',')]
