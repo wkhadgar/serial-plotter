@@ -222,9 +222,10 @@ class AnalyzerGUI(QWidget):
             print(file_path)
             self.df = pd.read_csv(file_path)
             x_data = [float(row["seconds"]) - self.df.iloc[0]["seconds"] for _, row in self.df.iterrows()]
-            temps = (self.df["temp_a"] + self.df["temp_b"]) / 2
+            #temps = (self.df["temp_a"] + self.df["temp_b"]) / 2
+            temps = self.df["temp_a"]
 
             if mode == "open":
                 temps = np.array(sig.savgol_filter(temps, int(len(x_data) * 0.02), 6))
 
-            self.plotter.update_plot(x_data, temps, mode)
+            self.plotter_gui.update_plot(x_data, temps, mode)
