@@ -1,3 +1,5 @@
+import sys
+
 from controller_framework import AppManager
 from controller_framework import Controller
 from controller_framework import MCUType
@@ -56,7 +58,7 @@ class ThermalControler(Controller):
             self.sensor_a_last = self.sensor_a
             self.ierr = ierr
             self.out1 = out
-            return self.out1
+        return self.out1
 
 if __name__ == '__main__':
     thermal = ThermalControler("Thermal Controller", 25)
@@ -65,6 +67,6 @@ if __name__ == '__main__':
     thermal.set_config_variable(("closed_loop", bool))
     thermal.set_config_variable(("setpoint", float))
 
-    app = AppManager(MCUType.TCLAB, "COM5", 9600)
+    app = AppManager(MCUType.TCLAB, sys.argv[1], sys.argv[2])
     app.append_instance(thermal)
     app.init()

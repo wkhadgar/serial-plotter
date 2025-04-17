@@ -1,4 +1,4 @@
-const uint8_t TEMP_PINS[] = {A0, A1};
+const uint8_t TEMP_PINS[] = {A0, A2};
 const uint8_t HEATER_PINS[] = {3, 5};
 const uint8_t LED_PIN = 9;
 
@@ -21,6 +21,7 @@ void setup() {
 		pinMode(HEATER_PINS[i], OUTPUT);
 	}
 	pinMode(LED_PIN, OUTPUT);
+    analogReference(EXTERNAL);
 }
 
 void loop() {
@@ -60,13 +61,12 @@ void process_serial() {
 			if (commaPos > 0) {
 				pwm_values[0] = command.substring(8, commaPos).toInt();
 				pwm_values[1] = command.substring(commaPos + 1).toInt();
-
-				Serial.print("ACK:");
-				Serial.print(pwm_values[0]);
-				Serial.print(",");
-				Serial.println(pwm_values[1]);
 			}
-		}
+		} else if (command.startsWith("GET_PWM")) {
+			Serial.print(pwm_values[0]);
+			Serial.print(",");
+			Serial.println(pwm_values[1]);
+    }
 	}
 }
 

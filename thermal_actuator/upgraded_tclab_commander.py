@@ -21,7 +21,7 @@ class TemperatureController:
 
 # Usage example
 if __name__ == "__main__":
-    controller = TemperatureController('/dev/ttyACM0')
+    controller = TemperatureController('/dev/ttyACM1')
     try:
         while True:
             temp_a, temp_b = controller.get_temperatures()

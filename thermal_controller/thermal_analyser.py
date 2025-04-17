@@ -35,6 +35,20 @@ def analyse_closed(df: pd.DataFrame):
 
     max_over_signal = f_temps[np.argmin(f_temps)] if f_temps[0] > f_temps[-1] else f_temps[np.argmax(f_temps)]
 
+    if len(label_targets.split(",")) < 2:
+        tgt = targets[-1] - f_temps[0]
+        t10 = 0
+        t90 = 0
+        for i in range(len(f_temps)):   
+            if (f_temps[i] - f_temps[0]) < tgt * 0.1:
+                t10 = x[i]
+            if (f_temps[i] - f_temps[0]) < tgt * 0.9 :
+                t90 = x[i]
+
+        axs.axvline(t10, color="orange", linestyle="--")
+        axs.axvline(t90, color="orange", linestyle="--")
+        print(f"tr = {t90} - {t10} = {t90-t10}")
+
     axs.axvline(0, color="black", linestyle="--")
     axs.axhline(f_temps[0], color="black", linestyle="--", label=f"Temperatura inicial ({f_temps[0]:.2f}ºC)")
     axs.axhline(max_over_signal, color="red", linestyle="--", label=f"Máximo sobressinal ({max_over_signal:.2f}ºC)")
