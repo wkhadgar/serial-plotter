@@ -3,10 +3,15 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "thermal-plotter"
-version = "0.1.0"
-description = "Visualizador de dados de uma planta térmica via serial"
-authors = [{ name = "Paulo Santos", email = "pauloxrms@gmail.com" }]
+name = "controller-framework"
+version = "0.0.2"
+description = "A framework to simplify creation of controllers"
+authors = [
+    { name = "Paulo Santos", email = "pauloxrms@gmail.com" },
+    { name = "Higor Lima", email = "limahigor.g@gmail.com" },
+    { name = "Rita Lemos", email = "rklp@ic.ufal.br" },
+    { name = "Vinicius Rafael", email = "vinicius.rafael751@gmail.com" },
+    ]
 license = { text = "GNU" }
 readme = "README.md"
 requires-python = ">=3.9"
@@ -27,7 +32,4 @@ dependencies = [
 ]
 
 [tool.setuptools]
-py-modules = ["thermal_controller.thermal_plotter"]
-
-[project.scripts]
-tp = "thermal_controller.thermal_plotter:main"
+py-modules = ["controller_framework"]

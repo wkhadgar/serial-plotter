@@ -16,8 +16,8 @@ python --version
 Para instalar o plotter:
 
 ```shell
-cd serial-plotter/controller_framework
-pip install -e .
+cd serial-plotter
+pip install .
 ```
 
 ## Como usar
@@ -25,7 +25,8 @@ pip install -e .
 Para executar o `splot`, utilize o seguinte comando:
 
 ```sh
-python3 examples/main.py
+cd examples
+python main.py
 ```
 
 ## Modos
@@ -64,7 +65,7 @@ python3 examples/main.py
 ## Estrutura do Projeto
 
 ```sh
-splot/
+serial-plotter/
 ├── controller_framework/
 │   ├── core/                 # Lógica principal do framework
 │   ├── gui/                  # Interface gráfica (Plotter e Analyzer)
@@ -72,15 +73,16 @@ splot/
 │   └── ...
 ├── examples/
 │   ├── main.py               # Arquivo principal para rodar o splot
-│   ├── logs/                 # Pasta com logs de execuções anteriores
-├── setup.py                  # Configuração do pacote
+│   ├── temp_logs/            # Pasta com logs de execuções anteriores
+├── pyproject.toml            # Configuração do pacote
 ```
 
 ## Exemplo de Uso
 
 1. **Executar o `splot`**  
    ```sh
-   python3 examples/main.py
+   cd examples
+   python main.py
    ```
 2. **Selecionar o controlador ativo** no menu lateral.
 3. **Editar os parâmetros** (Setpoint, Kp, Ki, Kd).
