@@ -92,31 +92,6 @@ class AppManager:
             mcu_config['port'],
             mcu_config['baud_rate']
         )
-        
-
-    def __read_command(self):
-        while not self.command_stop_event.is_set():
-            try:
-                command, values = self.command_data_queue.get_nowait()
-                print(f"[APP:command] Comando {command} recebido com valor {values}")
-
-                method = None
-                if(command == "update_variable"):
-                    instance = self.get_instance(values[0])
-                    method = getattr(instance, command)
-                    values = values[1:]
-                else:
-                    method = getattr(self, command)
-                
-                if isinstance(values, list):
-                    method(*values)
-                else:
-                    method(values)
-            except Empty:
-                pass
-            except Exception as e:
-                print(f'[APP:command] Comando nao existe! {e, command, values}')
-            time.sleep(0.05)
 
     def __read_values(self):
         print('[APP:read] started')
@@ -192,12 +167,6 @@ class AppManager:
 
     def __feedback(self):
         self.__mcu.send(self.running_instance.out1, self.running_instance.out2)
-
-    def __update_setpoint(self, setpoint):
-        try:
-            self.running_instance.setpoint = setpoint
-        except AttributeError as e:
-            pass
 
     def __control(self):
         now = time.perf_counter()
