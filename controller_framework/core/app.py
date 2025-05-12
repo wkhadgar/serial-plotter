@@ -22,16 +22,12 @@ class AppManager:
         self.running_instance: Optional[Controller] = None
 
         self.sample_time = 1000.0 # ms
-        self.setpoint = 0
-        self.sensor_a = 0
-        self.sensor_b = 0
-        self.duty1 = 0
-        self.duty2 = 0
-        self.dt = 0
 
-        self.teste1 = 0
-        self.teste2 = 0
-        self.teste3 = 0
+        self.actuator_vars = {}
+        self.sensor_vars = {}
+
+        self.num_sensors = 0
+        self.num_actuators = 0
 
         self.__last_read_timestamp = 0
         self.__last_control_timestamp = 0
@@ -40,6 +36,10 @@ class AppManager:
 
         self.control_dts = list()
         self.read_dts = list()
+
+        self.dt = 0
+
+        self.setpoints = []
 
         self.reading_thread = None
         self.reading_stop_event = threading.Event()
@@ -104,9 +104,6 @@ class AppManager:
             control_elapsed = 0
             read_elapsed = 0
             feedback_elapsed = 0
-            read_dt = 0
-            write_dt = 0
-            control_dt = 0
 
             now = time.perf_counter()
             
@@ -117,7 +114,13 @@ class AppManager:
             read_start = time.perf_counter()
             try:
 
-                self.sensor_a, self.sensor_b, self.duty1, self.duty2 = self.__mcu.read(self.duty1, self.duty2)
+                values = self.__mcu.read()
+                
+                sensor_values = values[:self.num_sensors]
+                actuator_values = values[self.num_actuators:]
+
+                self.update_actuator_vars(actuator_values)
+                self.update_sensors_vars(sensor_values)
 
             except Exception as e:
                 print(f"[APP:read] Erro ao ler dados dos sensores: {e}")
@@ -126,20 +129,10 @@ class AppManager:
             if self.running_instance is not None:
                 control_start = time.perf_counter()
                 self.__control()
-
-                control_dt = time.perf_counter() - self.teste2 if self.teste2 != 0 else target_dt_s
-                control_dt = control_dt * 1e3
-                self.teste2 = time.perf_counter()
-
                 control_elapsed = (time.perf_counter() - control_start) * 1e3
 
                 feedback_start = time.perf_counter()
                 self.__feedback()
-
-                write_dt = time.perf_counter() - self.teste3 if self.teste3 != 0 else target_dt_s
-                write_dt = write_dt * 1e3
-                self.teste3 = time.perf_counter()
-
                 feedback_elapsed = (time.perf_counter() - feedback_start) * 1e3
 
             self.__last_read_timestamp = now
@@ -148,14 +141,14 @@ class AppManager:
             sleep_time = next_read_time - time.perf_counter()
 
             print(  
-                    f'[APP:read] {self.sensor_a}, {self.sensor_b}, {self.duty1}, {self.duty2} | '
+                    # f'[APP:read] {self.sensor_a}, {self.sensor_b}, {self.duty1}, {self.duty2} | '
                     f'read dt: {dt_ms:.3f} ms, control dt: {self.dt:.3f} ms | all elapsed: {elapsed:.3f} ms, sleep: {(sleep_time * 1e3):.3f} ms | '
                     f'read elapsed: {read_elapsed:.3f} ms, control elapsed: {control_elapsed:.3f} ms | feedback elapsed: {feedback_elapsed:.3f} ms'
                  )
             
-            print(
-                    f'[APP:read] teste: {read_dt:.3f}, {control_dt:.3f}, {write_dt:.3f}'
-                 )
+            # print(
+            #         f'[APP:read] teste: {read_dt:.3f}, {control_dt:.3f}, {write_dt:.3f}'
+            #      )
 
             if sleep_time > 0:
                 time.sleep(sleep_time)
@@ -166,7 +159,8 @@ class AppManager:
             next_read_time += target_dt_s
 
     def __feedback(self):
-        self.__mcu.send(self.running_instance.out1, self.running_instance.out2)
+        actuator_values = self.running_instance.get_actuator_values()
+        self.__mcu.send(*actuator_values)
 
     def __control(self):
         now = time.perf_counter()
@@ -198,8 +192,8 @@ class AppManager:
                 break
             time.sleep(0.01)
 
-        if control_done.is_set():
-            self.running_instance.out1 = control_result[0]
+        # if control_done.is_set():
+        #     self.running_instance.out1 = control_result[0]
         self.__last_control_timestamp = time.perf_counter()
 
     def __connect(self):
@@ -237,7 +231,7 @@ class AppManager:
 
             try:
                 self.running_instance = self.control_instances[label]
-                self.setpoint = self.running_instance.setpoint
+                self.update_setpoint(self.running_instance.setpoints)
                 print(f"[APP] Start controller: {label}")
             except Exception as e:
                 print(f"value error {e}")
@@ -260,13 +254,64 @@ class AppManager:
             return None
 
     def get_setpoint(self):
-        return self.setpoint
+        if len(self.setpoints) == 0:
+            return 0
+        
+        return self.setpoints
 
-    def update_setpoint(self, setpoint):
-        self.setpoint = setpoint
+    def update_setpoint(self, setpoints):
+        tam = min(self.num_sensors, len(setpoints))
+        self.setpoints[:tam] = setpoints[:tam]
 
         if self.running_instance != None:
-            self.running_instance.setpoint = setpoint
+            self.running_instance.setpoints = self.setpoints
 
-            if "setpoint" in self.running_instance.configurable_vars:
-                self.running_instance.configurable_vars["setpoint"]["value"] = setpoint
+            if "setpoints" in self.running_instance.configurable_vars:
+                self.running_instance.configurable_vars["setpoints"]["value"] = setpoints
+
+    def get_var_values(self, var_dict):
+        values = []
+
+        for var_name in var_dict:
+            var_value = var_dict[var_name]['value']
+            values.append(var_value)
+
+        return values
+    
+    def __set_var(self, var_dict, *args):
+        for var in args:
+            var_name, var_type = var
+
+            var_dict[var_name] = {
+                "type": var_type,
+                "value": 0
+            }
+    
+    def set_actuator_vars(self, *args):
+        self.num_actuators += len(args)
+        self.__set_var(self.actuator_vars, *args)
+    
+    def set_sensor_vars(self, *args):
+        self.num_sensors += len(args)
+        self.__set_var(self.sensor_vars, *args)
+
+    def get_actuator_values(self):
+        return self.get_var_values(self.actuator_vars)
+    
+    def get_sensor_values(self):
+        return self.get_var_values(self.sensor_vars)
+    
+    def __update_var(self, var_dict, *args):
+        for (var_name, value) in zip(var_dict, *args):
+            expected_type = var_dict[var_name]['type']
+
+            if not isinstance(value, expected_type):
+                raise TypeError(f"Variável '{var_name}' espera tipo {expected_type.__name__}, recebeu {type(value).__name__}")
+            
+            var_dict[var_name]['value'] = value
+
+    def update_actuator_vars(self, *args):
+        self.__update_var(self.actuator_vars, *args)
+    
+    def update_sensors_vars(self, *args):
+        self.__update_var(self.sensor_vars, *args)

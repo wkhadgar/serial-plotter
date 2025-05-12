@@ -21,7 +21,7 @@ class MCUDriver(ABC):
         self.mcu_type: MCUType = mcu_type
 
     @abstractmethod
-    def send(self, out):
+    def send(self, *args):
         pass
 
     @abstractmethod
@@ -105,8 +105,8 @@ class RandomDataDriver(MCUDriver):
     def read(self):
         self.sensor_a = round(np.random.uniform(20, 50), 2)  # Temperatura entre 20°C e 50°C
         self.sensor_b = round(np.random.uniform(20, 50), 2)  # Temperatura entre 20°C e 50°C
-        self.duty1 = round(random.uniform(-100, 100), 2)  # Duty cycle entre -100% e 100%
-        self.duty2 = round(random.uniform(-100, 100), 2)  # Duty cycle entre -100% e 100%
+        self.duty1 = round(random.uniform(-100, 100), 2)     # Duty cycle entre -100% e 100%
+        self.duty2 = round(random.uniform(-100, 100), 2)     # Duty cycle entre -100% e 100%
 
         return self.sensor_a, self.sensor_b, self.duty1, self.duty2
 
@@ -129,7 +129,7 @@ class TCLABDriver(MCUDriver):
         self.ser = serial.Serial(port=self.port, baudrate=self.baud_rate, timeout=self.timeout)
         time.sleep(2)
 
-    def read(self, out1=0.0, out2=0.0):
+    def read(self):
         def convert_raw(raw_adc, aref=3.3):
             return raw_adc * (aref / 1023.0 * 100.0) - 50.0
 

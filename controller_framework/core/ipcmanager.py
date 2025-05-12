@@ -56,11 +56,9 @@ class IPCManager:
     def __send_full_state(self):
         command = "full_state"
         payload = {
-            "sensor_a": self.core.sensor_a,
-            "sensor_b": self.core.sensor_b,
-            "duty1": self.core.duty1,
-            "duty2": self.core.duty2,
-            "setpoint": self.core.setpoint,
+            "sensors": self.core.get_sensor_values(),
+            "actuators": self.core.get_actuator_values(),
+            "setpoints": self.core.setpoints,
             "running_instance": self.core.running_instance,
             "control_instances": self.core.control_instances,
         }
