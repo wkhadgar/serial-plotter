@@ -1,9 +1,9 @@
-from queue import Queue, Empty
-import queue
-import sys
+from queue import Queue
+import random
 import threading
 import time
 from typing import Optional
+import colorsys
 
 from .mcu_driver import MCUDriver, MCUType
 from .controller import Controller
@@ -54,6 +54,8 @@ class AppManager:
         self.queue_to_gui = mp.Queue()
         self.queue_from_gui = mp.Queue()
         self.ipcmanager = IPCManager(self, self.queue_to_gui, self.queue_from_gui)
+
+        self.color_index = 0
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -113,7 +115,7 @@ class AppManager:
 
             read_start = time.perf_counter()
             try:
-
+                self.last_timestamp = now
                 values = self.__mcu.read()
                 
                 sensor_values = values[:self.num_sensors]
@@ -278,13 +280,22 @@ class AppManager:
 
         return values
     
+    def random_color(self):
+        n = 12
+        hue = (self.color_index / n) % 1.0
+        self.color_index += 2
+
+        r, g, b = colorsys.hsv_to_rgb(hue, 0.9, 0.9)
+        return '#{:02X}{:02X}{:02X}'.format(int(r*255), int(g*255), int(b*255))
+
     def __set_var(self, var_dict, *args):
         for var in args:
             var_name, var_type = var
 
             var_dict[var_name] = {
                 "type": var_type,
-                "value": 0
+                "value": 0,
+                "color": self.random_color()
             }
     
     def set_actuator_vars(self, *args):

@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from functools import partial
 import os
+import queue
 
 from controller_framework.core.controller import Controller
 import numpy as np
@@ -9,8 +10,10 @@ import pandas as pd
 from PySide6 import QtCore
 from PySide6.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QLabel, QScrollArea,
                              QPushButton, QHBoxLayout, QLineEdit, QGraphicsProxyWidget, QListWidget, QCheckBox )
-import pyqtgraph as pg
-import scipy.signal as sig
+
+import re
+
+from .utils_gui import PlotWidget
 
 class ControlGUI(QWidget):
     def __init__(self, *, parent, app_mirror, x_label: str, y_label: str):
@@ -24,84 +27,35 @@ class ControlGUI(QWidget):
 
         self.fullscreen = False
         
-        self.init_timestamp = pd.Timestamp.now()
+        self.init_timestamp = None
         self.plot_seconds = np.array([])
-        self.duty_data = np.array([])
-        self.temp_a_data = np.array([])
-        self.temp_b_data = np.array([])
-        self.temp_m_data = np.array([])
-        
-        self.plot_views = ["C", "A", "B", "M"]
+        self.actuator_data = [np.array([]) for _ in range(self.app_mirror.num_actuators)]
+        self.sensor_data = [np.array([]) for _ in range(self.app_mirror.num_sensors)]
+
+        sensor_labels = [chr(ord("A") + i) for i in range(self.app_mirror.num_sensors)]
+        self.plot_views = ["ALL"] + sensor_labels
         self.current_mode = -1
 
-        self.win = pg.GraphicsLayoutWidget(show=False, title="Plotter Serial SC")
-        layout = QVBoxLayout()
-        layout.addWidget(self.win)
-        self.setLayout(layout)
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout)
+
+        self.container = QWidget()
+        self.container_layout = QVBoxLayout()
+        self.container.setLayout(self.container_layout)
         
-        self.current_setpoint_line = pg.InfiniteLine(pos=app_mirror.get_setpoint(), angle=0, movable=False,
-                                                     label="Temperatura desejada [-]",
-                                                     pen=pg.mkPen("orange", width=2))
-
-        self.plot_combined = self.win.addPlot(title="Temperatura A e B", col=0, row=0)
-        self.plot_combined.setLabel('bottom', x_label)
-        self.plot_combined.setLabel('left', y_label)
-        self.plot_combined.showGrid(x=True, y=True, alpha=0.5)
-        self.combined_leg = self.plot_combined.addLegend()
-        self.curve_a_combined = self.plot_combined.plot(pen="c", name="Temperatura A")
-        self.curve_b_combined = self.plot_combined.plot(pen="g", name="Temperatura B")
-        self.curve_m_combined = self.plot_combined.plot(pen="y", name="Temperatura média")
-        self.curve_a_combined_label = self.combined_leg.getLabel(self.curve_a_combined)
-        self.curve_b_combined_label = self.combined_leg.getLabel(self.curve_b_combined)
-        self.curve_m_combined_label = self.combined_leg.getLabel(self.curve_m_combined)
-
-        self.plot_d = self.win.addPlot(title="Duty", col=0, row=1)
-        self.plot_d.addItem(pg.InfiniteLine(pos=100, angle=0, movable=False, pen=pg.mkPen("red", width=2)))
-        self.plot_d.addItem(pg.InfiniteLine(pos=0, angle=0, movable=False, pen=pg.mkPen("white", width=2)))
-        self.plot_d.addItem(pg.InfiniteLine(pos=-100, angle=0, movable=False, pen=pg.mkPen("cyan", width=2)))
-        self.plot_d.setLabel('bottom', x_label)
-        self.plot_d.setLabel('left', "Duty Cycle (%)")
-        self.plot_d.showGrid(x=True, y=True, alpha=0.5)
-        self.d_leg = self.plot_d.addLegend()
-        self.curve_d = self.plot_d.plot(pen="yellow", name="Duty")
-        self.curve_d_label = self.d_leg.getLabel(self.curve_d)
-
-        # Plot individual dos dados
-        self.plot_a = self.win.addPlot(title="Temperatura A", col=1, row=0)
-        self.plot_a.setLabel('bottom', x_label)
-        self.plot_a.setLabel('left', y_label)
-        self.plot_a.showGrid(x=True, y=True, alpha=0.5)
-        self.a_leg = self.plot_a.addLegend()
-        self.curve_a = self.plot_a.plot(pen="c", name="Temperatura A")
-        self.curve_a_label = self.a_leg.getLabel(self.curve_a)
-
-        self.plot_b = self.win.addPlot(title="Temperatura B", col=1, row=1)
-        self.plot_b.setLabel('bottom', x_label)
-        self.plot_b.setLabel('left', y_label)
-        self.plot_b.showGrid(x=True, y=True, alpha=0.5)
-        self.b_leg = self.plot_b.addLegend()
-        self.curve_b = self.plot_b.plot(pen="g", name="Temperatura B")
-        self.curve_b_label = self.b_leg.getLabel(self.curve_b)
-
-        self.plot_m = self.win.addPlot(title="Temperatura Média", col=0, row=3)
-        self.plot_m.setLabel('bottom', x_label)
-        self.plot_m.setLabel('left', y_label)
-        self.plot_m.showGrid(x=True, y=True, alpha=0.5)
-        self.m_leg = self.plot_m.addLegend()
-        self.curve_m = self.plot_m.plot(pen="y", name="Temperatura Média")
-        self.curve_m_label = self.m_leg.getLabel(self.curve_m)
+        self.plot_widget = PlotWidget(self.container_layout)
+        self.plot_widget.plotter_plot()
+        self.toggle_plot_view()
 
         self.temp_input = QLineEdit()
-        self.temp_input.setPlaceholderText("Defina a temperatura desejada (°C). [Entre 20°C e 50°C]...")
+        self.temp_input.setPlaceholderText("Defina os setpoints desejados [separados por vírgulas ou espaços]")
         self.temp_input.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-
-        self.proxy = QGraphicsProxyWidget()
-        self.proxy.setWidget(self.temp_input)
-        self.win.addItem(self.proxy, col=0, row=2)
+        self.container_layout.addWidget(self.temp_input)
 
         self.temp_input.returnPressed.connect(self.__on_return_pressed)
+        self.layout.addWidget(self.container)
 
-        self.win.keyPressEvent = partial(self.key_press_handle, self.win.keyPressEvent)
+        self.container.keyPressEvent = partial(self.key_press_handle, self.container.keyPressEvent)
         
         log_path = "./temp_logs/"
         if not os.path.exists(log_path):
@@ -118,22 +72,12 @@ class ControlGUI(QWidget):
         self.plot_timer = QtCore.QTimer()
         self.plot_timer.timeout.connect(partial(self.update_data, log_file_path))
         self.plot_timer.start(self.update_delay)
-        self.toggle_plot_view()
-
-    def key_press_handle(self, super_press_handler: Callable, ev):
-        if self.temp_input.hasFocus():
-            super_press_handler(ev)
-        else:
-            if ev.key() == QtCore.Qt.Key.Key_Space:
-                self.toggle_plot_view()
-            elif ev.key() == QtCore.Qt.Key.Key_Escape:
-                super_press_handler(ev)
-            elif ev.key() == QtCore.Qt.Key.Key_F:
-                super_press_handler(ev)
 
     def __on_return_pressed(self):
-        setpoint = float(self.temp_input.text())
+        setpoint_string = self.temp_input.text()
         self.temp_input.clear()
+
+        setpoint = re.split(r'[,\s]+', setpoint_string.strip())
 
         self.app_mirror.update_setpoint(setpoint)
 
@@ -152,113 +96,112 @@ class ControlGUI(QWidget):
             payload = data.get('payload')
 
             if command == "full_state":
-                sensor_a = payload.get('sensor_a')
-                sensor_b = payload.get('sensor_b')
-                duty1 = payload.get('duty1')
-                duty2 = payload.get('duty2')
-                setpoint = payload.get('setpoint')
+                sensors = payload.get('sensors')
+                actuators = payload.get('actuators')
+                setpoints = payload.get('setpoints')
                 running_instance = payload.get('running_instance')
                 control_instances_data = payload.get('control_instances')
+                last_timestamp = payload.get('last_timestamp')
 
-                self.app_mirror.sensor_a = sensor_a
-                self.app_mirror.sensor_b = sensor_b
-                self.app_mirror.duty1 = duty1
-                self.app_mirror.duty2 = duty2
+
+                if self.init_timestamp is None:
+                    self.init_timestamp = last_timestamp
+                self.last_timestamp = last_timestamp
+
                 self.app_mirror.running_instance = running_instance
                 self.app_mirror.control_instances = control_instances_data
-                self.app_mirror.update_setpoint(setpoint)
+                self.app_mirror.update_sensors_vars(sensors)
+                self.app_mirror.update_actuator_vars(actuators)
+                self.app_mirror.update_setpoint(setpoints)
 
                 self.update_plots(log_f_path)
-        except:
+        except queue.Empty:
             pass
 
     def update_plots(self, log_f_path):
-        temp_a, temp_b, duty = self.app_mirror.sensor_a, self.app_mirror.sensor_b, self.app_mirror.duty1
+        sensor_values = self.app_mirror.get_sensor_values()
+        actuator_values = self.app_mirror.get_actuator_values()
 
-        self.update_setpoint_label()
+        # self.update_setpoint_label()
 
-        timestamp = pd.Timestamp.now()
-        self.plot_seconds = np.append(self.plot_seconds, (timestamp - self.init_timestamp).total_seconds())
-        self.duty_data = np.append(self.duty_data, duty)
-        self.temp_a_data = np.append(self.temp_a_data, temp_a)
-        self.temp_b_data = np.append(self.temp_b_data, temp_b)
-        self.temp_m_data = np.append(self.temp_m_data, (temp_b + temp_a) / 2)
+        self.plot_seconds = np.append(self.plot_seconds, (self.last_timestamp - self.init_timestamp))
+        for i in range(self.app_mirror.num_sensors):
+            self.sensor_data[i] = np.append(self.sensor_data[i], sensor_values[i])
+        for i in range(self.app_mirror.num_actuators):
+            self.actuator_data[i] = np.append(self.actuator_data[i], actuator_values[i])
 
-        with open(log_f_path, "a") as f:
-            f.write(
-                f"{timestamp.strftime('%H:%M:%S')},"
-                f"{self.plot_seconds[-1]:.4f},"
-                f"{temp_a},"
-                f"{temp_b},"
-                f"{duty},"
-                f"{self.app_mirror.setpoint}\n")
+        # print('teste')
+        # with open(log_f_path, "a") as f:
+        #     f.write(
+        #         f"{self.last_timestamp},"
+        #         f"{self.plot_seconds[-1]:.4f},"
+        #         f"{temp_a},"
+        #         f"{temp_b},"
+        #         f"{duty},"
+        #         f"{self.app_mirror.setpoints}\n")
+            
+        view = self.plot_views[self.current_mode]
+        match view:
+            case "ALL":
+                for i, sensor_data in enumerate(self.sensor_data):
+                    self.plot_widget.update_curve(self.plot_seconds, sensor_data, 0, i)
 
-        if len(self.temp_m_data) > 400:
-            f_temps = np.array(sig.savgol_filter(self.temp_m_data, int(len(self.temp_m_data) * 0.02), 6))
-        else:
-            f_temps = self.temp_m_data.copy()
+                for i, actuator_data in enumerate(self.actuator_data):
+                    self.plot_widget.update_curve(self.plot_seconds, actuator_data, 1, i)
 
-        match self.plot_views[self.current_mode]:
-            case "C":
-                self.curve_a_combined.setData(self.plot_seconds, self.temp_a_data)
-                self.curve_b_combined.setData(self.plot_seconds, self.temp_b_data)
-                self.curve_m_combined.setData(self.plot_seconds, f_temps)
-                self.curve_d.setData(self.plot_seconds, self.duty_data)
-
-                self.curve_a_combined_label.setText(f"Temperatura A: {temp_a}")
-                self.curve_b_combined_label.setText(f"Temperatura B: {temp_b}")
-                self.curve_m_combined_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
-                self.curve_d_label.setText(f"Duty Cycle (%): {duty}")
-            case "A":
-                self.curve_a.setData(self.plot_seconds, self.temp_a_data)
-                self.curve_a_label.setText(f"Temperatura A: {temp_a}")
-            case "B":
-                self.curve_b.setData(self.plot_seconds, self.temp_b_data)
-                self.curve_b_label.setText(f"Temperatura B: {temp_b}")
-            case "M":
-                self.curve_m.setData(self.plot_seconds, f_temps)
-                self.curve_m_label.setText(f"Temperatura Média: {(temp_b + temp_a) / 2:.2f}")
+            case _ if view in [chr(ord("A") + i) for i in range(self.app_mirror.num_sensors)]:
+                letters = [chr(ord("A") + i) for i in range(self.app_mirror.num_sensors)]
+                idx = letters.index(view)
+                self.plot_widget.update_curve(self.plot_seconds, self.sensor_data[idx], 0, 0)
+            case _:
+                print(f"Visualização '{view}' não reconhecida.")
 
     def toggle_plot_view(self):
         self.current_mode = (self.current_mode + 1) % len(self.plot_views)
-        match self.plot_views[self.current_mode]:
-            case "C":
-                self.plot_m.removeItem(self.current_setpoint_line)
-                self.plot_combined.addItem(self.current_setpoint_line)
-                self.plot_combined.show()
-                self.plot_a.hide()
-                self.plot_b.hide()
-                self.plot_m.hide()
-                self.plot_d.show()
-                self.proxy.show()
+        view = self.plot_views[self.current_mode]
 
-            case "A":
-                self.plot_combined.hide()
-                self.plot_combined.removeItem(self.current_setpoint_line)
-                self.plot_a.addItem(self.current_setpoint_line)
-                self.plot_a.show()
-                self.plot_b.hide()
-                self.plot_m.hide()
-                self.plot_d.hide()
-                self.proxy.hide()
-            case "B":
-                self.plot_combined.hide()
-                self.plot_a.hide()
-                self.plot_a.removeItem(self.current_setpoint_line)
-                self.plot_b.addItem(self.current_setpoint_line)
-                self.plot_b.show()
-                self.plot_m.hide()
-                self.plot_d.hide()
-                self.proxy.hide()
-            case "M":
-                self.plot_combined.hide()
-                self.plot_a.hide()
-                self.plot_b.hide()
-                self.plot_b.removeItem(self.current_setpoint_line)
-                self.plot_m.addItem(self.current_setpoint_line)
-                self.plot_m.show()
-                self.plot_d.hide()
-                self.proxy.hide()
+        self.plot_widget.clear()
+
+        match view:
+            case "ALL":
+                self.plot_widget.plotter_dual_plott('Sensors', 'Actuators')
+
+                for i, _ in enumerate(self.sensor_data):
+                    sensor = list(self.app_mirror.sensor_vars.items())[i]
+
+                    self.plot_widget.add_curve([0], [0], color=sensor[-1], plot_n=0)
+                    self.plot_widget.add_legend(legenda=sensor[0], color=sensor[-1], plot_n=0)
+                
+                for i, _ in enumerate(self.actuator_data):
+                    atuador = list(self.app_mirror.actuator_vars.items())[i]
+
+                    self.plot_widget.add_curve([0], [0], color=atuador[-1], plot_n=1)
+                    self.plot_widget.add_legend(legenda=atuador[0], color=atuador[-1], plot_n=1)
+                    
+            case _ if view in [chr(ord("A") + i) for i in range(self.app_mirror.num_sensors)]:
+                letters = [chr(ord("A") + i) for i in range(self.app_mirror.num_sensors)]
+                idx = letters.index(view)
+                sensor = list(self.app_mirror.sensor_vars.items())[idx]
+
+                self.plot_widget.plotter_single_plot(sensor[0])  
+                self.plot_widget.add_curve([0], [0], color=sensor[-1])
+                self.plot_widget.add_legend(legenda=sensor[0], color=sensor[-1], plot_n=0)
+                print(f'view {view}')
+                    
+            case _:
+                print(f"Visualização '{view}' não reconhecida.")
+
+    def key_press_handle(self, super_press_handler: Callable, ev):
+        if self.temp_input.hasFocus():
+            super_press_handler(ev)
+        else:
+            if ev.key() == QtCore.Qt.Key.Key_Space:
+                self.toggle_plot_view()
+            elif ev.key() == QtCore.Qt.Key.Key_Escape:
+                super_press_handler(ev)
+            elif ev.key() == QtCore.Qt.Key.Key_F:
+                super_press_handler(ev)
+
 
 class SidebarGUI(QWidget):
     def __init__(self, parent, app_mirror, control_gui):
@@ -273,7 +216,6 @@ class SidebarGUI(QWidget):
         self.control_gui = control_gui
         self.current_control = None
         self.input_fields = {}
-
 
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
@@ -432,6 +374,7 @@ class SidebarGUI(QWidget):
         self.parent.command_triggered.emit("stop_controller", {})
         
         self.btn_deactivate_control.setEnabled(False)
+
 
 class PlotterGUI(QWidget):
     command_triggered = QtCore.Signal(str, object)

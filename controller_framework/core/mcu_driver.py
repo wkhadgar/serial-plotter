@@ -103,12 +103,12 @@ class RandomDataDriver(MCUDriver):
         self.duty2 = None
 
     def read(self):
-        self.sensor_a = round(np.random.uniform(20, 50), 2)  # Temperatura entre 20°C e 50°C
-        self.sensor_b = round(np.random.uniform(20, 50), 2)  # Temperatura entre 20°C e 50°C
-        self.duty1 = round(random.uniform(-100, 100), 2)     # Duty cycle entre -100% e 100%
-        self.duty2 = round(random.uniform(-100, 100), 2)     # Duty cycle entre -100% e 100%
+        self.sensor_a = round(np.random.uniform(20, 50), 2)
+        self.sensor_b = round(np.random.uniform(20, 50), 2)
+        self.duty1 = round(random.uniform(-100, 100), 2)
+        self.duty2 = round(random.uniform(-100, 100), 2)
 
-        return self.sensor_a, self.sensor_b, self.duty1, self.duty2
+        return self.sensor_a, self.sensor_b, self.sensor_b + self.sensor_a, self.duty1, self.duty2, self.duty1 + self.duty2
 
     def send(self, out1, out2):
         # Not necessary logic to send function

@@ -61,6 +61,7 @@ class IPCManager:
             "setpoints": self.core.setpoints,
             "running_instance": self.core.running_instance,
             "control_instances": self.core.control_instances,
+            "last_timestamp": self.core.last_timestamp,
         }
 
         self.__send(
@@ -121,7 +122,7 @@ class IPCManager:
         if not value:
             raise ValueError("[IPC] update_setpoint exige 'value'")
 
-        if not isinstance(value, (int, float)):
+        if not isinstance(value, (list)):
             raise ValueError(
                 "[IPC] 'value' para 'update_setpoint' deve ser int ou float"
             )
