@@ -63,10 +63,15 @@ class ControlGUI(QWidget):
         print(f"Salvando dados em {log_path}")
         
         datetime = pd.Timestamp.now()
-        df = pd.DataFrame(columns=["timestamp", "seconds", "temp_a", "temp_b", "duty", "target"])
+        sensor_columns = [f"sensor_{i}" for i in range(self.app_mirror.num_sensors)]
+        actuator_columns = [f"actuator_{i}" for i in range(self.app_mirror.num_actuators)]
+
+        columns = ["timestamp", "seconds"] + sensor_columns + actuator_columns + ["target"]
+
+        self.df = pd.DataFrame(columns=columns)
         
         log_file_path = log_path + f"log_{datetime.year}-{datetime.month}-{datetime.day}-{datetime.hour}-{datetime.minute}-{datetime.second}.csv"
-        df.to_csv(log_file_path, index=False)
+        self.df.to_csv(log_file_path, index=False)
         
         self.update_delay = 15
         self.plot_timer = QtCore.QTimer()
@@ -139,6 +144,19 @@ class ControlGUI(QWidget):
         #         f"{temp_b},"
         #         f"{duty},"
         #         f"{self.app_mirror.setpoints}\n")
+        
+        target_str = '"' + " ".join(self.app_mirror.setpoints) + '"'
+        row = {
+            "timestamp": self.last_timestamp,
+            "seconds": f"{self.plot_seconds[-1]:.4f}",
+            **{f"sensor_{i}": sensor_values[i] for i in range(self.app_mirror.num_sensors)},
+            **{f"actuator_{i}": actuator_values[i] for i in range(self.app_mirror.num_actuators)},
+            "target": target_str
+        }
+
+        with open(log_f_path, "a") as f:
+            data = ",".join(map(str, row.values())) + "\n"
+            f.write(data)
             
         view = self.plot_views[self.current_mode]
         match view:

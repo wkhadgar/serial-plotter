@@ -118,8 +118,6 @@ class PlotWidget:
         curve = plot.plot(x, y, pen = pg.mkPen(color, width=width))
         lista.append(curve)
 
-        print('depois do add curve')
-
     def add_item(self, item, plot_n):
         if item == None:
             return
