@@ -116,11 +116,8 @@ class AppManager:
             read_start = time.perf_counter()
             try:
                 self.last_timestamp = now
-                values = self.__mcu.read()
+                sensor_values, actuator_values = self.__mcu.read()
                 
-                sensor_values = values[:self.num_sensors]
-                actuator_values = values[self.num_actuators:]
-
                 self.update_actuator_vars(actuator_values)
                 self.update_sensors_vars(sensor_values)
 

@@ -108,7 +108,8 @@ class RandomDataDriver(MCUDriver):
         self.duty1 = round(random.uniform(-100, 100), 2)
         self.duty2 = round(random.uniform(-100, 100), 2)
 
-        return self.sensor_a, self.sensor_b, self.sensor_b + self.sensor_a, self.duty1, self.duty2, self.duty1 + self.duty2
+        return (self.sensor_a, self.sensor_b, self.sensor_b + self.sensor_a),\
+               (self.duty1, self.duty2, self.duty1 + self.duty2)
 
     def send(self, out1, out2):
         # Not necessary logic to send function
