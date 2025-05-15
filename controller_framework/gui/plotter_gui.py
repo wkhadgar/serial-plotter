@@ -145,7 +145,7 @@ class ControlGUI(QWidget):
         #         f"{duty},"
         #         f"{self.app_mirror.setpoints}\n")
         
-        target_str = '"' + " ".join(self.app_mirror.setpoints) + '"'
+        target_str = '"' + " ".join(map(str, self.app_mirror.setpoints)) + '"'
         row = {
             "timestamp": self.last_timestamp,
             "seconds": f"{self.plot_seconds[-1]:.4f}",
@@ -369,21 +369,21 @@ class SidebarGUI(QWidget):
                     print(f"Entrada inválida para '{var_name}'")
             
             if(self.app_mirror.running_instance and self.app_mirror.running_instance.label == self.current_control.label):
-                self.app_mirror.update_setpoint(self.current_control.setpoint)
-                self.parent.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoint})
+                self.app_mirror.update_setpoint(self.current_control.setpoints)
+                self.parent.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoints})
                     
     def activate_control(self):
         current_control = self.control_list.currentItem()
         
         if(current_control != None):
             current_control_label = current_control.text()
-            self.app_mirror.update_setpoint(self.current_control.setpoint)
+            self.app_mirror.update_setpoint(self.current_control.setpoints)
 
             self.app_mirror.running_instance = self.app_mirror.get_instance(current_control_label)
             self.parent.command_triggered.emit("start_controller", {"control_name": current_control_label})
-            self.parent.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoint})
+            self.parent.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoints})
 
-            self.control_gui.update_setpoint_label()
+            # self.control_gui.update_setpoint_label()
             
             self.btn_deactivate_control.setEnabled(True)
     
