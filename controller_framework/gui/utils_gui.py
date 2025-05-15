@@ -57,7 +57,7 @@ class PlotWidget:
         self.curves_actuators.clear()
         self.plot_widget.clear()
 
-    def add_legend(self, legenda="", color="black", type=pg.QtCore.Qt.SolidLine, plot_n=0):
+    def add_legend(self, legenda="", size = 11, color="black", type=pg.QtCore.Qt.SolidLine, plot_n=0):
         if legenda == "":
             return
         
@@ -78,11 +78,11 @@ class PlotWidget:
         else:
             return
 
-        legend = plot.addLegend()
+        legend = plot.addLegend(labelTextSize=str(size))
         symbol = None
 
         if type != 'dot':
-            symbol = plot.plot([], [], pen=pg.mkPen(color, width=2, style=type))
+            symbol = plot.plot([], [], pen=pg.mkPen(color, width=15, style=type))
         else:
             symbol = pg.ScatterPlotItem(size=7, brush=pg.mkBrush(color), pen=pg.mkPen(None), symbol='o')
 
@@ -225,11 +225,10 @@ class PlotWidget:
         self.plot_sensor.showGrid(x=True, y=True, alpha=0.5)
         self.plot_actuators.showGrid(x=True, y=True, alpha=0.5)
 
-        print('teste plotter')
+        self.plot_sensor.setLabel('bottom', 'Tempo', units='s')
+        self.plot_actuators.setLabel('bottom', 'Tempo', units='s')
     
     def plotter_single_plot(self, legend_1=''):
         self.plot_sensor = self.plot_widget.addPlot(row=0, col=0, title=legend_1)
         self.plot_sensor.showGrid(x=True, y=True, alpha=0.5)
-        print('aqui depois do single')
-
-        
+        self.plot_sensor.setLabel('bottom', 'Tempo', units='s')
