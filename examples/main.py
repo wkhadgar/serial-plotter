@@ -69,7 +69,7 @@ class PIDControl2(Controller):
         self.out = windup_check
 
 if __name__ == '__main__':
-    teste = AppManager(MCUType.RDATA, "COM1", 14000)
+    teste = AppManager(MCUType.RDATA)
 
     pidcontrol1 = PIDControl("PID Control 1", 25, 9.02, 344.21)
     pidcontrol1.set_config_variable(("setpoint", float))

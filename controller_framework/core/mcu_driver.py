@@ -15,13 +15,12 @@ class MCUType(Enum):
 
 
 class MCUDriver(ABC):
-    def __init__(self, mcu_type, port, baud_rate):
-        self.baud_rate = baud_rate
-        self.port = port
+    def __init__(self, mcu_type, **kwargs):
         self.mcu_type: MCUType = mcu_type
+        self.kwargs = kwargs
 
     @abstractmethod
-    def send(self, out):
+    def send(self, *outs):
         pass
 
     @abstractmethod
@@ -33,7 +32,7 @@ class MCUDriver(ABC):
         pass
 
     @staticmethod
-    def create_driver(mcu_type: MCUType, port: str, baud_rate: int):
+    def create_driver(mcu_type: MCUType, **kwargs):
         driver_map = {
             MCUType.RDATA: RandomDataDriver,
             MCUType.STM32: STM32Driver,
@@ -43,21 +42,22 @@ class MCUDriver(ABC):
         if mcu_type not in driver_map:
             raise ValueError(f"MCU não suportada: {mcu_type}")
 
-        return driver_map[mcu_type](mcu_type, port, baud_rate)
+        return driver_map[mcu_type](mcu_type, **kwargs)
 
 
 class STM32Driver(MCUDriver):
-    def __init__(self, mcu_type, port, baud_rate):
-        super().__init__(mcu_type, port, baud_rate)
+    def __init__(self, mcu_type, **kwargs):
+        super().__init__(mcu_type, **kwargs)
 
         self.control_block_addr = 0x0
         self.ram = None
         self.ser: Session | None = None
 
-    def send(self, out):
-        data_bytes = struct.pack("<f", out)
-        data = struct.unpack("<I", data_bytes)[0]
-        self.ser.target.write32(self.control_block_addr + (2 * 4), data)
+    def send(self, *outs):
+        for i, out in enumerate(outs):
+            data_bytes = struct.pack("<f", out)
+            data = struct.unpack("<I", data_bytes)[0]
+            self.ser.target.write32(self.control_block_addr + ((2 + i) * 4), data)
 
     def read(self):
         def __read_float(_from: int) -> float:
@@ -65,18 +65,18 @@ class STM32Driver(MCUDriver):
             return struct.unpack("<f", data_bytes)[0]
 
         control_floats = []
-        for i in range(3):
+        for i in range(len(self.kwargs.items())):
             control_floats.append(__read_float(self.control_block_addr + (i * 4)))
 
-        self.sensor_a = control_floats[0]
-        self.sensor_b = control_floats[1]
-        self.duty = control_floats[2]
+        for i, (kw, _) in enumerate(self.kwargs.items()):
+            self.kwargs[kw] = control_floats[i]
 
-        return self.sensor_a, self.sensor_b, self.duty
+        return self.kwargs.values()
 
     def connect(self):
         self.ser = ConnectHelper.session_with_chosen_probe(target_override="stm32f103c8", connect_mode="attach")
         self.ram = self.ser.target.get_memory_map()[1]
+        self.ser.open()
 
         print("[MCU] Finding control block area...")
         key = [ord(c) for c in "!CTR"]
@@ -95,8 +95,8 @@ class STM32Driver(MCUDriver):
 
 
 class RandomDataDriver(MCUDriver):
-    def __init__(self, mcu_type, port, baud_rate):
-        super().__init__(mcu_type, port, baud_rate)
+    def __init__(self, mcu_type):
+        super().__init__(mcu_type)
         self.sensor_a = None
         self.sensor_b = None
         self.duty1 = None
@@ -120,13 +120,13 @@ class RandomDataDriver(MCUDriver):
 
 
 class TCLABDriver(MCUDriver):
-    def __init__(self, mcu_type, port, baud_rate, timeout=0.1):
-        super().__init__(mcu_type, port, baud_rate)
+    def __init__(self, mcu_type, timeout=0.1, **kwargs):
+        super().__init__(mcu_type, **kwargs)
         self.ser = None
         self.timeout = timeout
 
     def connect(self):
-        self.ser = serial.Serial(port=self.port, baudrate=self.baud_rate, timeout=self.timeout)
+        self.ser = serial.Serial(port=self.kwargs["port"], baudrate=self.kwargs["baud"], timeout=self.timeout)
         time.sleep(2)
 
     def read(self, out1=0.0, out2=0.0):

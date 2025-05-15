@@ -13,10 +13,10 @@ from controller_framework.gui import MainGUI
 import multiprocessing as mp
 
 class AppManager:
-    def __init__(self, mcu_type: MCUType, port: str, baud_rate: int):
+    def __init__(self, mcu_type: MCUType, **kwargs):
         if not isinstance(mcu_type, MCUType):
             raise ValueError(f"MCU inválida: {mcu}. Escolha entre {list(MCUType)}")
-        self.__mcu: MCUDriver = MCUDriver.create_driver(mcu_type, port, baud_rate)
+        self.__mcu: MCUDriver = MCUDriver.create_driver(mcu_type, **kwargs)
 
         self.control_instances: dict[Controller] = {}
         self.running_instance: Optional[Controller] = None
@@ -178,12 +178,12 @@ class AppManager:
         self.running_instance.sensor_b = self.sensor_b
 
         control_done = threading.Event()
-        control_result = [self.running_instance.out1]
+        control_result = [self.running_instance.out1, self.running_instance.out2]
 
         def run_control():
             try:
                 result = self.running_instance.control()
-                control_result[0] = result
+                control_result[0], control_result[1] = result
             finally:
                 control_done.set()
 
@@ -200,6 +200,7 @@ class AppManager:
 
         if control_done.is_set():
             self.running_instance.out1 = control_result[0]
+            self.running_instance.out2 = control_result[1]
         self.__last_control_timestamp = time.perf_counter()
 
     def __connect(self):
