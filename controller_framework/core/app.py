@@ -160,8 +160,7 @@ class AppManager:
             next_read_time += target_dt_s
 
     def __feedback(self):
-        actuator_values = self.running_instance.get_actuator_values()
-        self.__mcu.send(*actuator_values)
+        self.__mcu.send(*self.running_instance.actuator_values)
 
     def __control(self):
         now = time.perf_counter()
@@ -169,11 +168,11 @@ class AppManager:
         self.dt = dt * 1e3
 
         self.running_instance.set_dt(dt)
-        self.running_instance.sensor_a = self.sensor_a
-        self.running_instance.sensor_b = self.sensor_b
+        self.running_instance.actuator_values = self.get_actuator_values()
+        self.running_instance.sensor_values = self.get_sensor_values()
 
         control_done = threading.Event()
-        control_result = [self.running_instance.out1]
+        control_result = [self.running_instance.actuator_values]
 
         def run_control():
             try:
@@ -193,8 +192,8 @@ class AppManager:
                 break
             time.sleep(0.01)
 
-        # if control_done.is_set():
-        #     self.running_instance.out1 = control_result[0]
+        if control_done.is_set():
+            self.running_instance.actuator_values = control_result[0]
         self.__last_control_timestamp = time.perf_counter()
 
     def __connect(self):
@@ -262,7 +261,7 @@ class AppManager:
 
     def update_setpoint(self, setpoints):
         tam = min(self.num_sensors, len(setpoints))
-        self.setpoints[:tam] = setpoints[:tam]
+        self.setpoints[:tam] = map(float, setpoints[:tam])
 
         if self.running_instance != None:
             self.running_instance.setpoints = self.setpoints

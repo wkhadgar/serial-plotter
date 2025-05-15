@@ -7,6 +7,8 @@ class Controller(ABC):
         self.configurable_vars = {}
 
         self.setpoints = []
+        self.sensor_values = []
+        self.actuator_values = []
         self.set_config_variable(("setpoints", list))
 
         self.label = label

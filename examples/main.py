@@ -29,7 +29,7 @@ class PIDControl(Controller):
         
         measure = (self.ntc_1 + self.ntc_2) / 2
 
-        err = self.setpoint[0] - measure
+        err = self.setpoints[0] - measure
         P = self.Kp * err
         i_inc = self.Ki * err * dt_s
         D = self.Kd * (err - self.error) / (dt_s + 0.000001)
@@ -38,7 +38,7 @@ class PIDControl(Controller):
 
         windup_check = P + self.accumulated_I + i_inc + D
 
-        self.heater_1 = max(-100, min(100, windup_check))
+        return [max(-100, min(100, windup_check))]
 
 class PIDControl2(Controller):
     def __init__(self, label, setpoint, l, t):

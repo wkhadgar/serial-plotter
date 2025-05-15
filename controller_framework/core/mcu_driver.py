@@ -111,7 +111,7 @@ class RandomDataDriver(MCUDriver):
         return (self.sensor_a, self.sensor_b, self.sensor_b + self.sensor_a),\
                (self.duty1, self.duty2, self.duty1 + self.duty2)
 
-    def send(self, out1, out2):
+    def send(self, *args):
         # Not necessary logic to send function
         pass
 
