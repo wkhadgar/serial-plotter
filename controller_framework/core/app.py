@@ -53,6 +53,7 @@ class AppManager:
 
         self.queue_to_gui = mp.Queue()
         self.queue_from_gui = mp.Queue()
+        self.data_updated = False
         self.ipcmanager = IPCManager(self, self.queue_to_gui, self.queue_from_gui)
 
         self.color_index = 0
@@ -117,6 +118,7 @@ class AppManager:
             try:
                 self.last_timestamp = now
                 sensor_values, actuator_values = self.__mcu.read()
+                self.data_updated = True
                 
                 self.update_actuator_vars(actuator_values)
                 self.update_sensors_vars(sensor_values)

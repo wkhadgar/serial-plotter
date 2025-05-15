@@ -35,8 +35,11 @@ class IPCManager:
     def __run(self):
         print('[IPC] started')
         while not self.stop_event.is_set():
-            self.__parse_command()
-            self.__send_full_state()
+            if self.core.data_updated:
+                self.__parse_command()
+                self.__send_full_state()
+
+                self.core.data_updated = False
 
             time.sleep(0.1)
 
