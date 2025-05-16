@@ -78,6 +78,8 @@ class ControlGUI(QWidget):
         self.plot_timer.timeout.connect(partial(self.update_data, log_file_path))
         self.plot_timer.start(self.update_delay)
 
+        self.is_selected = True
+
     def __on_return_pressed(self):
         setpoint_string = self.temp_input.text()
         self.temp_input.clear()
@@ -94,40 +96,39 @@ class ControlGUI(QWidget):
         self.current_setpoint_line.update()
 
     def update_data(self, log_f_path: str):
+        data = None
+
         try:
             data = self.app_mirror.queue_to_gui.get(timeout=0.01)  # Espera até 10ms
-
-            command = data.get('type')
-            payload = data.get('payload')
-
-            if command == "full_state":
-                sensors = payload.get('sensors')
-                actuators = payload.get('actuators')
-                setpoints = payload.get('setpoints')
-                running_instance = payload.get('running_instance')
-                control_instances_data = payload.get('control_instances')
-                last_timestamp = payload.get('last_timestamp')
-
-
-                if self.init_timestamp is None:
-                    self.init_timestamp = last_timestamp
-                self.last_timestamp = last_timestamp
-
-                self.app_mirror.running_instance = running_instance
-                self.app_mirror.control_instances = control_instances_data
-                self.app_mirror.update_sensors_vars(sensors)
-                self.app_mirror.update_actuator_vars(actuators)
-                self.app_mirror.update_setpoint(setpoints)
-
-                self.update_plots(log_f_path)
         except queue.Empty:
-            pass
+            return
 
-    def update_plots(self, log_f_path):
+        command = data.get('type')
+        payload = data.get('payload')
+
+        if command == "full_state":
+            sensors = payload.get('sensors')
+            actuators = payload.get('actuators')
+            setpoints = payload.get('setpoints')
+            running_instance = payload.get('running_instance')
+            control_instances_data = payload.get('control_instances')
+            last_timestamp = payload.get('last_timestamp')
+
+
+            if self.init_timestamp is None:
+                self.init_timestamp = last_timestamp
+            self.last_timestamp = last_timestamp
+
+            self.app_mirror.running_instance = running_instance
+            self.app_mirror.control_instances = control_instances_data
+            self.app_mirror.update_sensors_vars(sensors)
+            self.app_mirror.update_actuator_vars(actuators)
+            self.app_mirror.update_setpoint(setpoints)
+        else:
+            return
+        
         sensor_values = self.app_mirror.get_sensor_values()
         actuator_values = self.app_mirror.get_actuator_values()
-
-        # self.update_setpoint_label()
 
         self.plot_seconds = np.append(self.plot_seconds, (self.last_timestamp - self.init_timestamp))
         for i in range(self.app_mirror.num_sensors):
@@ -135,16 +136,6 @@ class ControlGUI(QWidget):
         for i in range(self.app_mirror.num_actuators):
             self.actuator_data[i] = np.append(self.actuator_data[i], actuator_values[i])
 
-        # print('teste')
-        # with open(log_f_path, "a") as f:
-        #     f.write(
-        #         f"{self.last_timestamp},"
-        #         f"{self.plot_seconds[-1]:.4f},"
-        #         f"{temp_a},"
-        #         f"{temp_b},"
-        #         f"{duty},"
-        #         f"{self.app_mirror.setpoints}\n")
-        
         target_str = '"' + " ".join(map(str, self.app_mirror.setpoints)) + '"'
         row = {
             "timestamp": self.last_timestamp,
@@ -157,7 +148,11 @@ class ControlGUI(QWidget):
         with open(log_f_path, "a") as f:
             data = ",".join(map(str, row.values())) + "\n"
             f.write(data)
-            
+
+        if self.is_selected:
+            self.update_plots()
+        
+    def update_plots(self):      
         view = self.plot_views[self.current_mode]
         match view:
             case "ALL":
@@ -204,7 +199,6 @@ class ControlGUI(QWidget):
                 self.plot_widget.plotter_single_plot(sensor[0])  
                 self.plot_widget.add_curve([0], [0], color=sensor[-1])
                 self.plot_widget.add_legend(legenda=sensor[0], color=sensor[-1], plot_n=0)
-                print(f'view {view}')
                     
             case _:
                 print(f"Visualização '{view}' não reconhecida.")
@@ -426,3 +420,6 @@ class PlotterGUI(QWidget):
             self.layout.setStretchFactor(self, 5)
 
         self.hide_mode = not self.hide_mode
+
+    def toggle_select(self, param):
+        self.plotter_gui.is_selected = param

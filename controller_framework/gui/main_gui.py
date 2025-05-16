@@ -25,6 +25,7 @@ class MainGUI(QMainWindow):
 
         self.tabs.addTab(self.plotter_gui, "PLOTTER")
         self.tabs.addTab(self.analyzer_gui, "ANALYZER")
+        self.tabs.currentChanged.connect(self.on_tab_changed)
 
         self.hide_mode = False
 
@@ -80,6 +81,9 @@ class MainGUI(QMainWindow):
                 self.analyzer_gui.sidebar.hide()
                 self.analyzer_gui.layout.setStretchFactor(self.analyzer_gui, 5)
         self.hide_mode = not self.hide_mode
+
+    def on_tab_changed(self, index):
+        self.plotter_gui.toggle_select(index == 0)
 
     @QtCore.Slot(str, object)
     def send_command(self, command, value):
