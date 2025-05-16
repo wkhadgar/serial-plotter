@@ -13,7 +13,7 @@ from controller_framework.gui import MainGUI
 import multiprocessing as mp
 
 class AppManager:
-    def __init__(self, mcu_type: MCUType, port: str, baud_rate: int):
+    def __init__(self, mcu_type: MCUType, port: str, baud_rate: int, sample_time: int):
         if not isinstance(mcu_type, MCUType):
             raise ValueError(f"MCU inválida: {mcu}. Escolha entre {list(MCUType)}")
         self.__mcu: MCUDriver = MCUDriver.create_driver(mcu_type, port, baud_rate)
@@ -21,7 +21,7 @@ class AppManager:
         self.control_instances: dict[Controller] = {}
         self.running_instance: Optional[Controller] = None
 
-        self.sample_time = 1000.0 # ms
+        self.sample_time = sample_time # ms
 
         self.actuator_vars = {}
         self.sensor_vars = {}
