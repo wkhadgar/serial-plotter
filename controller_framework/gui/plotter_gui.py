@@ -70,12 +70,12 @@ class ControlGUI(QWidget):
 
         self.df = pd.DataFrame(columns=columns)
         
-        log_file_path = log_path + f"log_{datetime.year}-{datetime.month}-{datetime.day}-{datetime.hour}-{datetime.minute}-{datetime.second}.csv"
-        self.df.to_csv(log_file_path, index=False)
+        self.log_file_path = log_path + f"log_{datetime.year}-{datetime.month}-{datetime.day}-{datetime.hour}-{datetime.minute}-{datetime.second}.csv"
+        self.df.to_csv(self.log_file_path, index=False)
         
         self.update_delay = 15
         self.plot_timer = QtCore.QTimer()
-        self.plot_timer.timeout.connect(partial(self.update_data, log_file_path))
+        self.plot_timer.timeout.connect(partial(self.update_data, self.log_file_path))
         self.plot_timer.start(self.update_delay)
 
         self.is_selected = True
@@ -203,16 +203,28 @@ class ControlGUI(QWidget):
             case _:
                 print(f"Visualização '{view}' não reconhecida.")
 
+    def reset_data(self):
+        self.plot_seconds = np.array([])
+        self.actuator_data = [np.array([]) for _ in range(self.app_mirror.num_actuators)]
+        self.sensor_data = [np.array([]) for _ in range(self.app_mirror.num_sensors)]
+        self.init_timestamp = None
+
+        self.df = pd.DataFrame(columns=self.df.columns)
+        self.df.to_csv(self.log_file_path, index=False)
+
     def key_press_handle(self, super_press_handler: Callable, ev):
         if self.temp_input.hasFocus():
             super_press_handler(ev)
         else:
             if ev.key() == QtCore.Qt.Key.Key_Space:
                 self.toggle_plot_view()
+            elif ev.key() == QtCore.Qt.Key.Key_E:
+                self.reset_data()
             elif ev.key() == QtCore.Qt.Key.Key_Escape:
                 super_press_handler(ev)
             elif ev.key() == QtCore.Qt.Key.Key_F:
                 super_press_handler(ev)
+
 
 
 class SidebarGUI(QWidget):
