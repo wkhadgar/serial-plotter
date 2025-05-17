@@ -2,6 +2,7 @@ from collections.abc import Callable
 from functools import partial
 import os
 import queue
+from typing import Optional
 
 from controller_framework.core.controller import Controller
 import numpy as np
@@ -28,12 +29,13 @@ class ControlGUI(QWidget):
         self.fullscreen = False
         
         self.init_timestamp = None
-        self.plot_seconds = np.array([])
-        self.actuator_data = [np.array([]) for _ in range(self.app_mirror.num_actuators)]
-        self.sensor_data = [np.array([]) for _ in range(self.app_mirror.num_sensors)]
+        self.plot_seconds = []
+        self.actuator_data = [[] for _ in range(self.app_mirror.num_actuators)]
+        self.sensor_data = [[] for _ in range(self.app_mirror.num_sensors)]
 
-        sensor_labels = [chr(ord("A") + i) for i in range(self.app_mirror.num_sensors)]
-        self.plot_views = ["ALL"] + sensor_labels
+        self.sensor_labels = [chr(ord("A")+i) for i in range(self.app_mirror.num_sensors)]
+
+        self.plot_views = ["ALL"] + self.sensor_labels
         self.current_mode = -1
 
         self.layout = QVBoxLayout()
@@ -73,9 +75,9 @@ class ControlGUI(QWidget):
         self.log_file_path = log_path + f"log_{datetime.year}-{datetime.month}-{datetime.day}-{datetime.hour}-{datetime.minute}-{datetime.second}.csv"
         self.df.to_csv(self.log_file_path, index=False)
         
-        self.update_delay = 15
+        self.update_delay = 100
         self.plot_timer = QtCore.QTimer()
-        self.plot_timer.timeout.connect(partial(self.update_data, self.log_file_path))
+        self.plot_timer.timeout.connect(self.update_data)
         self.plot_timer.start(self.update_delay)
 
         self.is_selected = True
@@ -95,14 +97,13 @@ class ControlGUI(QWidget):
         self.current_setpoint_line.label.setText(f"Temperatura desejada [{self.app_mirror.get_setpoint()}°C]")
         self.current_setpoint_line.update()
 
-    def update_data(self, log_f_path: str):
-        data = None
-
+    def __retrieve_message(self, timeout: float = 0.01) -> Optional[dict]:
         try:
-            data = self.app_mirror.queue_to_gui.get(timeout=0.01)  # Espera até 10ms
+            return self.app_mirror.queue_to_gui.get(timeout=timeout)
         except queue.Empty:
-            return
-
+            return None
+        
+    def __process_message(self, data):
         command = data.get('type')
         payload = data.get('payload')
 
@@ -114,7 +115,6 @@ class ControlGUI(QWidget):
             control_instances_data = payload.get('control_instances')
             last_timestamp = payload.get('last_timestamp')
 
-
             if self.init_timestamp is None:
                 self.init_timestamp = last_timestamp
             self.last_timestamp = last_timestamp
@@ -124,48 +124,77 @@ class ControlGUI(QWidget):
             self.app_mirror.update_sensors_vars(sensors)
             self.app_mirror.update_actuator_vars(actuators)
             self.app_mirror.update_setpoint(setpoints)
+
+            return True
         else:
-            return
-        
-        sensor_values = self.app_mirror.get_sensor_values()
-        actuator_values = self.app_mirror.get_actuator_values()
+            return False
 
-        self.plot_seconds = np.append(self.plot_seconds, (self.last_timestamp - self.init_timestamp))
-        for i in range(self.app_mirror.num_sensors):
-            self.sensor_data[i] = np.append(self.sensor_data[i], sensor_values[i])
-        for i in range(self.app_mirror.num_actuators):
-            self.actuator_data[i] = np.append(self.actuator_data[i], actuator_values[i])
+    def __append_plot_data(self, sensor_values, actuator_values):
+        self.plot_seconds.append(self.last_timestamp - self.init_timestamp)
 
+        for lista, value in zip(self.sensor_data, sensor_values):
+            lista.append(value)
+
+        for lista, value in zip(self.actuator_data, actuator_values):
+            lista.append(value)
+
+    def __write_csv(self, sensor_values, actuator_values):
         target_str = '"' + " ".join(map(str, self.app_mirror.setpoints)) + '"'
         row = {
             "timestamp": self.last_timestamp,
             "seconds": f"{self.plot_seconds[-1]:.4f}",
-            **{f"sensor_{i}": sensor_values[i] for i in range(self.app_mirror.num_sensors)},
-            **{f"actuator_{i}": actuator_values[i] for i in range(self.app_mirror.num_actuators)},
+
+            **{f"sensor_{i}": f"{sensor_values[i]:.4f}"
+                for i in range(self.app_mirror.num_sensors)},
+
+            **{f"actuator_{i}": f"{actuator_values[i]:.4f}"
+                for i in range(self.app_mirror.num_actuators)},
+
             "target": target_str
         }
 
-        with open(log_f_path, "a") as f:
+        with open(self.log_file_path, "a") as f:
             data = ",".join(map(str, row.values())) + "\n"
             f.write(data)
 
+    def update_data(self):
+        data = self.__retrieve_message()
+        if data is None:
+            return
+
+        if not self.__process_message(data):
+            return
+        
+        sensor_values = self.app_mirror.get_sensor_values()
+        actuator_values = self.app_mirror.get_actuator_values()
+        
+        self.__append_plot_data(sensor_values, actuator_values)
+
         if self.is_selected:
             self.update_plots()
+
+        self.__write_csv(sensor_values, actuator_values)
         
     def update_plots(self):      
         view = self.plot_views[self.current_mode]
+        plot_seconds = np.array(self.plot_seconds)
+
         match view:
             case "ALL":
                 for i, sensor_data in enumerate(self.sensor_data):
-                    self.plot_widget.update_curve(self.plot_seconds, sensor_data, 0, i)
+                    np_sensor_data = np.array(sensor_data)
+                    self.plot_widget.update_curve(plot_seconds, np_sensor_data, 0, i)
 
                 for i, actuator_data in enumerate(self.actuator_data):
-                    self.plot_widget.update_curve(self.plot_seconds, actuator_data, 1, i)
+                    np_actuator_data = np.array(actuator_data)
+                    self.plot_widget.update_curve(plot_seconds, np_actuator_data, 1, i)
 
-            case _ if view in [chr(ord("A") + i) for i in range(self.app_mirror.num_sensors)]:
-                letters = [chr(ord("A") + i) for i in range(self.app_mirror.num_sensors)]
+            case _ if view in self.sensor_labels:
+                letters = self.sensor_labels
                 idx = letters.index(view)
-                self.plot_widget.update_curve(self.plot_seconds, self.sensor_data[idx], 0, 0)
+
+                sensor_data = np.array(self.sensor_data[idx])
+                self.plot_widget.update_curve(plot_seconds, sensor_data, 0, 0)
             case _:
                 print(f"Visualização '{view}' não reconhecida.")
 
@@ -224,7 +253,6 @@ class ControlGUI(QWidget):
                 super_press_handler(ev)
             elif ev.key() == QtCore.Qt.Key.Key_F:
                 super_press_handler(ev)
-
 
 
 class SidebarGUI(QWidget):
@@ -435,3 +463,4 @@ class PlotterGUI(QWidget):
 
     def toggle_select(self, param):
         self.plotter_gui.is_selected = param
+
