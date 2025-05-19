@@ -208,34 +208,29 @@ class ControlGUI(QWidget):
             case "ALL":
                 self.plot_widget.plotter_dual_plott('Sensors', 'Actuators')
 
-                for i, _ in enumerate(self.sensor_data):
-                    sensor = list(self.app_mirror.sensor_vars.items())[i]
-
-                    self.plot_widget.add_curve([0], [0], color=sensor[-1], plot_n=0)
-                    self.plot_widget.add_legend(legenda=sensor[0], color=sensor[-1], plot_n=0)
+                for i, (var_name, props) in enumerate(self.app_mirror.sensor_vars.items()):
+                    self.plot_widget.add_curve([0], [0], color=props['color'], plot_n=0)
+                    self.plot_widget.add_legend(legenda=var_name, color=props['color'], plot_n=0)
                 
-                for i, _ in enumerate(self.actuator_data):
-                    atuador = list(self.app_mirror.actuator_vars.items())[i]
-
-                    self.plot_widget.add_curve([0], [0], color=atuador[-1], plot_n=1)
-                    self.plot_widget.add_legend(legenda=atuador[0], color=atuador[-1], plot_n=1)
+                for i, (var_name, props) in enumerate(self.app_mirror.actuator_vars.items()):
+                    self.plot_widget.add_curve([0], [0], color=props['color'], plot_n=1)
+                    self.plot_widget.add_legend(legenda=var_name, color=props['color'], plot_n=1)
                     
-            case _ if view in [chr(ord("A") + i) for i in range(self.app_mirror.num_sensors)]:
-                letters = [chr(ord("A") + i) for i in range(self.app_mirror.num_sensors)]
-                idx = letters.index(view)
-                sensor = list(self.app_mirror.sensor_vars.items())[idx]
+            case _ if view in self.sensor_labels:
+                idx = self.sensor_labels.index(view)
+                var_name, props = list(self.app_mirror.sensor_vars.items())[idx]
 
-                self.plot_widget.plotter_single_plot(sensor[0])  
-                self.plot_widget.add_curve([0], [0], color=sensor[-1])
-                self.plot_widget.add_legend(legenda=sensor[0], color=sensor[-1], plot_n=0)
+                self.plot_widget.plotter_single_plot(var_name)  
+                self.plot_widget.add_curve([0], [0], color=props['color'])
+                self.plot_widget.add_legend(legenda=var_name, color=props['color'], plot_n=0)
                     
             case _:
                 print(f"Visualização '{view}' não reconhecida.")
 
     def reset_data(self):
-        self.plot_seconds = np.array([])
-        self.actuator_data = [np.array([]) for _ in range(self.app_mirror.num_actuators)]
-        self.sensor_data = [np.array([]) for _ in range(self.app_mirror.num_sensors)]
+        self.plot_seconds = []
+        self.actuator_data = [[] for _ in range(self.app_mirror.num_actuators)]
+        self.sensor_data = [[] for _ in range(self.app_mirror.num_sensors)]
         self.init_timestamp = None
 
         self.df = pd.DataFrame(columns=self.df.columns)
