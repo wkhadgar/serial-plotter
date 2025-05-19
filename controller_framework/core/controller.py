@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import ast
 
 class Controller(ABC):
     def __init__(self,  label:str):
@@ -56,7 +57,11 @@ class Controller(ABC):
             var_type = self.configurable_vars[var_name]["type"]
 
             try:
-                casted_value = var_type(new_value)
+                if var_name == 'setpoints':
+                    casted_value = ast.literal_eval(new_value)
+                    casted_value = [float(x) for x in casted_value]
+                else:
+                    casted_value = var_type(new_value)
 
                 setattr(self, var_name, casted_value)
                 self.configurable_vars[var_name]["value"] = casted_value
