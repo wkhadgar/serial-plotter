@@ -70,7 +70,7 @@ class PlotWidget:
                 plot = self.plot_temp
             elif plot_n == 1:
                 plot = self.plot_derivative
-        if self.mode == "plotter":
+        elif self.mode == "plotter":
             if plot_n == 0:
                 plot = self.plot_sensor
             elif plot_n == 1:
@@ -82,9 +82,9 @@ class PlotWidget:
         symbol = None
 
         if type != 'dot':
-            symbol = plot.plot([], [], pen=pg.mkPen(color, width=15, style=type))
+            symbol = plot.plot([], [], pen=pg.mkPen(color, width=3, style=type))
         else:
-            symbol = pg.ScatterPlotItem(size=7, brush=pg.mkBrush(color), pen=pg.mkPen(None), symbol='o')
+            symbol = pg.ScatterPlotItem(size=3, brush=pg.mkBrush(color), pen=pg.mkPen(None), symbol='o')
 
         legend.addItem(symbol, legenda)
 
@@ -118,7 +118,7 @@ class PlotWidget:
         curve = plot.plot(x, y, pen = pg.mkPen(color, width=width))
         lista.append(curve)
 
-    def add_item(self, item, plot_n):
+    def add_item(self, item, plot_n=0):
         if item == None:
             return
         

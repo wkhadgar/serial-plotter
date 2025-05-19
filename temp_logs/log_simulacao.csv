@@ -1,4 +1,4 @@
-timestamp,seconds,temp_a,temp_b,duty,target
+timestamp,seconds,sensor_0,sensor_1,duty,target
 15:43:21,0.6654,24.706,25.262,-62.485,35
 15:43:22,0.8840,24.681,25.287,100.0,35
 15:43:22,0.9520,24.681,25.287,100.0,35
