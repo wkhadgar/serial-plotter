@@ -23,6 +23,9 @@ class SidebarAnalyzer(QWidget):
         self.file_list = QListWidget()
         self.file_list.itemClicked.connect(self.file_selected)
         self.layout.addWidget(self.file_list)
+        
+        self.variable_list = QListWidget()
+        self.layout.addWidget(self.variable_list)
 
         self.refresh_button = QPushButton("Atualizar Lista de Logs")
         self.refresh_button.clicked.connect(self.update_file_list)
@@ -58,12 +61,30 @@ class SidebarAnalyzer(QWidget):
                 self.file_list.addItem(file)
 
     def file_selected(self, item):
-        self.parent_gui.selected_file = os.path.join("temp_logs", item.text())
-        self.analyze_button.setEnabled(True)
+        self.variable_list.clear()
+        self.selected_file = os.path.join("temp_logs", item.text())
+
+        self.columns = pd.read_csv(self.selected_file).columns
+
+        for string in self.columns:
+            if string.startswith('sensor_'):
+                string_formatada = string.replace('_', ' ').capitalize()
+                self.variable_list.addItem(string_formatada)
+
+        if self.variable_list.count() > 0:
+            self.variable_list.setCurrentRow(0)
+            self.analyze_button.setEnabled(True)
+        else:
+            self.analyze_button.setEnabled(False)
 
     def start_analysis(self):
         mode = "closed" if self.radio_closed.isChecked() else "open"
-        self.parent_gui.start_analysis(self.parent_gui.selected_file, mode)
+        selected_var = self.variable_list.selectedItems()[0]\
+                       .text()\
+                       .lower()\
+                       .replace(' ', '_')
+        
+        self.parent_gui.start_analysis(self.selected_file, selected_var, mode)
 
 
 class PlotterAnalyzer(QWidget):
@@ -97,20 +118,20 @@ class PlotterAnalyzer(QWidget):
     def closed_loop_analyzer(self):
         self.plot_widget.marker_closed.set_data(self.x_data, self.y_data)
         self.plot_widget.add_curve(self.x_data, self.y_data, 'blue', 1.5, 0)
-        self.plot_widget.add_legend("Temperatura", 'blue')
+        self.plot_widget.add_legend(legenda="Temperatura", color= 'blue')
 
         temp_inicial = self.y_data[0]
         h_line_init = pg.InfiniteLine(pos=temp_inicial, angle=0, pen=pg.mkPen("green", width=2, style=pg.QtCore.Qt.DashLine))
-        self.plot_widget.plot.addItem(h_line_init)
+        self.plot_widget.add_item(h_line_init)
         self.reference_lines.append(h_line_init)
 
         max_over_signal = np.max(self.y_data)
         h_line_max = pg.InfiniteLine(pos=max_over_signal, angle=0, pen=pg.mkPen("red", width=2, style=pg.QtCore.Qt.DashLine))
-        self.plot_widget.plot.addItem(h_line_max)
+        self.plot_widget.add_item(h_line_max)
         self.reference_lines.append(h_line_max)
         
-        self.plot_widget.add_legend(f"Temperatura inicial ({temp_inicial:.2f}ºC)", "green", type=pg.QtCore.Qt.DashLine)
-        self.plot_widget.add_legend(f"Máximo Sobressinal ({max_over_signal:.2f}ºC)", "red", type=pg.QtCore.Qt.DashLine)
+        self.plot_widget.add_legend(legenda=f"Temperatura inicial ({temp_inicial:.2f}ºC)", color= "green", type=pg.QtCore.Qt.DashLine)
+        self.plot_widget.add_legend(legenda=f"Máximo Sobressinal ({max_over_signal:.2f}ºC)", color= "red", type=pg.QtCore.Qt.DashLine)
         
         targets = np.array(self.parent.df["target"])
         label_targets = ""
@@ -121,15 +142,12 @@ class PlotterAnalyzer(QWidget):
                 label_targets += f"{t}ºC, "
         label_targets = label_targets[:-2]
         
-        self.plot_widget.add_legend(f"Temperaturas desejadas\n[{label_targets}]", "orange")
+        self.plot_widget.add_legend(legenda=f"Temperaturas desejadas\n[{label_targets}]", color="orange")
         self.plot_widget.add_curve(self.x_data, targets, 'orange', 1)
                 
     def open_loop_analyzer(self):
-        temp_a_original = np.array(self.parent.df["temp_a"])
-        temp_b_original = np.array(self.parent.df["temp_b"])
-
-        x = [float(row.iloc[1]) - self.parent.df.at[self.parent.df.index[0], 'seconds'] for (_, row) in self.parent.df.iterrows()]
-        temps = (temp_a_original + temp_b_original) / 2
+        x = self.x_data
+        temps = self.y_data
 
         f_temps = np.array(sig.savgol_filter(temps, int(len(x) * 0.02), 6))
         f_temps_dt = np.gradient(f_temps, x, edge_order=1)
@@ -171,10 +189,10 @@ class PlotterAnalyzer(QWidget):
         self.plot_widget.add_item(v_final_line, 0)
         self.plot_widget.add_item(h_final_line, 0)
 
-        self.plot_widget.add_legend('Temperatura (ºC)', 'blue', plot_n=0)
-        self.plot_widget.add_legend('Ponto de maior derivada', 'red', 'dot', plot_n=0)
-        self.plot_widget.add_legend(f'Temperatura inicial ({f_temps[0]:.3f}ºC)', 'black', pg.QtCore.Qt.DashLine, plot_n=0)
-        self.plot_widget.add_legend(f'Temperatura final ({f_temps[-1]:.3f}ºC)', 'black', pg.QtCore.Qt.DashLine, plot_n=0)
+        self.plot_widget.add_legend(legenda='Temperatura (ºC)', color='blue', plot_n=0)
+        self.plot_widget.add_legend(legenda='Ponto de maior derivada', color='red', type='dot', plot_n=0)
+        self.plot_widget.add_legend(legenda=f'Temperatura inicial ({f_temps[0]:.3f}ºC)', color='black', type=pg.QtCore.Qt.DashLine, plot_n=0)
+        self.plot_widget.add_legend(legenda=f'Temperatura final ({f_temps[-1]:.3f}ºC)', color='black', type=pg.QtCore.Qt.DashLine, plot_n=0)
 
         self.plot_widget.plot_temp.setTitle(f"Temperatura registrada - L = {L:.2f}, T (+L) = {T:.2f} (+{L:.2f})")
 
@@ -196,16 +214,16 @@ class AnalyzerGUI(QWidget):
         self.layout.addWidget(self.sidebar, 1)
         self.layout.addWidget(self.plotter_gui, 4)
 
-    def start_analysis(self, file_path, mode):
+    def start_analysis(self, file_path, sensor_variable, mode):
         if file_path:
             self.mode = mode
             print(file_path)
             self.df = pd.read_csv(file_path)
             x_data = [float(row["seconds"]) - self.df.iloc[0]["seconds"] for _, row in self.df.iterrows()]
             #temps = (self.df["temp_a"] + self.df["temp_b"]) / 2
-            temps = self.df["temp_a"]
+            temps = self.df[sensor_variable]
 
             if mode == "open":
                 temps = np.array(sig.savgol_filter(temps, int(len(x_data) * 0.02), 6))
 
-            self.plotter_gui.update_analyzer(x_data, temps, mode)
+            self.plotter_gui.update_analyzer(x_data=x_data, y_data=temps, mode=mode)
