@@ -50,18 +50,24 @@ class PlotWidget:
         self.curves_sensors = []
         self.curves_actuators = []
 
+        self.plot_sensor_legends = []
+        self.plot_actuator_legends = []
+
     def clear(self):
         self.curves.clear()
         self.curves_dt.clear()
         self.curves_sensors.clear()
         self.curves_actuators.clear()
+        self.plot_sensor_legends.clear()
+        self.plot_actuator_legends.clear()
         self.plot_widget.clear()
 
-    def add_legend(self, legenda="", size = 11, color="black", type=pg.QtCore.Qt.SolidLine, plot_n=0):
+    def add_legend(self, legenda="", unit="", size = 11, color="black", type=pg.QtCore.Qt.SolidLine, plot_n=0):
         if legenda == "":
             return
         
         plot = None
+        list = None
 
         if self.mode == "closed":
             plot = self.plot
@@ -73,8 +79,10 @@ class PlotWidget:
         elif self.mode == "plotter":
             if plot_n == 0:
                 plot = self.plot_sensor
+                list = self.plot_sensor_legends
             elif plot_n == 1:
                 plot = self.plot_actuators
+                list = self.plot_actuator_legends
         else:
             return
 
@@ -86,8 +94,21 @@ class PlotWidget:
         else:
             symbol = pg.ScatterPlotItem(size=3, brush=pg.mkBrush(color), pen=pg.mkPen(None), symbol='o')
 
-        legend.addItem(symbol, legenda)
+        if self.mode == 'plotter':
+            list.append((legend, symbol))
 
+    def update_legend(self, legenda="", idx = 0, plot_n=0):
+        list = []
+
+        if plot_n == 0:
+            list = self.plot_sensor_legends
+        elif plot_n == 1:
+            list = self.plot_actuator_legends
+
+        leg, leg_item = list[idx]
+        label = leg.getLabel(leg_item)
+        label.setText(legenda)
+    
     def add_curve(self, x, y, color='black', width=1.5, plot_n = 0):
         if x is None or y is None:
             return

@@ -86,8 +86,8 @@ class PIDControl2(Controller):
 
 if __name__ == '__main__':
     plant = AppManager(mcu_type=MCUType.RDATA, port="COM1", baud_rate=14000, sample_time=1000)
-    plant.set_actuator_vars(("Heater 1", float), ("Heater 2", float),  ("Heater 3", float))
-    plant.set_sensor_vars(("NTC 1", float), ("NTC 2", float ), ("NTC 3", float))
+    plant.set_actuator_vars(("Heater 1", "%", float), ("Heater 2", "%", float),  ("Heater 3", "%", float))
+    plant.set_sensor_vars(("NTC 1", "ºC", float), ("NTC 2", "ºC", float ), ("NTC 3", "ºC", float))
 
     pidcontrol1 = PIDControl("PID Control 1", init_setpoint=(40, 30, 50), l=9.02, t=344.21)
     pidcontrol1.set_config_variable(("Kp", float), ("Ki", float), ("Kd", float))
