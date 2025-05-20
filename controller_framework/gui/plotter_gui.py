@@ -181,20 +181,29 @@ class ControlGUI(QWidget):
 
         match view:
             case "ALL":
-                for i, sensor_data in enumerate(self.sensor_data):
+                for (i, sensor_data), (var_name, props) in zip(enumerate(self.sensor_data), self.app_mirror.sensor_vars.items()):
                     np_sensor_data = np.array(sensor_data)
                     self.plot_widget.update_curve(plot_seconds, np_sensor_data, 0, i)
 
-                for i, actuator_data in enumerate(self.actuator_data):
+                    legenda = f'{var_name}: {np_sensor_data[-1]:.4f} {props['unit']}'
+                    self.plot_widget.update_legend(legenda=legenda, plot_n=0, idx=i)
+                for (i, actuator_data), (var_name, props) in zip(enumerate(self.actuator_data), self.app_mirror.actuator_vars.items()):
                     np_actuator_data = np.array(actuator_data)
                     self.plot_widget.update_curve(plot_seconds, np_actuator_data, 1, i)
+
+                    legenda = f'{var_name}: {np_actuator_data[-1]:.4f} {props['unit']}'
+                    self.plot_widget.update_legend(legenda=legenda, plot_n=1, idx=i)
 
             case _ if view in self.sensor_labels:
                 letters = self.sensor_labels
                 idx = letters.index(view)
 
                 sensor_data = np.array(self.sensor_data[idx])
-                self.plot_widget.update_curve(plot_seconds, sensor_data, 0, 0)
+                self.plot_widget.update_curve(plot_seconds, sensor_data, plot_n=0, curve_n=0)
+
+                var_name, props = list(self.app_mirror.sensor_vars.items())[idx]
+                legenda = f'{var_name}: {sensor_data[-1]:.4f} {props['unit']}'
+                self.plot_widget.update_legend(legenda=legenda, plot_n=0, idx=0)
             case _:
                 print(f"Visualização '{view}' não reconhecida.")
 
@@ -210,11 +219,11 @@ class ControlGUI(QWidget):
 
                 for i, (var_name, props) in enumerate(self.app_mirror.sensor_vars.items()):
                     self.plot_widget.add_curve([0], [0], color=props['color'], plot_n=0)
-                    self.plot_widget.add_legend(legenda=var_name, color=props['color'], plot_n=0)
+                    self.plot_widget.add_legend(legenda=var_name, unit=props['unit'], color=props['color'], plot_n=0)
                 
                 for i, (var_name, props) in enumerate(self.app_mirror.actuator_vars.items()):
                     self.plot_widget.add_curve([0], [0], color=props['color'], plot_n=1)
-                    self.plot_widget.add_legend(legenda=var_name, color=props['color'], plot_n=1)
+                    self.plot_widget.add_legend(legenda=var_name, unit=props['unit'], color=props['color'], plot_n=1)
                     
             case _ if view in self.sensor_labels:
                 idx = self.sensor_labels.index(view)
@@ -222,7 +231,7 @@ class ControlGUI(QWidget):
 
                 self.plot_widget.plotter_single_plot(var_name)  
                 self.plot_widget.add_curve([0], [0], color=props['color'])
-                self.plot_widget.add_legend(legenda=var_name, color=props['color'], plot_n=0)
+                self.plot_widget.add_legend(legenda=var_name, unit=props['unit'], color=props['color'], plot_n=0)
                     
             case _:
                 print(f"Visualização '{view}' não reconhecida.")

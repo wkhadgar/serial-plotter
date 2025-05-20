@@ -288,11 +288,12 @@ class AppManager:
 
     def __set_var(self, var_dict, *args):
         for var in args:
-            var_name, var_type = var
+            var_name, var_unit, var_type = var
 
             var_dict[var_name] = {
                 "type": var_type,
                 "value": 0,
+                "unit": var_unit,
                 "color": self.random_color()
             }
     
