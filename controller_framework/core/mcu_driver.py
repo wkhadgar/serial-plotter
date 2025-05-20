@@ -97,28 +97,32 @@ class STM32Driver(MCUDriver):
 class RandomDataDriver(MCUDriver):
     def __init__(self, mcu_type, port, baud_rate):
         super().__init__(mcu_type, port, baud_rate)
-        self.sensor_a = None
-        self.sensor_b = None
-        self.duty1 = None
-        self.duty2 = None
+        self.Re   = 10
+        self.Rth  = 5
+        self.Cth  = 1000
+        self.Tamb = 25.0
+        self.dt   = 1
+        self.sensor_a = self.sensor_b = self.sensor_c = self.Tamb
 
     def read(self):
-        self.sensor_a = round(np.random.uniform(20, 50), 2)
-        self.sensor_b = round(np.random.uniform(20, 50), 2)
-        self.duty1 = round(random.uniform(-100, 100), 2)
-        self.duty2 = round(random.uniform(-100, 100), 2)
+        return (self.sensor_a, self.sensor_b, self.sensor_c),\
+               (self.duty1, self.duty2, self.duty3)
 
-        return (self.sensor_a, self.sensor_b, self.sensor_b + self.sensor_a),\
-               (self.duty1, self.duty2, self.duty1 + self.duty2)
+    def send(self, v1, v2, v3):
+        self.sensor_a = self._step(v1, self.sensor_a)
+        self.sensor_b = self._step(v2, self.sensor_b)
+        self.sensor_c = self._step(v3, self.sensor_c)
 
-    def send(self, *args):
-        # Not necessary logic to send function
-        pass
+        self.duty1, self.duty2, self.duty3 = v1, v2, v3
 
     def connect(self):
-        # Not necessary logic to connect function
-        pass
+        self.duty1 = self.duty2 = self.duty3 = 0.0
+        self.sensor_a = self.sensor_b = self.sensor_c = self.Tamb
 
+    def _step(self, V, T_current):
+        P = V**2 / self.Re
+        dT = (P - (T_current - self.Tamb)/self.Rth) * (self.dt / self.Cth)
+        return T_current + dT
 
 class TCLABDriver(MCUDriver):
     def __init__(self, mcu_type, port, baud_rate, timeout=0.1):
