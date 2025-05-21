@@ -14,7 +14,7 @@ from PySide6.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QL
 
 import re
 
-from .utils_gui import PlotWidget
+from .utils_gui import PlotWidget, Mode
 
 class ControlGUI(QWidget):
     def __init__(self, *, parent, app_mirror, x_label: str, y_label: str):
@@ -45,8 +45,8 @@ class ControlGUI(QWidget):
         self.container_layout = QVBoxLayout()
         self.container.setLayout(self.container_layout)
         
-        self.plot_widget = PlotWidget(self.container_layout)
-        self.plot_widget.plotter_plot()
+        self.plot_widget = PlotWidget(self.container_layout, Mode.PLOTTER)
+        # self.plot_widget.plotter_plot()
         self.toggle_plot_view()
 
         self.temp_input = QLineEdit()
@@ -186,13 +186,13 @@ class ControlGUI(QWidget):
                     self.plot_widget.update_curve(plot_seconds, np_sensor_data, 0, i)
 
                     legenda = f'{var_name}: {np_sensor_data[-1]:.4f} {props['unit']}'
-                    self.plot_widget.update_legend(legenda=legenda, plot_n=0, idx=i)
+                    self.plot_widget.update_legend(text=legenda, plot_n=0, idx=i)
                 for (i, actuator_data), (var_name, props) in zip(enumerate(self.actuator_data), self.app_mirror.actuator_vars.items()):
                     np_actuator_data = np.array(actuator_data)
                     self.plot_widget.update_curve(plot_seconds, np_actuator_data, 1, i)
 
                     legenda = f'{var_name}: {np_actuator_data[-1]:.4f} {props['unit']}'
-                    self.plot_widget.update_legend(legenda=legenda, plot_n=1, idx=i)
+                    self.plot_widget.update_legend(text=legenda, plot_n=1, idx=i)
 
             case _ if view in self.sensor_labels:
                 letters = self.sensor_labels
@@ -203,7 +203,7 @@ class ControlGUI(QWidget):
 
                 var_name, props = list(self.app_mirror.sensor_vars.items())[idx]
                 legenda = f'{var_name}: {sensor_data[-1]:.4f} {props['unit']}'
-                self.plot_widget.update_legend(legenda=legenda, plot_n=0, idx=0)
+                self.plot_widget.update_legend(text=legenda, plot_n=0, idx=0)
             case _:
                 print(f"Visualização '{view}' não reconhecida.")
 
@@ -215,15 +215,15 @@ class ControlGUI(QWidget):
 
         match view:
             case "ALL":
-                self.plot_widget.plotter_dual_plott('Sensors', 'Actuators')
+                self.plot_widget.plotter_dual_plot('Sensors', 'Actuators')
 
                 for i, (var_name, props) in enumerate(self.app_mirror.sensor_vars.items()):
                     self.plot_widget.add_curve([0], [0], color=props['color'], plot_n=0)
-                    self.plot_widget.add_legend(legenda=var_name, unit=props['unit'], color=props['color'], plot_n=0)
+                    self.plot_widget.add_legend(text=var_name, color=props['color'], plot_n=0)
                 
                 for i, (var_name, props) in enumerate(self.app_mirror.actuator_vars.items()):
                     self.plot_widget.add_curve([0], [0], color=props['color'], plot_n=1)
-                    self.plot_widget.add_legend(legenda=var_name, unit=props['unit'], color=props['color'], plot_n=1)
+                    self.plot_widget.add_legend(text=var_name, color=props['color'], plot_n=1)
                     
             case _ if view in self.sensor_labels:
                 idx = self.sensor_labels.index(view)
@@ -231,7 +231,7 @@ class ControlGUI(QWidget):
 
                 self.plot_widget.plotter_single_plot(var_name)  
                 self.plot_widget.add_curve([0], [0], color=props['color'])
-                self.plot_widget.add_legend(legenda=var_name, unit=props['unit'], color=props['color'], plot_n=0)
+                self.plot_widget.add_legend(text=var_name, color=props['color'], plot_n=0)
                     
             case _:
                 print(f"Visualização '{view}' não reconhecida.")
