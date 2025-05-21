@@ -17,6 +17,7 @@ class AppManager:
         if not isinstance(mcu_type, MCUType):
             raise ValueError(f"MCU inválida: {mcu}. Escolha entre {list(MCUType)}")
         self.__mcu: MCUDriver = MCUDriver.create_driver(mcu_type, **kwargs)
+        self.__mcu: MCUDriver = MCUDriver.create_driver(mcu_type, **kwargs)
 
         self.control_instances: dict[Controller] = {}
         self.running_instance: Optional[Controller] = None

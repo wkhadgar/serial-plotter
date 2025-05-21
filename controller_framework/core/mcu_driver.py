@@ -128,13 +128,13 @@ class RandomDataDriver(MCUDriver):
         return T_current + dT
 
 class TCLABDriver(MCUDriver):
-    def __init__(self, mcu_type, port, baud_rate, timeout=0.1):
-        super().__init__(mcu_type, port, baud_rate)
+    def __init__(self, mcu_type, timeout=0.1, **kwargs):
+        super().__init__(mcu_type, **kwargs)
         self.ser = None
         self.timeout = timeout
 
     def connect(self):
-        self.ser = serial.Serial(port=self.port, baudrate=self.baud_rate, timeout=self.timeout)
+        self.ser = serial.Serial(port=self.kwargs["port"], baudrate=self.kwargs["baud"], timeout=self.timeout)
         time.sleep(2)
 
     def read(self):
