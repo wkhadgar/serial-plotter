@@ -5,7 +5,7 @@ from controller_framework import MCUType
 
 class PIDControl(Controller):
     def __init__(self, label, init_setpoint, l, t):
-        super().__init__(label)
+        super().__init__(label, init_setpoint)
         ti = (l / 0.3)
         td = 0
         self.Kp = (0.9 * (t / l))
@@ -20,9 +20,6 @@ class PIDControl(Controller):
 
         self.heater_1 = 0
         self.heater_2 = 0
-
-        for setpoint in init_setpoint:
-            self.setpoints.append(setpoint)
     
     def step(self, setpoint, measure):
         dt_s = self.dt / 10 ** 6
@@ -85,7 +82,7 @@ class PIDControl2(Controller):
         self.out = windup_check
 
 if __name__ == '__main__':
-    plant = AppManager(mcu_type=MCUType.RDATA, port="COM1", baud_rate=14000, sample_time=1000)
+    plant = AppManager(mcu_type=MCUType.RDATA, sample_time=1000, port="COM1", baud_rate=14000)
     plant.set_actuator_vars(("Heater 1", "%", float), ("Heater 2", "%", float),  ("Heater 3", "%", float))
     plant.set_sensor_vars(("NTC 1", "ºC", float), ("NTC 2", "ºC", float ), ("NTC 3", "ºC", float))
 

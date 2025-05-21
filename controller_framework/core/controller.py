@@ -2,12 +2,12 @@ from abc import ABC, abstractmethod
 import ast
 
 class Controller(ABC):
-    def __init__(self,  label:str):
+    def __init__(self, label:str, setpoints:list):
         self.dt = 0
         
         self.configurable_vars = {}
 
-        self.setpoints = []
+        self.setpoints = setpoints
         self.sensor_values = []
         self.actuator_values = []
         self.set_config_variable(("setpoints", list))
