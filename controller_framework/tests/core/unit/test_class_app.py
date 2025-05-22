@@ -30,3 +30,34 @@ class TestAppClass:
         }
 
         assert result == expected
+
+    @pytest.mark.parametrize(
+        "setter, update_method, attr_name, entries, new_values, expected_values",
+        [
+            (
+                "set_actuator_vars",
+                "update_actuator_vars",
+                "actuator_vars",
+                [("A1", "%", float), ("A2", "V", int), ("A3", "", bool)],
+                (1.23, 7, True),
+                {"A1": 1.23, "A2": 7, "A3": True},
+            ),
+            (
+                "set_sensor_vars",
+                "update_sensors_vars",
+                "sensor_vars",
+                [("S1", "ºC", float), ("S2", "V", float), ("S3", "A", float)],
+                (25.0, 12.7, 3.3),
+                {"S1": 25.0, "S2": 12.7, "S3": 3.3},
+            ),
+        ],
+    )
+    def test_update_vars_success(self, app, setter, update_method, attr_name, entries, new_values, expected_values,):
+        """ Ensure that the update methods update actuator_vars and sensor_vars with correct new values """
+
+        getattr(app, setter)(*entries)
+        getattr(app, update_method)(new_values) 
+
+        result = getattr(app, attr_name)
+        for name, expected in expected_values.items():
+            assert result[name]["value"] == pytest.approx(expected)
