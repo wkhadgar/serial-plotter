@@ -61,3 +61,21 @@ class TestAppClass:
         result = getattr(app, attr_name)
         for name, expected in expected_values.items():
             assert result[name]["value"] == pytest.approx(expected)
+
+    @pytest.mark.parametrize(
+        "setter, update_method, entries, bad_values, expected_type_name",
+        [
+            ("set_actuator_vars", "update_actuator_vars", [("A", "", int)], ("oops",), "int"),
+            ("set_sensor_vars",  "update_sensors_vars",  [("S", "", bool)], ("oops",), "bool"),
+        ],
+    )
+    def test_update_vars_type_error(self, app, setter, update_method, entries, bad_values, expected_type_name):
+            """Ensure that the update methods raise a TypeError when called with values of the wrong type."""
+
+            getattr(app, setter)(*entries)
+
+            with pytest.raises(TypeError) as exc:
+                getattr(app, update_method)(*bad_values)
+
+            assert expected_type_name in str(exc.value)
+
