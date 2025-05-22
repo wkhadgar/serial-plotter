@@ -19,7 +19,7 @@ class TestAppClass:
     def test_set_vars(self, app, monkeypatch, setter, attr_name, entries):
         """ Ensure that setter initialize actuator_vars and sensors_vars with the correct data """
 
-        monkeypatch.setattr(app, "random_color", lambda: "#ABC123")
+        monkeypatch.setattr(app, "_random_color", lambda: "#ABC123")
 
         getattr(app, setter)(*entries)
 
