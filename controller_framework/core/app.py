@@ -118,7 +118,7 @@ class AppManager:
                 self.last_timestamp = now
                 sensor_values, actuator_values = self.__mcu.read()
                 self.data_updated = True
-                
+
                 self.update_actuator_vars(actuator_values)
                 self.update_sensors_vars(sensor_values)
 
@@ -277,7 +277,7 @@ class AppManager:
 
         return values
     
-    def random_color(self):
+    def _random_color(self):
         n = 12
         hue = (self.color_index / n) % 1.0
         self.color_index += 2
@@ -293,7 +293,7 @@ class AppManager:
                 "type": var_type,
                 "value": 0,
                 "unit": var_unit,
-                "color": self.random_color()
+                "color": self._random_color()
             }
     
     def set_actuator_vars(self, *args):
@@ -310,8 +310,8 @@ class AppManager:
     def get_sensor_values(self):
         return self.get_var_values(self.sensor_vars)
     
-    def __update_var(self, var_dict, *args):
-        for (var_name, value) in zip(var_dict, *args):
+    def __update_var(self, var_dict, new_values):
+        for (var_name, value) in zip(var_dict, new_values):
             expected_type = var_dict[var_name]['type']
 
             if not isinstance(value, expected_type):
@@ -319,8 +319,8 @@ class AppManager:
             
             var_dict[var_name]['value'] = value
 
-    def update_actuator_vars(self, *args):
-        self.__update_var(self.actuator_vars, *args)
+    def update_actuator_vars(self, new_values):
+        self.__update_var(self.actuator_vars, new_values)
     
-    def update_sensors_vars(self, *args):
-        self.__update_var(self.sensor_vars, *args)
+    def update_sensors_vars(self, new_values):
+        self.__update_var(self.sensor_vars, new_values)
