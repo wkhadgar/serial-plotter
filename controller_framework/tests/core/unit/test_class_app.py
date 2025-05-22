@@ -79,3 +79,35 @@ class TestAppClass:
 
             assert expected_type_name in str(exc.value)
 
+    @pytest.mark.parametrize(
+        "setter, getter, updater, entries, new_values, expected_values",
+        [
+            (
+                "set_actuator_vars",
+                "get_actuator_values",
+                "update_actuator_vars",
+                [("A1", "%", float), ("A2", "V", int), ("A3", "", bool)],
+                (1.23, 7, True),
+                [1.23, 7, True]
+            ),
+            (
+                "set_sensor_vars",
+                "get_sensor_values",
+                "update_sensors_vars",
+                [("S1", "ºC", float), ("S2", "V", float), ("S3", "A", float)],
+                (25.0, 12.7, 3.3),
+                [25.0, 12.7, 3.3]
+            )
+        ],
+    )
+    def test_get_vars_values(self, app, setter, getter, updater,
+                             entries, new_values, expected_values):
+        """ Ensure that the getter methods return the correct values """
+
+        getattr(app, setter)(*entries)
+        getattr(app, updater)(new_values)
+
+        result = getattr(app, getter)()
+
+        assert result == expected_values
+        
