@@ -1,8 +1,13 @@
 from abc import ABC, abstractmethod
 import ast
 
+from .logmanager import LogManager
+
 class Controller(ABC):
     def __init__(self, label:str, setpoints:list):
+        self.log_manager = LogManager('Controller')
+        self.log = self.log_manager.get_logger(component='CONTROLLER')
+
         self.dt = 0
         
         self.configurable_vars = {}
@@ -15,18 +20,26 @@ class Controller(ABC):
         self.label = label
     
     def __getstate__(self):
-        return {
-            "label": self.label,
-            "setpoints": self.setpoints,
-            "dt": self.dt,
-            "configurable_vars": self.configurable_vars,
+        state = {
+            'label': self.label,
+            'setpoints': self.setpoints,
+            'dt': self.dt,
+            'configurable_vars': self.configurable_vars,
+            'sensor_values': self.sensor_values,
+            'actuator_values': self.actuator_values,
         }
+        return state
 
     def __setstate__(self, state):
-        self.label = state["label"]
-        self.setpoints = state["setpoints"]
-        self.dt = state["dt"]
-        self.configurable_vars = state["configurable_vars"]
+        self.label             = state['label']
+        self.setpoints         = state['setpoints']
+        self.dt                = state['dt']
+        self.configurable_vars = state['configurable_vars']
+        self.sensor_values     = state.get('sensor_values', [])
+        self.actuator_values   = state.get('actuator_values', [])
+
+        self.log_manager = LogManager('Controller')
+        self.log         = self.log_manager.get_logger(component='CONTROLLER')
 
     @abstractmethod
     def control(self):
@@ -66,6 +79,8 @@ class Controller(ABC):
                 setattr(self, var_name, casted_value)
                 self.configurable_vars[var_name]["value"] = casted_value
             except ValueError:
-                print(f"[ERRO] Valor inválido para '{var_name}'. Esperado {var_type.__name__}, recebido '{new_value}'")
+                self.log.error("Valor inválido para '%s'. Esperado %s, recebido '%s'",
+                                var_name, var_type.__name__, new_value, extra={'method':'update var'}
+                )
         else:
-            print(f"[ERRO] Variável '{var_name}' não está registrada como configurável.")
+            self.log.error("Variável '%s' não está registrada como configurável.", var_name, extra={'method':'update var'})
