@@ -1,7 +1,10 @@
+import logging
 import multiprocessing as mp
 from queue import Empty
 import threading
 import time
+
+from .logmanager import LogManager
 
 # {
 #     "type": "update_variable",
@@ -19,6 +22,9 @@ class IPCManager:
         assert isinstance(app_manager, AppManager)
         self.core = app_manager
 
+        self.log_manager = LogManager('IPC', logging.DEBUG)
+        self.log = self.log_manager.get_logger(component='IPC')
+
         self.tx_queue: mp.Queue = queue_to_gui
         self.rx_queue: mp.Queue = queue_from_gui
 
@@ -33,7 +39,7 @@ class IPCManager:
         }
 
     def __run(self):
-        print('[IPC] started')
+        self.log.info('started', extra={'method':'run'})
         while not self.stop_event.is_set():
             self.__parse_command()
 
@@ -76,15 +82,15 @@ class IPCManager:
             data = self.rx_queue.get_nowait()
             command = data.get("type")
             payload = data.get("payload", {})
-            print(f"[IPC] {command} recebido com payload: {payload}")
+            self.log.debug("%s recebido com payload: %s", command, payload, extra={'method':'parse'})
 
             if not command:
-                print("[IPC] Comando sem 'type'. Ignorado.")
+                self.log.warning("Comando sem 'type'. Ignorado.", extra={'method':'parse'})
                 return
 
             handler = self.command_registry.get(command)
             if not handler:
-                print(f"[IPC] Comando '{command}' não registrado.")
+                self.log.warning("Comando '%s' não registrado.", command, extra={'method':'parse'})
                 return
 
             handler(self.core, payload)
@@ -92,10 +98,10 @@ class IPCManager:
         except Empty:
             pass
         except ValueError as e:
-            print(f"[IPC] Erro de validação: {e}")
+            self.log.error("Erro de validação: %s", e, extra={'method':'parse'})
         except Exception as e:
-            print(f"[IPC] Erro ao executar comando '{command}': {e}")
-            print(f"[IPC] Dados recebidos: {data}")
+            self.log.error("[IPC] Erro ao executar comando '%s': %s", command, e,    extra={'method':'parse'})
+            self.log.debug("[IPC] Dados recebidos: %s", data, extra={'method':'parse'})
 
     def handler_update_variable(self, core, payload):
         control_name = payload.get("control_name")
