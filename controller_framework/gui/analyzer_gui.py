@@ -214,7 +214,6 @@ class AnalyzerGUI(QWidget):
     def start_analysis(self, file_path, sensor_variable, mode):
         if file_path:
             self.mode = mode
-            print(file_path)
             self.df = pd.read_csv(file_path)
             x_data = [float(row["seconds"]) - self.df.iloc[0]["seconds"] for _, row in self.df.iterrows()]
             #temps = (self.df["temp_a"] + self.df["temp_b"]) / 2
