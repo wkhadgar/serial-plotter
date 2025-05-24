@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from functools import partial
+import logging
 import os
 import queue
 from typing import Optional
@@ -13,6 +14,8 @@ from PySide6.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QL
                              QPushButton, QHBoxLayout, QLineEdit, QGraphicsProxyWidget, QListWidget, QCheckBox )
 
 import re
+
+from controller_framework.core.logmanager import LogManager
 
 from .utils_gui import PlotWidget, Mode
 
@@ -62,7 +65,7 @@ class ControlGUI(QWidget):
         log_path = "./temp_logs/"
         if not os.path.exists(log_path):
             os.makedirs(log_path)
-        print(f"Salvando dados em {log_path}")
+        self.parent.log.debug("Salvando dados em %s", log_path, extra={'method':'init'})
         
         datetime = pd.Timestamp.now()
         sensor_columns = [f"sensor_{i}" for i in range(self.app_mirror.num_sensors)]
@@ -205,7 +208,7 @@ class ControlGUI(QWidget):
                 legenda = f'{var_name}: {sensor_data[-1]:.4f} {props['unit']}'
                 self.plot_widget.update_legend(text=legenda, plot_n=0, idx=0)
             case _:
-                print(f"Visualização '{view}' não reconhecida.")
+                self.parent.log.warning("Visualização '%s' não reconhecida.", view, extra={'method':'update plot'})
 
     def toggle_plot_view(self):
         self.current_mode = (self.current_mode + 1) % len(self.plot_views)
@@ -234,7 +237,7 @@ class ControlGUI(QWidget):
                 self.plot_widget.add_legend(text=var_name, color=props['color'], plot_n=0)
                     
             case _:
-                print(f"Visualização '{view}' não reconhecida.")
+                self.parent.log.warning("Visualização '%s' não reconhecida.", view, extra={'method':'toggle plot'})
 
     def reset_data(self):
         self.plot_seconds = []
@@ -404,7 +407,7 @@ class SidebarGUI(QWidget):
                     self.parent.command_triggered.emit(command, payload)
                     
                 except ValueError:
-                    print(f"Entrada inválida para '{var_name}'")
+                    self.parent.log.error("Entrada inválida para '%s'", var_name, extra={'method':'update control'})
             
             if(self.app_mirror.running_instance and self.app_mirror.running_instance.label == self.current_control.label):
                 self.app_mirror.update_setpoint(self.current_control.setpoints)
@@ -441,6 +444,9 @@ class PlotterGUI(QWidget):
         from controller_framework.core import AppManager
         assert isinstance(app_mirror, AppManager)
         self.app_mirror = app_mirror
+
+        self.log_manager = LogManager('Plotter', logging.DEBUG)
+        self.log = self.log_manager.get_logger(component='PLOTTER')
 
         self.layout = QHBoxLayout()
         self.setLayout(self.layout)
