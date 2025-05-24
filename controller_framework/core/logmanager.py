@@ -2,11 +2,11 @@ import logging
 
 class ColorLevelFormatter(logging.Formatter):
     COLORS = {
-        'DEBUG': "\033[37m",    # branco
-        'INFO': "\033[32m",     # verde
-        'WARNING': "\033[33m",  # amarelo
-        'ERROR': "\033[31m",    # vermelho
-        'CRITICAL': "\033[41m", # fundo vermelho
+        'DEBUG':    "\033[90m",    # cinza escuro
+        'INFO':     "\033[92m",    # verde brilhante
+        'WARNING':  "\033[93m",    # amarelo brilhante
+        'ERROR':    "\033[1;31m",  # vermelho em negrito
+        'CRITICAL': "\033[97;41m", # branco em fundo vermelho
     }
     RESET = "\033[0m"
     BRIGHT_WHITE = "\033[97m"
