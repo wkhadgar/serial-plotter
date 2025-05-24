@@ -7,6 +7,8 @@ import numpy as np
 import serial
 from pyocd.core.helpers import ConnectHelper, Session
 
+from .logmanager import LogManager
+
 
 class MCUType(Enum):
     STM32 = "STM32"
@@ -18,6 +20,9 @@ class MCUDriver(ABC):
     def __init__(self, mcu_type, **kwargs):
         self.mcu_type: MCUType = mcu_type
         self.kwargs = kwargs
+
+        self.log_manager = LogManager('MCUDriver')
+        self.log = self.log_manager.get_logger(component='MCU')
 
     @abstractmethod
     def send(self, *args):
@@ -81,7 +86,7 @@ class STM32Driver(MCUDriver):
         self.ram = self.ser.target.get_memory_map()[1]
         self.ser.open()
 
-        print("[MCU] Finding control block area...")
+        self.log.debug("Finding control block area...", extra={'method':'connect'})
         key = [ord(c) for c in "!CTR"]
         for addr in range(self.ram.start, self.ram.end):
             byte = self.ser.target.read8(addr)
@@ -89,12 +94,12 @@ class STM32Driver(MCUDriver):
                 continue
 
             if self.ser.target.read_memory_block8(addr, len(key)) == key:
-                print(f"[MCU] Control block area found at 0x{addr:X}!")
+                self.log.debug(f"Control block area found at 0x{addr:X}!", extra={'method':'connect'})
                 self.control_block_addr = addr + len(key)
                 break
         else:
-            print("[MCU] Block control area not found!!!")
-            raise ValueError("Error")
+            self.log.debug("Block control area not found!!!", extra={'method':'connect'})
+            raise ValueError("MCU block control area not found")
 
 
 class RandomDataDriver(MCUDriver):
