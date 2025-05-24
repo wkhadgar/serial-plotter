@@ -1,10 +1,14 @@
+import logging
 import sys
 
 from PySide6 import QtCore
 from PySide6.QtWidgets import QTabWidget, QApplication, QMainWindow
 
+from controller_framework.core.logmanager import LogManager
+
 from .plotter_gui import PlotterGUI
 from .analyzer_gui import AnalyzerGUI
+
 
 class MainGUI(QMainWindow):
     def __init__(self, app_mirror):
@@ -13,6 +17,9 @@ class MainGUI(QMainWindow):
         from controller_framework.core import AppManager
         assert isinstance(app_mirror, AppManager)
         self.app_mirror = app_mirror
+
+        self.log_manager = LogManager('MainGUI', logging.DEBUG)
+        self.log = self.log_manager.get_logger(component='MainGUI')
 
         self.setWindowTitle("Control System GUI")
         self.setGeometry(100, 100, 1200, 800)
@@ -25,6 +32,7 @@ class MainGUI(QMainWindow):
 
         self.tabs.addTab(self.plotter_gui, "PLOTTER")
         self.tabs.addTab(self.analyzer_gui, "ANALYZER")
+        self.tabs.currentChanged.connect(self.on_tab_changed)
 
         self.hide_mode = False
 
@@ -47,7 +55,6 @@ class MainGUI(QMainWindow):
         app = QApplication(sys.argv)
         window = MainGUI(app_mirror)
         window.showFullScreen()
-        print('[GUI] started')
         sys.exit(app.exec())
 
     def key_press_handle(self, super_press_handler, ev):
@@ -81,6 +88,9 @@ class MainGUI(QMainWindow):
                 self.analyzer_gui.layout.setStretchFactor(self.analyzer_gui, 5)
         self.hide_mode = not self.hide_mode
 
+    def on_tab_changed(self, index):
+        self.plotter_gui.toggle_select(index == 0)
+
     @QtCore.Slot(str, object)
     def send_command(self, command, value):
         data = {
@@ -89,4 +99,4 @@ class MainGUI(QMainWindow):
         }
         
         self.app_mirror.queue_from_gui.put(data)
-        print(f"[MainGUI] Enviou '{command}' com valor {value} para o [APP]")
+        self.log.debug(f"Enviou '{command}' com valor {value} para o [APP]", extra={'method':'send command'})

@@ -163,3 +163,5 @@ cython_debug/
 
 temp_logs/
 .idea/
+
+.vscode/

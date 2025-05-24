@@ -17,7 +17,7 @@ Para instalar o plotter:
 
 ```shell
 cd serial-plotter
-pip install .
+pip install -e .
 ```
 
 ## Como usar
