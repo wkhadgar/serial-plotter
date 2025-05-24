@@ -8,14 +8,16 @@ import colorsys
 from .mcu_driver import MCUDriver, MCUType
 from .controller import Controller
 from .ipcmanager import IPCManager
+from .logmanager import LogManager
 from controller_framework.gui import MainGUI
 
 import multiprocessing as mp
 
+
 class AppManager:
     def __init__(self, mcu_type: MCUType, sample_time = 1000, **kwargs):
         if not isinstance(mcu_type, MCUType):
-            raise ValueError(f"MCU inválida: {mcu}. Escolha entre {list(MCUType)}")
+            raise ValueError(f"MCU inválida: {mcu_type}. Escolha entre {list(MCUType)}")
         self.__mcu: MCUDriver = MCUDriver.create_driver(mcu_type, **kwargs)
 
         self.control_instances: dict[Controller] = {}
@@ -58,6 +60,9 @@ class AppManager:
 
         self.color_index = 0
 
+        self.log_manager = LogManager('APP')
+        self.log = self.log_manager.get_logger(component='APP')
+
     def __getstate__(self):
         state = self.__dict__.copy()
 
@@ -95,7 +100,7 @@ class AppManager:
         )
 
     def __read_values(self):
-        print('[APP:read] started')
+        self.log.info('started', extra={'method': 'read'})
         now = time.perf_counter()
         target_dt_s = self.sample_time / 1000.0
         next_read_time = now + target_dt_s
@@ -122,7 +127,7 @@ class AppManager:
                 self.update_sensors_vars(sensor_values)
 
             except Exception as e:
-                print(f"[APP:read] Erro ao ler dados dos sensores: {e}")
+                self.log.error("Erro ao ler dados dos sensores: %s", e, extra={'method':'read'})
             read_elapsed = (time.perf_counter() - read_start) * 1e3
 
             if self.running_instance is not None:
@@ -139,20 +144,17 @@ class AppManager:
             elapsed = (time.perf_counter() - now) * 1e3
             sleep_time = next_read_time - time.perf_counter()
 
-            print(  
-                    # f'[APP:read] {self.sensor_a}, {self.sensor_b}, {self.duty1}, {self.duty2} | '
-                    f'read dt: {dt_ms:.3f} ms, control dt: {self.dt:.3f} ms | all elapsed: {elapsed:.3f} ms, sleep: {(sleep_time * 1e3):.3f} ms | '
-                    f'read elapsed: {read_elapsed:.3f} ms, control elapsed: {control_elapsed:.3f} ms | feedback elapsed: {feedback_elapsed:.3f} ms'
-                 )
-            
-            # print(
-            #         f'[APP:read] teste: {read_dt:.3f}, {control_dt:.3f}, {write_dt:.3f}'
-            #      )
+            self.log.info(
+                "\ndt:         %8.3f ms       | all elapsed:      %8.3f ms | sleep time:      %8.3f ms\n"
+                "read elapsed:     %8.3f ms | control elapsed: %8.3f ms | feedback elapsed: %8.3f ms",
+                dt_ms, elapsed, sleep_time * 1e3, read_elapsed, control_elapsed, feedback_elapsed,
+                extra={'method': 'read'}
+            )
 
             if sleep_time > 0:
                 time.sleep(sleep_time)
             else:
-                print("[APP:read] Leitura atrasada.")
+                self.log.warning("Leitura atrasada.", extra={'method': 'read'})
                 next_read_time = time.perf_counter()
 
             next_read_time += target_dt_s
@@ -186,7 +188,7 @@ class AppManager:
         while thread.is_alive():
             elapsed = time.perf_counter() - start_time
             if elapsed >= (self.sample_time / 1000.0) * 0.9:
-                print('[CONTROL] Controle demorou demais, usando valor anterior')
+                self.log.warning('Controle demorou demais, usando valor anterior', extra={'method':'control'})
                 break
             time.sleep(0.01)
 
@@ -198,7 +200,7 @@ class AppManager:
         self.__mcu.connect()
 
     def init(self):
-        print("Connect")
+        self.log.info("Try connect mcu", extra={'method':'init'})
         self.__connect()
 
         self.reading_thread = threading.Thread(target=self.__read_values, daemon=True)
@@ -228,15 +230,15 @@ class AppManager:
                 self.stop_controller()
 
             try:
+                self.log.info("Start controller: %s", label, extra={'method':'start control'})
                 self.running_instance = self.control_instances[label]
                 self.update_setpoint(self.running_instance.setpoints)
-                print(f"[APP] Start controller: {label}")
             except Exception as e:
-                print(f"value error {e}")
+                self.log.error("Erro ao inicializar controle: %s", e, extra={'method':'start control'})
 
     def stop_controller(self):
         if self.running_instance is not None:
-            print(f"[APP] Stop controller: {self.running_instance.label}")
+            self.log.info("Stop controller: %s", self.running_instance.label, extra={'method':'stop control'})
             self.running_instance = None
 
     def append_instance(self, instance: Controller):
