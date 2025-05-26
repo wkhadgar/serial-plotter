@@ -92,11 +92,11 @@ class BallNPlateControler(Controller):
             if self.y_last == 0:
                 self.y_last = self.y_out
 
-            out_x, _, x_ierr, _ = self.x_pid(self.setpoint, self.sensor_a, self.x_last, self.x_ierr, self.dt)
-            out_y, _, y_ierr, _ = self.y_pid(self.setpoint, self.sensor_b, self.y_last, self.y_ierr, self.dt)
+            out_x, _, x_ierr, _ = self.x_pid(self.setpoints[0], self.sensor_values[0], self.x_last, self.x_ierr, self.dt)
+            out_y, _, y_ierr, _ = self.y_pid(self.setpoints[1], self.sensor_values[1], self.y_last, self.y_ierr, self.dt)
 
-            self.x_last = self.sensor_a
-            self.y_last = self.sensor_b
+            self.x_last = self.sensor_values[0]
+            self.y_last = self.sensor_values[1]
             self.x_ierr = x_ierr
             self.y_ierr = y_ierr
             self.out1 = out_x / 10
@@ -108,7 +108,7 @@ if __name__ == '__main__':
     ball_n_plate = BallNPlateControler("Ball and Plate Controller", [2400, 2400])
     ball_n_plate.set_config_variable(("closed_loop", bool))
 
-    app = AppManager(sample_time=100, mcu_type=MCUType.STM32, x_pos=2400.0, y_pos=2400.0, x_out=1750.0, y_out=1750.0)
+    app = AppManager(sample_time=10, mcu_type=MCUType.STM32, x_pos=2400.0, y_pos=2400.0, x_out=1750.0, y_out=1750.0)
     app.append_instance(ball_n_plate)
     app.set_actuator_vars(('Servo X', '', float), ('Servo Y', '', float))
     app.set_sensor_vars(('Pos X', '', float), ('Pos Y', '', float))

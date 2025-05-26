@@ -3,6 +3,7 @@ from functools import partial
 import logging
 import os
 import queue
+import time
 from typing import Optional
 
 from controller_framework.core.controller import Controller
@@ -78,11 +79,13 @@ class ControlGUI(QWidget):
         self.log_file_path = log_path + f"log_{datetime.year}-{datetime.month}-{datetime.day}-{datetime.hour}-{datetime.minute}-{datetime.second}.csv"
         self.df.to_csv(self.log_file_path, index=False)
         
-        self.update_delay = 100
+        self.update_delay = self.app_mirror.cache_flush_time
         self.plot_timer = QtCore.QTimer()
         self.plot_timer.timeout.connect(self.update_data)
         self.plot_timer.start(self.update_delay)
 
+        self.sensors_cache: list[list] = [[]]
+        self.actuators_cache: list[list] = [[]]
         self.is_selected = True
 
     def __on_return_pressed(self):
@@ -99,8 +102,6 @@ class ControlGUI(QWidget):
         self.current_setpoint_line.setValue(self.app_mirror.get_setpoint())
         self.current_setpoint_line.label.setText(f"Temperatura desejada [{self.app_mirror.get_setpoint()}°C]")
         self.current_setpoint_line.update()
-
-    def __retrieve_message(self, timeout: float = 0.01) -> Optional[dict]:
         try:
             return self.app_mirror.queue_to_gui.get(timeout=timeout)
         except queue.Empty:
@@ -111,39 +112,36 @@ class ControlGUI(QWidget):
         payload = data.get('payload')
 
         if command == "full_state":
-            sensors = payload.get('sensors')
-            actuators = payload.get('actuators')
+            self.sensors_cache = payload.get('sensors')
+            self.actuators_cache = payload.get('actuators')
             setpoints = payload.get('setpoints')
             running_instance = payload.get('running_instance')
             control_instances_data = payload.get('control_instances')
-            last_timestamp = payload.get('last_timestamp')
+            self.cache_timestamp = payload.get('cache_timestamp')
 
             if self.init_timestamp is None:
-                self.init_timestamp = last_timestamp
-            self.last_timestamp = last_timestamp
+                self.init_timestamp = self.cache_timestamp[0]
 
             self.app_mirror.running_instance = running_instance
             self.app_mirror.control_instances = control_instances_data
-            self.app_mirror.update_sensors_vars(sensors)
-            self.app_mirror.update_actuator_vars(actuators)
             self.app_mirror.update_setpoint(setpoints)
 
             return True
         else:
             return False
 
-    def __append_plot_data(self, sensor_values, actuator_values):
-        self.plot_seconds.append(self.last_timestamp - self.init_timestamp)
+    def __append_plot_data(self):
+        self.plot_seconds.extend([val - self.init_timestamp for val in self.cache_timestamp])
 
-        for lista, value in zip(self.sensor_data, sensor_values):
-            lista.append(value)
+        for lista, cache_values in zip(self.sensor_data, self.sensors_cache):
+            lista.extend(cache_values)
 
-        for lista, value in zip(self.actuator_data, actuator_values):
-            lista.append(value)
+        for lista, cache_values in zip(self.actuator_data, self.actuators_cache):
+            lista.extend(cache_values)
 
-    def __write_csv(self, sensor_values, actuator_values):
+    def __write_csv(self, sensor_cache, actuator_cache):
         target_str = '"' + " ".join(map(str, self.app_mirror.setpoints)) + '"'
-        row = {
+        rows = [{
             "timestamp": self.last_timestamp,
             "seconds": f"{self.plot_seconds[-1]:.4f}",
 
@@ -154,29 +152,37 @@ class ControlGUI(QWidget):
                 for i in range(self.app_mirror.num_actuators)},
 
             "target": target_str
-        }
+        } for sensor_values, actuator_values in zip(sensor_cache, actuator_cache)]
 
         with open(self.log_file_path, "a") as f:
-            data = ",".join(map(str, row.values())) + "\n"
-            f.write(data)
+            for row in rows:
+                data = ",".join(map(str, row.values())) + "\n" 
+                f.write(data)
 
     def update_data(self):
-        data = self.__retrieve_message()
+        data = self.app_mirror.queue_to_gui.get()
         if data is None:
-            return
+            return        
 
         if not self.__process_message(data):
             return
         
-        sensor_values = self.app_mirror.get_sensor_values()
-        actuator_values = self.app_mirror.get_actuator_values()
-        
-        self.__append_plot_data(sensor_values, actuator_values)
+        self.__append_plot_data()
 
+        # start_update = time.perf_counter()
         if self.is_selected:
             self.update_plots()
+        # elapsed_update = (time.perf_counter() - start_update) * 1e3
 
-        self.__write_csv(sensor_values, actuator_values)
+        # start_write = time.perf_counter()
+        # self.__write_csv(self.sensors_cache, self.actuators_cache)
+        # elapsed_write = (time.perf_counter() - start_write) * 1e3
+
+        # all_elapsed = (time.perf_counter() - start) * 1e3
+
+        # self.parent.log.critical(f"teste '{all_elapsed, elapsed_update, elapsed_write}' teste.", extra={'method':'update data'})
+        
+        
         
     def update_plots(self):      
         view = self.plot_views[self.current_mode]
@@ -188,13 +194,13 @@ class ControlGUI(QWidget):
                     np_sensor_data = np.array(sensor_data)
                     self.plot_widget.update_curve(plot_seconds, np_sensor_data, 0, i)
 
-                    legenda = f'{var_name}: {np_sensor_data[-1]:.4f} {props['unit']}'
+                    legenda = f"{var_name}: {np_sensor_data[-1]:.4f} {props['unit']}"
                     self.plot_widget.update_legend(text=legenda, plot_n=0, idx=i)
                 for (i, actuator_data), (var_name, props) in zip(enumerate(self.actuator_data), self.app_mirror.actuator_vars.items()):
                     np_actuator_data = np.array(actuator_data)
                     self.plot_widget.update_curve(plot_seconds, np_actuator_data, 1, i)
 
-                    legenda = f'{var_name}: {np_actuator_data[-1]:.4f} {props['unit']}'
+                    legenda = f"{var_name}: {np_actuator_data[-1]:.4f} {props['unit']}"
                     self.plot_widget.update_legend(text=legenda, plot_n=1, idx=i)
 
             case _ if view in self.sensor_labels:
@@ -205,7 +211,7 @@ class ControlGUI(QWidget):
                 self.plot_widget.update_curve(plot_seconds, sensor_data, plot_n=0, curve_n=0)
 
                 var_name, props = list(self.app_mirror.sensor_vars.items())[idx]
-                legenda = f'{var_name}: {sensor_data[-1]:.4f} {props['unit']}'
+                legenda = f"{var_name}: {sensor_data[-1]:.4f} {props['unit']}"
                 self.plot_widget.update_legend(text=legenda, plot_n=0, idx=0)
             case _:
                 self.parent.log.warning("Visualização '%s' não reconhecida.", view, extra={'method':'update plot'})

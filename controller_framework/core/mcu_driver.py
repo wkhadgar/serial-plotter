@@ -82,7 +82,7 @@ class STM32Driver(MCUDriver):
                (out1, out2)
 
     def connect(self):
-        self.ser = ConnectHelper.session_with_chosen_probe(target_override="stm32f103c8", connect_mode="attach")
+        self.ser = ConnectHelper.session_with_chosen_probe(target_override="STM32F103RC", connect_mode="attach")
         self.ram = self.ser.target.get_memory_map()[1]
         self.ser.open()
 

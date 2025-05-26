@@ -47,7 +47,7 @@ class IPCManager:
                 self.__send_full_state()
                 self.core.data_updated = False
 
-            time.sleep(0.1)
+            time.sleep(self.core.cache_flush_time / 1e3)
 
     def init(self):
         self.thread = threading.Thread(target=self.__run)
@@ -65,13 +65,21 @@ class IPCManager:
     def __send_full_state(self):
         command = "full_state"
         payload = {
-            "sensors": self.core.get_sensor_values(),
-            "actuators": self.core.get_actuator_values(),
+            "sensors": [values.copy() for values in self.core.sensor_cache],
+            "actuators": [values.copy() for values in self.core.actuator_cache],
             "setpoints": self.core.setpoints,
             "running_instance": self.core.running_instance,
             "control_instances": self.core.control_instances,
-            "last_timestamp": self.core.last_timestamp,
+            "cache_timestamp": self.core.timestamp_cache.copy(),
         }
+
+        for values in self.core.sensor_cache:
+            values.clear()
+
+        for values in self.core.actuator_cache:
+            values.clear()
+
+        self.core.timestamp_cache.clear()
 
         self.__send(
             command, payload

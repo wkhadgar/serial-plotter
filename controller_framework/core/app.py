@@ -15,7 +15,7 @@ import multiprocessing as mp
 
 
 class AppManager:
-    def __init__(self, mcu_type: MCUType, sample_time = 1000, **kwargs):
+    def __init__(self, mcu_type: MCUType, sample_time = 1, flush_time= 100, **kwargs):
         if not isinstance(mcu_type, MCUType):
             raise ValueError(f"MCU inválida: {mcu_type}. Escolha entre {list(MCUType)}")
         self.__mcu: MCUDriver = MCUDriver.create_driver(mcu_type, **kwargs)
@@ -24,6 +24,7 @@ class AppManager:
         self.running_instance: Optional[Controller] = None
 
         self.sample_time = sample_time # ms
+        self.cache_flush_time = flush_time # ms
 
         self.actuator_vars = {}
         self.sensor_vars = {}
@@ -42,6 +43,9 @@ class AppManager:
         self.dt = 0
 
         self.setpoints = []
+        self.actuator_cache =  [[]]
+        self.sensor_cache = [[]]
+        self.timestamp_cache = []
 
         self.reading_thread = None
         self.reading_stop_event = threading.Event()
@@ -105,6 +109,9 @@ class AppManager:
         target_dt_s = self.sample_time / 1000.0
         next_read_time = now + target_dt_s
 
+        self.actuator_cache = [[] for _ in range(self.num_actuators)]
+        self.sensor_cache = [[] for _ in range(self.num_sensors)]
+
         while not self.reading_stop_event.is_set():
             elapsed = 0
             control_elapsed = 0
@@ -125,6 +132,14 @@ class AppManager:
 
                 self.update_actuator_vars(actuator_values)
                 self.update_sensors_vars(sensor_values)
+
+                for i, val in enumerate(sensor_values):
+                    self.sensor_cache[i].append(val)
+                
+                for i, val in enumerate(actuator_values):
+                    self.actuator_cache[i].append(val)
+
+                self.timestamp_cache.append(now)
 
             except Exception as e:
                 self.log.error("Erro ao ler dados dos sensores: %s", e, extra={'method':'read'})
@@ -206,7 +221,7 @@ class AppManager:
         self.reading_thread = threading.Thread(target=self.__read_values, daemon=True)
         self.reading_thread.start()
 
-        time.sleep(1)
+        time.sleep(0.1)
         self.ipcmanager.init()
 
         # self.command_thread = threading.Thread(target=self.__read_command, daemon=True)

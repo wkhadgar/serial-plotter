@@ -1,4 +1,5 @@
 from enum import Enum
+import time
 import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore

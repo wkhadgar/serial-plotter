@@ -82,7 +82,7 @@ class PIDControl2(Controller):
         self.out = windup_check
 
 if __name__ == '__main__':
-    plant = AppManager(mcu_type=MCUType.RDATA, sample_time=1000, port="COM1", baud_rate=14000)
+    plant = AppManager(mcu_type=MCUType.RDATA, sample_time=1, port="COM1", baud_rate=14000)
     plant.set_actuator_vars(("Heater 1", "%", float), ("Heater 2", "%", float),  ("Heater 3", "%", float))
     plant.set_sensor_vars(("NTC 1", "ºC", float), ("NTC 2", "ºC", float ), ("NTC 3", "ºC", float))
 
