@@ -12,26 +12,22 @@ class PIDControl(Controller):
         self.Ki = (self.Kp / ti)
         self.Kd = (self.Kp * td)
 
-        self.error = 0
-        self.accumulated_I = 0
+        self.error = [0 for _ in range(3)]
+        self.accumulated_I = [0 for _ in range(3)]
 
-        self.ntc_1 = 0
-        self.ntc_2 = 0
-
-        self.heater_1 = 0
-        self.heater_2 = 0
     
-    def step(self, setpoint, measure):
+    def step(self, i, setpoint, measure):
         dt_s = self.dt / 10 ** 6
         
         err = setpoint - measure
         P = self.Kp * err
         i_inc = self.Ki * err * dt_s
-        D = self.Kd * (err - self.error) / (dt_s + 0.000001)
+        D = self.Kd * (err - self.error[i]) / (dt_s + 0.000001)
 
-        self.error = err
+        self.error[i] = err
 
-        windup_check = P + self.accumulated_I + i_inc + D
+        windup_check = P + self.accumulated_I[i] + i_inc + D
+        self.accumulated_I[i] += i_inc
 
         return max(0.0, min(100.0, windup_check))
 
@@ -39,7 +35,7 @@ class PIDControl(Controller):
         result = []
 
         for i, sensor_value in enumerate(self.sensor_values):
-            out = self.step(self.setpoints[i], sensor_value)
+            out = self.step(i, self.setpoints[i], sensor_value)
             result.append(out)
 
         return result
@@ -82,7 +78,7 @@ class PIDControl2(Controller):
         self.out = windup_check
 
 if __name__ == '__main__':
-    plant = AppManager(mcu_type=MCUType.RDATA, sample_time=1, port="COM1", baud_rate=14000)
+    plant = AppManager(mcu_type=MCUType.RDATA, sample_time=20, port="COM1", baud_rate=14000)
     plant.set_actuator_vars(("Heater 1", "%", float), ("Heater 2", "%", float),  ("Heater 3", "%", float))
     plant.set_sensor_vars(("NTC 1", "ºC", float), ("NTC 2", "ºC", float ), ("NTC 3", "ºC", float))
 

@@ -41,21 +41,20 @@ class IPCManager:
     def __run(self):
         self.log.info('started', extra={'method':'run'})
         while not self.stop_event.is_set():
-            self.__parse_command()
-
-            if self.core.data_updated:
-                self.__send_full_state()
-                self.core.data_updated = False
+            self.__send_full_state()
 
             time.sleep(self.core.cache_flush_time / 1e3)
 
     def init(self):
-        self.thread = threading.Thread(target=self.__run)
-        self.thread.start()
+        self.thread_send = threading.Thread(target=self.__run)
+        self.thread_recv = threading.Thread(target=self.__parse_command)
+        self.thread_send.start()
+        self.thread_recv.start()
 
     def stop(self):
         self.stop_event.set()
-        self.thread.join()
+        self.thread_send.join()
+        self.thread_recv.join()
 
     def __send(self, command, payload):
         data = {"type": command, "payload": payload}
@@ -73,6 +72,8 @@ class IPCManager:
             "cache_timestamp": self.core.timestamp_cache.copy(),
         }
 
+        self.__send(command, payload)
+
         for values in self.core.sensor_cache:
             values.clear()
 
@@ -81,35 +82,33 @@ class IPCManager:
 
         self.core.timestamp_cache.clear()
 
-        self.__send(
-            command, payload
-        )
 
     def __parse_command(self):
-        try:
-            data = self.rx_queue.get_nowait()
-            command = data.get("type")
-            payload = data.get("payload", {})
-            self.log.debug("%s recebido com payload: %s", command, payload, extra={'method':'parse'})
+        while not self.stop_event.is_set():
+            try:
+                data = self.rx_queue.get_nowait()
+                command = data.get("type")
+                payload = data.get("payload", {})
+                self.log.debug("%s recebido com payload: %s", command, payload, extra={'method':'parse'})
 
-            if not command:
-                self.log.warning("Comando sem 'type'. Ignorado.", extra={'method':'parse'})
-                return
+                if not command:
+                    self.log.warning("Comando sem 'type'. Ignorado.", extra={'method':'parse'})
+                    return
 
-            handler = self.command_registry.get(command)
-            if not handler:
-                self.log.warning("Comando '%s' não registrado.", command, extra={'method':'parse'})
-                return
+                handler = self.command_registry.get(command)
+                if not handler:
+                    self.log.warning("Comando '%s' não registrado.", command, extra={'method':'parse'})
+                    return
 
-            handler(self.core, payload)
+                handler(self.core, payload)
 
-        except Empty:
-            pass
-        except ValueError as e:
-            self.log.error("Erro de validação: %s", e, extra={'method':'parse'})
-        except Exception as e:
-            self.log.error("[IPC] Erro ao executar comando '%s': %s", command, e,    extra={'method':'parse'})
-            self.log.debug("[IPC] Dados recebidos: %s", data, extra={'method':'parse'})
+            except Empty:
+                pass
+            except ValueError as e:
+                self.log.error("Erro de validação: %s", e, extra={'method':'parse'})
+            except Exception as e:
+                self.log.error("[IPC] Erro ao executar comando '%s': %s", command, e,    extra={'method':'parse'})
+                self.log.debug("[IPC] Dados recebidos: %s", data, extra={'method':'parse'})
 
     def handler_update_variable(self, core, payload):
         control_name = payload.get("control_name")

@@ -1,7 +1,39 @@
 from abc import ABC, abstractmethod
 import ast
+import queue
+import threading
 
 from .logmanager import LogManager
+
+class ControlWorker:
+    def __init__(self, running_instance):
+        self.running_instance = running_instance
+        self.task_queue = queue.Queue()
+        self.result = None
+        self.done_event = threading.Event()
+        self.thread = threading.Thread(target=self._worker_loop, daemon=True)
+        self.thread.start()
+
+    def _worker_loop(self):
+        while True:
+            dt = self.task_queue.get()
+            if dt is None:
+                break
+            try:
+                self.running_instance.set_dt(dt)
+                self.result = self.running_instance.control()
+            except Exception as e:
+                self.result = None
+            finally:
+                self.done_event.set()
+
+    def run(self, dt, timeout):
+        self.done_event.clear()
+        self.task_queue.put(dt)
+        completed = self.done_event.wait(timeout)
+        if not completed:
+            return None
+        return self.result
 
 class Controller(ABC):
     def __init__(self, label:str, setpoints:list):

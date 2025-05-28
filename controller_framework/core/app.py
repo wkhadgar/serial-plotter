@@ -6,7 +6,7 @@ from typing import Optional
 import colorsys
 
 from .mcu_driver import MCUDriver, MCUType
-from .controller import Controller
+from .controller import ControlWorker, Controller
 from .ipcmanager import IPCManager
 from .logmanager import LogManager
 from controller_framework.gui import MainGUI
@@ -130,6 +130,8 @@ class AppManager:
                 sensor_values, actuator_values = self.__mcu.read()
                 self.data_updated = True
 
+                self.log.warning(f"{sensor_values}, {actuator_values}")
+
                 self.update_actuator_vars(actuator_values)
                 self.update_sensors_vars(sensor_values)
 
@@ -182,33 +184,18 @@ class AppManager:
         dt = now - self.__last_control_timestamp if self.__last_control_timestamp != 0 else 0
         self.dt = dt * 1e3
 
-        self.running_instance.set_dt(dt)
         self.running_instance.actuator_values = self.get_actuator_values()
         self.running_instance.sensor_values = self.get_sensor_values()
 
-        control_done = threading.Event()
-        control_result = [self.running_instance.actuator_values]
+        if not hasattr(self, '_control_worker'):
+            self._control_worker = ControlWorker(self.running_instance)
 
-        def run_control():
-            try:
-                result = self.running_instance.control()
-                control_result[0] = result
-            finally:
-                control_done.set()
+        result = self._control_worker.run(dt, timeout=(self.sample_time / 1000.0)*0.5)
+        if result is None:
+            self.log.warning('Controle demorou demais, usando valor anterior', extra={'method':'control'})
+        else:
+            self.running_instance.actuator_values = result
 
-        thread = threading.Thread(target=run_control, daemon=True)
-        thread.start()
-
-        start_time = time.perf_counter()
-        while thread.is_alive():
-            elapsed = time.perf_counter() - start_time
-            if elapsed >= (self.sample_time / 1000.0) * 0.9:
-                self.log.warning('Controle demorou demais, usando valor anterior', extra={'method':'control'})
-                break
-            time.sleep(0.01)
-
-        if control_done.is_set():
-            self.running_instance.actuator_values = control_result[0]
         self.__last_control_timestamp = time.perf_counter()
 
     def __connect(self):

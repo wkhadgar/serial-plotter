@@ -108,7 +108,7 @@ if __name__ == '__main__':
     ball_n_plate = BallNPlateControler("Ball and Plate Controller", [2400, 2400])
     ball_n_plate.set_config_variable(("closed_loop", bool))
 
-    app = AppManager(sample_time=10, mcu_type=MCUType.STM32, x_pos=2400.0, y_pos=2400.0, x_out=1750.0, y_out=1750.0)
+    app = AppManager(sample_time=10, mcu_type=MCUType.VIRUTAL, x_pos=2400.0, y_pos=2400.0, x_out=1750.0, y_out=1750.0)
     app.append_instance(ball_n_plate)
     app.set_actuator_vars(('Servo X', '', float), ('Servo Y', '', float))
     app.set_sensor_vars(('Pos X', '', float), ('Pos Y', '', float))

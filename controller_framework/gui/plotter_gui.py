@@ -79,10 +79,16 @@ class ControlGUI(QWidget):
         self.log_file_path = log_path + f"log_{datetime.year}-{datetime.month}-{datetime.day}-{datetime.hour}-{datetime.minute}-{datetime.second}.csv"
         self.df.to_csv(self.log_file_path, index=False)
         
-        self.update_delay = self.app_mirror.cache_flush_time
+        # self.update_delay = self.app_mirror.cache_flush_time
+        self.update_delay = 30
         self.plot_timer = QtCore.QTimer()
-        self.plot_timer.timeout.connect(self.update_data)
+        self.plot_timer.timeout.connect(self.update_plots)
         self.plot_timer.start(self.update_delay)
+
+        self.update_data_delay = 10
+        self.data_timer = QtCore.QTimer()
+        self.data_timer.timeout.connect(self.update_data)
+        self.data_timer.start(self.update_data_delay)
 
         self.sensors_cache: list[list] = [[]]
         self.actuators_cache: list[list] = [[]]
@@ -160,31 +166,29 @@ class ControlGUI(QWidget):
                 f.write(data)
 
     def update_data(self):
-        data = self.app_mirror.queue_to_gui.get()
-        if data is None:
-            return        
+        while True:
+            try:
+                data = self.app_mirror.queue_to_gui.get_nowait()
+                if data is None:
+                    break
 
-        if not self.__process_message(data):
+                if not self.__process_message(data):
+                    continue
+                
+                self.__append_plot_data()
+
+                # if self.is_selected:
+                #     self.update_plots()
+
+                # self.__write_csv(self.sensors_cache, self.actuators_cache)
+            except queue.Empty:
+                break
+
+        
+    def update_plots(self):
+        if not self.is_selected:
             return
-        
-        self.__append_plot_data()
 
-        # start_update = time.perf_counter()
-        if self.is_selected:
-            self.update_plots()
-        # elapsed_update = (time.perf_counter() - start_update) * 1e3
-
-        # start_write = time.perf_counter()
-        # self.__write_csv(self.sensors_cache, self.actuators_cache)
-        # elapsed_write = (time.perf_counter() - start_write) * 1e3
-
-        # all_elapsed = (time.perf_counter() - start) * 1e3
-
-        # self.parent.log.critical(f"teste '{all_elapsed, elapsed_update, elapsed_write}' teste.", extra={'method':'update data'})
-        
-        
-        
-    def update_plots(self):      
         view = self.plot_views[self.current_mode]
         plot_seconds = np.array(self.plot_seconds)
 

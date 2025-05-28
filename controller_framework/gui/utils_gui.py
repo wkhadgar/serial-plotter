@@ -96,8 +96,18 @@ class PlotWidget:
     def update_curve(self, x, y, plot_n: int, curve_n: int):
         if x is None or y is None:
             return
-        _, curves, _ = self._get_plot_and_containers(plot_n)
+        plot, curves, _ = self._get_plot_and_containers(plot_n)
+
+
         curves[curve_n].setData(x, y)
+
+        if self.mode == Mode.PLOTTER:
+            max_time = x[-1]
+            min_time = max_time - 60
+            if min_time < 0:
+                min_time = 0
+                
+            plot.setXRange(min_time, max_time)
 
     def clear_plots(self, plot_n: int = 0):
         plot, curves, _ = self._get_plot_and_containers(plot_n)
