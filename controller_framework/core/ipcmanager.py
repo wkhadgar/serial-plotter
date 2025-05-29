@@ -55,6 +55,13 @@ class IPCManager:
         self.thread_send.join()
         self.thread_recv.join()
 
+        self.tx_queue.close()
+        self.rx_queue.close()
+
+        self.tx_queue.cancel_join_thread()
+        self.rx_queue.cancel_join_thread()
+        self.log.info('stopped')
+
     def __send(self, command, payload):
         data = {"type": command, "payload": payload}
 

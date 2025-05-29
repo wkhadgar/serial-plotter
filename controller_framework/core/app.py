@@ -1,5 +1,3 @@
-from queue import Queue
-import random
 import threading
 import time
 from typing import Optional
@@ -159,6 +157,8 @@ class AppManager:
                 next_read_time = time.perf_counter()
 
             next_read_time += target_dt_s
+        
+        self.log.info('stopped', extra={'method':'read'})
 
     def __feedback(self):
         self.__mcu.send(*self.running_instance.actuator_values)
@@ -197,11 +197,13 @@ class AppManager:
 
         self.gui_process = mp.Process(target=MainGUI.start_gui, args=(self,))
         self.gui_process.start()
+
         self.gui_process.join()
+
         self.reading_stop_event.set()
         self.reading_thread.join()
-        self.ipcmanager.stop()
 
+        self.ipcmanager.stop()
 
     def start_controller(self, label):
         if label in self.control_instances:
