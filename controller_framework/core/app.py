@@ -35,11 +35,6 @@ class AppManager:
         self.__last_read_timestamp = 0
         self.__last_control_timestamp = 0
 
-        self.reading_buffer_semaphore = threading.Semaphore()
-
-        self.control_dts = list()
-        self.read_dts = list()
-
         self.dt = 0
 
         self.setpoints = []
@@ -117,12 +112,11 @@ class AppManager:
             control_elapsed = 0
             read_elapsed = 0
             feedback_elapsed = 0
-
+            
             now = time.perf_counter()
             
             dt_s = now - self.__last_read_timestamp if self.__last_read_timestamp != 0 else target_dt_s
             dt_ms = dt_s * 1000.0
-            self.read_dts.append(dt_s)
 
             read_start = time.perf_counter()
             try:
@@ -130,21 +124,17 @@ class AppManager:
                 sensor_values, actuator_values = self.__mcu.read()
                 self.data_updated = True
 
-                self.log.warning(f"{sensor_values}, {actuator_values}")
-
                 self.update_actuator_vars(actuator_values)
                 self.update_sensors_vars(sensor_values)
 
+                self.timestamp_cache.append(now)
                 for i, val in enumerate(sensor_values):
                     self.sensor_cache[i].append(val)
-                
                 for i, val in enumerate(actuator_values):
                     self.actuator_cache[i].append(val)
-
-                self.timestamp_cache.append(now)
-
             except Exception as e:
                 self.log.error("Erro ao ler dados dos sensores: %s", e, extra={'method':'read'})
+
             read_elapsed = (time.perf_counter() - read_start) * 1e3
 
             if self.running_instance is not None:
@@ -211,20 +201,14 @@ class AppManager:
         time.sleep(0.1)
         self.ipcmanager.init()
 
-        # self.command_thread = threading.Thread(target=self.__read_command, daemon=True)
-        # self.command_thread.start()
-
         self.gui_process = mp.Process(target=MainGUI.start_gui, args=(self,))
         self.gui_process.start()
         self.gui_process.join()
-
+        
         self.reading_stop_event.set()
         self.reading_thread.join()
 
         self.ipcmanager.stop()
-
-        # self.command_stop_event.set()
-        # self.command_thread.join()
 
     def start_controller(self, label):
         if label in self.control_instances:

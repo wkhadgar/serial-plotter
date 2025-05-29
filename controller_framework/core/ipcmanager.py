@@ -42,12 +42,11 @@ class IPCManager:
         self.log.info('started', extra={'method':'run'})
         while not self.stop_event.is_set():
             self.__send_full_state()
-
-            time.sleep(self.core.cache_flush_time / 1e3)
+            time.sleep(0.03)
 
     def init(self):
-        self.thread_send = threading.Thread(target=self.__run)
-        self.thread_recv = threading.Thread(target=self.__parse_command)
+        self.thread_send = threading.Thread(target=self.__run, daemon=True)
+        self.thread_recv = threading.Thread(target=self.__parse_command, daemon=True)
         self.thread_send.start()
         self.thread_recv.start()
 
@@ -82,7 +81,6 @@ class IPCManager:
 
         self.core.timestamp_cache.clear()
 
-
     def __parse_command(self):
         while not self.stop_event.is_set():
             try:
@@ -109,6 +107,8 @@ class IPCManager:
             except Exception as e:
                 self.log.error("[IPC] Erro ao executar comando '%s': %s", command, e,    extra={'method':'parse'})
                 self.log.debug("[IPC] Dados recebidos: %s", data, extra={'method':'parse'})
+
+            time.sleep(0.01)
 
     def handler_update_variable(self, core, payload):
         control_name = payload.get("control_name")

@@ -26,10 +26,10 @@ class BallNPlateControler(Controller):
         KI = Kc / tauI
         KD = Kc * tauD
         # ubias for controller (initial heater)
-        op0 = 17500
+        op0 = 400
         # upper and lower bounds on heater level
-        ophi = 22500
-        oplo = 12500
+        ophi = 750
+        oplo = 15
         # calculate the error
         error = (sp - pv) * 0.6
         print("x_err:", error)
@@ -61,10 +61,10 @@ class BallNPlateControler(Controller):
         KI = Kc / tauI
         KD = Kc * tauD
         # ubias for controller (initial heater)
-        op0 = 17500
+        op0 = 350
         # upper and lower bounds on heater level
-        ophi = 22500
-        oplo = 12500
+        ophi = 750
+        oplo = 15
         # calculate the error
         error = sp - pv
         print("y_err:", error)

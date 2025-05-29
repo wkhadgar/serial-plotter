@@ -3,8 +3,6 @@ from functools import partial
 import logging
 import os
 import queue
-import time
-from typing import Optional
 
 from controller_framework.core.controller import Controller
 import numpy as np
@@ -12,7 +10,7 @@ import pandas as pd
 
 from PySide6 import QtCore
 from PySide6.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QLabel, QScrollArea,
-                             QPushButton, QHBoxLayout, QLineEdit, QGraphicsProxyWidget, QListWidget, QCheckBox )
+                             QPushButton, QHBoxLayout, QLineEdit, QListWidget, QCheckBox )
 
 import re
 
@@ -20,7 +18,38 @@ from controller_framework.core.logmanager import LogManager
 
 from .utils_gui import PlotWidget, Mode
 
+class DataWorker(QtCore.QObject):
+    dataReady = QtCore.Signal()
+
+    def __init__(self, fn: Callable, interval_ms: int = 30):
+        super().__init__()
+        self.fn = fn
+        self.interval_ms = interval_ms
+        self._timer: QtCore.QTimer | None = None
+
+    @QtCore.Slot()
+    def start(self):
+        self._timer = QtCore.QTimer(self)
+        self._timer.setTimerType(QtCore.Qt.TimerType.PreciseTimer)
+        self._timer.timeout.connect(self._on_timeout)
+        self._timer.start(self.interval_ms)
+
+    @QtCore.Slot()
+    def _on_timeout(self):
+        try:
+            self.fn()
+            self.dataReady.emit()
+        except Exception as e:
+            print(f"[DataWorker] Erro em fn(): {e}")
+
+    @QtCore.Slot()
+    def stop(self):
+        if self._timer is not None and self._timer.isActive():
+            self._timer.stop()
+
 class ControlGUI(QWidget):
+    stopWorker = QtCore.Signal()
+
     def __init__(self, *, parent, app_mirror, x_label: str, y_label: str):
         super().__init__(parent)
 
@@ -50,7 +79,6 @@ class ControlGUI(QWidget):
         self.container.setLayout(self.container_layout)
         
         self.plot_widget = PlotWidget(self.container_layout, Mode.PLOTTER)
-        # self.plot_widget.plotter_plot()
         self.toggle_plot_view()
 
         self.temp_input = QLineEdit()
@@ -78,21 +106,26 @@ class ControlGUI(QWidget):
         
         self.log_file_path = log_path + f"log_{datetime.year}-{datetime.month}-{datetime.day}-{datetime.hour}-{datetime.minute}-{datetime.second}.csv"
         self.df.to_csv(self.log_file_path, index=False)
-        
-        # self.update_delay = self.app_mirror.cache_flush_time
-        self.update_delay = 30
-        self.plot_timer = QtCore.QTimer()
-        self.plot_timer.timeout.connect(self.update_plots)
-        self.plot_timer.start(self.update_delay)
-
-        self.update_data_delay = 10
-        self.data_timer = QtCore.QTimer()
-        self.data_timer.timeout.connect(self.update_data)
-        self.data_timer.start(self.update_data_delay)
 
         self.sensors_cache: list[list] = [[]]
         self.actuators_cache: list[list] = [[]]
         self.is_selected = True
+        self.last_update = 0
+        self.last_update_plot = 0
+
+        self._data_thread = QtCore.QThread(self)
+        self._data_worker = DataWorker(self.update_data, interval_ms=30)
+        self._data_worker.moveToThread(self._data_thread)
+        self._data_thread.started.connect(self._data_worker.start)
+        self._data_thread.finished.connect(self._data_worker.stop)
+        self.stopWorker.connect(self._data_worker.stop)
+        self._data_worker.dataReady.connect(
+            self.update_plots,
+            QtCore.Qt.ConnectionType.QueuedConnection
+        )
+        self._data_thread.start()
+
+        self.mutex = QtCore.QMutex()
 
     def __on_return_pressed(self):
         setpoint_string = self.temp_input.text()
@@ -175,36 +208,35 @@ class ControlGUI(QWidget):
                 if not self.__process_message(data):
                     continue
                 
-                self.__append_plot_data()
+                with QtCore.QMutexLocker(self.mutex):
+                    self.__append_plot_data()
 
-                # if self.is_selected:
-                #     self.update_plots()
-
-                # self.__write_csv(self.sensors_cache, self.actuators_cache)
             except queue.Empty:
                 break
 
-        
     def update_plots(self):
         if not self.is_selected:
             return
 
         view = self.plot_views[self.current_mode]
-        plot_seconds = np.array(self.plot_seconds)
+
+        with QtCore.QMutexLocker(self.mutex):
+            sensor_data_np = np.array(self.sensor_data)
+            actuator_data_np = np.array(self.actuator_data)
+            plot_seconds_np = np.array(self.plot_seconds)
 
         match view:
             case "ALL":
-                for (i, sensor_data), (var_name, props) in zip(enumerate(self.sensor_data), self.app_mirror.sensor_vars.items()):
-                    np_sensor_data = np.array(sensor_data)
-                    self.plot_widget.update_curve(plot_seconds, np_sensor_data, 0, i)
+                for (i, sensor_data), (var_name, props) in zip(enumerate(sensor_data_np), self.app_mirror.sensor_vars.items()):
+                    self.plot_widget.update_curve(plot_seconds_np, sensor_data, 0, i)
 
-                    legenda = f"{var_name}: {np_sensor_data[-1]:.4f} {props['unit']}"
+                    legenda = f"{var_name}: {sensor_data[-1]:.4f} {props['unit']}"
                     self.plot_widget.update_legend(text=legenda, plot_n=0, idx=i)
-                for (i, actuator_data), (var_name, props) in zip(enumerate(self.actuator_data), self.app_mirror.actuator_vars.items()):
-                    np_actuator_data = np.array(actuator_data)
-                    self.plot_widget.update_curve(plot_seconds, np_actuator_data, 1, i)
 
-                    legenda = f"{var_name}: {np_actuator_data[-1]:.4f} {props['unit']}"
+                for (i, actuator_data), (var_name, props) in zip(enumerate(actuator_data_np), self.app_mirror.actuator_vars.items()):
+                    self.plot_widget.update_curve(plot_seconds_np, actuator_data, 1, i)
+
+                    legenda = f"{var_name}: {actuator_data[-1]:.4f} {props['unit']}"
                     self.plot_widget.update_legend(text=legenda, plot_n=1, idx=i)
 
             case _ if view in self.sensor_labels:
@@ -212,7 +244,7 @@ class ControlGUI(QWidget):
                 idx = letters.index(view)
 
                 sensor_data = np.array(self.sensor_data[idx])
-                self.plot_widget.update_curve(plot_seconds, sensor_data, plot_n=0, curve_n=0)
+                self.plot_widget.update_curve(plot_seconds_np, sensor_data, plot_n=0, curve_n=0)
 
                 var_name, props = list(self.app_mirror.sensor_vars.items())[idx]
                 legenda = f"{var_name}: {sensor_data[-1]:.4f} {props['unit']}"
@@ -258,6 +290,12 @@ class ControlGUI(QWidget):
         self.df = pd.DataFrame(columns=self.df.columns)
         self.df.to_csv(self.log_file_path, index=False)
 
+    def close(self):
+        self.stopWorker.emit()
+        self._data_thread.quit()
+        self._data_thread.wait(1000)
+        return True
+
     def key_press_handle(self, super_press_handler: Callable, ev):
         if self.temp_input.hasFocus():
             super_press_handler(ev)
@@ -270,7 +308,6 @@ class ControlGUI(QWidget):
                 super_press_handler(ev)
             elif ev.key() == QtCore.Qt.Key.Key_F:
                 super_press_handler(ev)
-
 
 class SidebarGUI(QWidget):
     def __init__(self, parent, app_mirror, control_gui):
@@ -444,7 +481,6 @@ class SidebarGUI(QWidget):
         
         self.btn_deactivate_control.setEnabled(False)
 
-
 class PlotterGUI(QWidget):
     command_triggered = QtCore.Signal(str, object)
 
@@ -484,3 +520,7 @@ class PlotterGUI(QWidget):
     def toggle_select(self, param):
         self.plotter_gui.is_selected = param
 
+    def close(self):
+        self.plotter_gui.close()
+
+        return True

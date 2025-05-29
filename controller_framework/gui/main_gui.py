@@ -1,7 +1,7 @@
 import logging
 import sys
 
-from PySide6 import QtCore
+from PySide6 import QtCore, QtGui
 from PySide6.QtWidgets import QTabWidget, QApplication, QMainWindow
 
 from controller_framework.core.logmanager import LogManager
@@ -39,6 +39,9 @@ class MainGUI(QMainWindow):
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
         self.installEventFilter(self)
 
+        self.esc_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key.Key_Escape), self)
+        self.esc_shortcut.activated.connect(self.on_escape_pressed)
+
         self.plotter_gui.command_triggered.connect(self.send_command)
 
     def eventFilter(self, obj, event):
@@ -57,10 +60,15 @@ class MainGUI(QMainWindow):
         window.showFullScreen()
         sys.exit(app.exec())
 
-    def key_press_handle(self, super_press_handler, ev):
-        if ev.key() == QtCore.Qt.Key_Escape:
+    def on_escape_pressed(self):
+        res = self.plotter_gui.close()
+        if res:
             sys.exit(0)
-        elif ev.key() == QtCore.Qt.Key_F or ev.key() == 16777216:
+
+    def key_press_handle(self, super_press_handler, ev):
+        if ev.key() == QtCore.Qt.Key.Key_Escape:
+            sys.exit(0)
+        elif ev.key() == QtCore.Qt.Key.Key_F or ev.key() == 16777216:
             self.toggle_hide_mode()
 
     def toggle_hide_mode(self):
