@@ -139,6 +139,7 @@ class RandomDataDriver(MCUDriver):
         dT = (P - (T_current - self.Tamb)/self.Rth) * (self.dt / self.Cth)
         return T_current + dT
 
+
 class TCLABDriver(MCUDriver):
     def __init__(self, mcu_type, timeout=0.1, **kwargs):
         super().__init__(mcu_type, **kwargs)
@@ -165,6 +166,7 @@ class TCLABDriver(MCUDriver):
 
     def send(self, out1=0.0, out2=0.0):
         self.ser.write(f"SET_PWM:{out1},{out2}\n".encode())
+
 
 class VirtualBallNPlate(MCUDriver):
     def __init__(self, mcu_type, **kwargs):
@@ -210,6 +212,5 @@ class VirtualBallNPlate(MCUDriver):
 
         return (self.x, self.y), (0.0, 0.0)
     
-    def send(self, x_cmd, y_cmd):
-        pkt = struct.pack('!ff', x_cmd, y_cmd)
-        self.sock.sendto(pkt, self.udp_addr)
+    def send(self, *outs):
+        pass

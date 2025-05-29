@@ -59,8 +59,6 @@ class ControlGUI(QWidget):
         assert isinstance(app_mirror, AppManager)
         self.app_mirror = app_mirror
 
-        self.fullscreen = False
-        
         self.init_timestamp = None
         self.plot_seconds = []
         self.actuator_data = [[] for _ in range(self.app_mirror.num_actuators)]

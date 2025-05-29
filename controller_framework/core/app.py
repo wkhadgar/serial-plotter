@@ -50,8 +50,6 @@ class AppManager:
 
         self.gui = None
 
-        self.reading_buffer = Queue()
-
         self.queue_to_gui = mp.Queue()
         self.queue_from_gui = mp.Queue()
         self.data_updated = False
@@ -65,12 +63,10 @@ class AppManager:
     def __getstate__(self):
         state = self.__dict__.copy()
 
-        del state['reading_buffer_semaphore']
         del state['reading_stop_event']
         del state['command_stop_event']
         del state['reading_thread']
         del state['command_thread']
-        del state['reading_buffer']
         del state['ipcmanager']
         del state['_AppManager__mcu']
 
@@ -84,12 +80,10 @@ class AppManager:
     def __setstate__(self, state):
         self.__dict__.update(state)
         
-        self.reading_buffer_semaphore = threading.Semaphore()
         self.reading_stop_event = threading.Event()
         self.command_stop_event = threading.Event()
         self.reading_thread = None
         self.command_thread = None
-        self.reading_buffer = Queue()
         self.ipcmanager = IPCManager(self, self.queue_to_gui, self.queue_from_gui)
 
         mcu_config = state.pop('mcu_config')
@@ -204,11 +198,10 @@ class AppManager:
         self.gui_process = mp.Process(target=MainGUI.start_gui, args=(self,))
         self.gui_process.start()
         self.gui_process.join()
-        
         self.reading_stop_event.set()
         self.reading_thread.join()
-
         self.ipcmanager.stop()
+
 
     def start_controller(self, label):
         if label in self.control_instances:
