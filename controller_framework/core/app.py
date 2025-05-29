@@ -20,7 +20,7 @@ class AppManager:
             raise ValueError(f"MCU inválida: {mcu_type}. Escolha entre {list(MCUType)}")
         self.__mcu: MCUDriver = MCUDriver.create_driver(mcu_type, **kwargs)
 
-        self.control_instances: dict[Controller] = {}
+        self.control_instances: dict[str, Controller] = {}
         self.running_instance: Optional[Controller] = None
 
         self.sample_time = sample_time # ms

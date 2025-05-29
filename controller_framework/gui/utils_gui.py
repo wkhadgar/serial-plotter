@@ -1,8 +1,6 @@
 from enum import Enum
-import time
 import numpy as np
 import pyqtgraph as pg
-from PySide6 import QtCore
 
 class MarkerPlot:
     def __init__(self, plot, x_data=None, y_data=None, threshold=10):
@@ -46,7 +44,7 @@ class Mode(Enum):
     PLOTTER = 'plotter'
 
 class PlotWidget:
-    def __init__(self, layout, mode: int = None):
+    def __init__(self, layout, mode: Mode = None):
         self.plot_widget = pg.GraphicsLayoutWidget()
         self.plot_widget.setBackground('w')
         layout.addWidget(self.plot_widget)
@@ -54,7 +52,6 @@ class PlotWidget:
         self._init_containers()
 
     def _init_containers(self):
-        # Initialize curves and legends storage based on modes
         self._curves = {
             Mode.CLOSED: [],
             Mode.OPEN: {0: [], 1: []},
@@ -63,8 +60,7 @@ class PlotWidget:
         self._legends = {0: [], 1: []}
 
     def clear(self):
-        # Clear all plots, curves, and legends
-        curves = self._curves.get(self.mode)
+        curves: pg.PlotCurveItem  = self._curves.get(self.mode)
         if isinstance(curves, dict):
             for lst in curves.values():
                 lst.clear()
@@ -113,7 +109,7 @@ class PlotWidget:
         curves.clear()
 
     def add_legend(self, text: str = '', size: int = 11,
-                   color: str = 'black', style=pg.QtCore.Qt.SolidLine, plot_n: int = 0):
+                   color: str = 'black', style=pg.QtCore.Qt.PenStyle.SolidLine, plot_n: int = 0):
         if not text:
             return
         plot, _, legends = self._get_plot_and_containers(plot_n)

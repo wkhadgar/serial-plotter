@@ -53,7 +53,7 @@ class ControlGUI(QWidget):
     def __init__(self, *, parent, app_mirror, x_label: str, y_label: str):
         super().__init__(parent)
 
-        self.parent = parent
+        self.parent_gui = parent
 
         from controller_framework.core import AppManager
         assert isinstance(app_mirror, AppManager)
@@ -71,8 +71,8 @@ class ControlGUI(QWidget):
         self.plot_views = ["ALL"] + self.sensor_labels
         self.current_mode = -1
 
-        self.layout = QVBoxLayout()
-        self.setLayout(self.layout)
+        self.main_layout = QVBoxLayout()
+        self.setLayout(self.main_layout)
 
         self.container = QWidget()
         self.container_layout = QVBoxLayout()
@@ -87,14 +87,14 @@ class ControlGUI(QWidget):
         self.container_layout.addWidget(self.temp_input)
 
         self.temp_input.returnPressed.connect(self.__on_return_pressed)
-        self.layout.addWidget(self.container)
+        self.main_layout.addWidget(self.container)
 
         self.container.keyPressEvent = partial(self.key_press_handle, self.container.keyPressEvent)
         
         log_path = "./temp_logs/"
         if not os.path.exists(log_path):
             os.makedirs(log_path)
-        self.parent.log.debug("Salvando dados em %s", log_path, extra={'method':'init'})
+        self.parent_gui.log.debug("Salvando dados em %s", log_path, extra={'method':'init'})
         
         datetime = pd.Timestamp.now()
         sensor_columns = [f"sensor_{i}" for i in range(self.app_mirror.num_sensors)]
@@ -135,16 +135,16 @@ class ControlGUI(QWidget):
 
         self.app_mirror.update_setpoint(setpoint)
 
-        self.parent.command_triggered.emit("update_setpoint", {"value": setpoint})
+        self.parent_gui.command_triggered.emit("update_setpoint", {"value": setpoint})
 
-    def update_setpoint_label(self):
-        self.current_setpoint_line.setValue(self.app_mirror.get_setpoint())
-        self.current_setpoint_line.label.setText(f"Temperatura desejada [{self.app_mirror.get_setpoint()}°C]")
-        self.current_setpoint_line.update()
-        try:
-            return self.app_mirror.queue_to_gui.get(timeout=timeout)
-        except queue.Empty:
-            return None
+    # def update_setpoint_label(self):
+    #     self.current_setpoint_line.setValue(self.app_mirror.get_setpoint())
+    #     self.current_setpoint_line.label.setText(f"Temperatura desejada [{self.app_mirror.get_setpoint()}°C]")
+    #     self.current_setpoint_line.update()
+    #     try:
+    #         return self.app_mirror.queue_to_gui.get(timeout=timeout)
+    #     except queue.Empty:
+    #         return None
         
     def __process_message(self, data):
         command = data.get('type')
@@ -250,7 +250,7 @@ class ControlGUI(QWidget):
                 legenda = f"{var_name}: {sensor_data[-1]:.4f} {props['unit']}"
                 self.plot_widget.update_legend(text=legenda, plot_n=0, idx=0)
             case _:
-                self.parent.log.warning("Visualização '%s' não reconhecida.", view, extra={'method':'update plot'})
+                self.parent_gui.log.warning("Visualização '%s' não reconhecida.", view, extra={'method':'update plot'})
 
     def toggle_plot_view(self):
         self.current_mode = (self.current_mode + 1) % len(self.plot_views)
@@ -279,7 +279,7 @@ class ControlGUI(QWidget):
                 self.plot_widget.add_legend(text=var_name, color=props['color'], plot_n=0)
                     
             case _:
-                self.parent.log.warning("Visualização '%s' não reconhecida.", view, extra={'method':'toggle plot'})
+                self.parent_gui.log.warning("Visualização '%s' não reconhecida.", view, extra={'method':'toggle plot'})
 
     def reset_data(self):
         self.plot_seconds = []
@@ -317,14 +317,14 @@ class SidebarGUI(QWidget):
         assert isinstance(app_mirror, AppManager)
         self.app_mirror = app_mirror
 
-        self.parent = parent
+        self.parent_gui = parent
 
         self.control_gui = control_gui
         self.current_control = None
         self.input_fields = {}
 
-        self.layout = QVBoxLayout()
-        self.setLayout(self.layout)
+        self.main_layout = QVBoxLayout()
+        self.setLayout(self.main_layout)
 
         self.controls_group = QGroupBox("Controles Disponíveis")
         self.controls_layout = QVBoxLayout()
@@ -340,13 +340,13 @@ class SidebarGUI(QWidget):
         self.btn_deactivate_control.clicked.connect(self.deactivate_control)
         self.btn_deactivate_control.setEnabled(False)
 
-        self.layout.addWidget(self.controls_group)
+        self.main_layout.addWidget(self.controls_group)
         
         self.hbox = QHBoxLayout()
         self.hbox.addWidget(self.btn_activate_control)
         self.hbox.addWidget(self.btn_deactivate_control)
         
-        self.layout.addLayout(self.hbox)
+        self.main_layout.addLayout(self.hbox)
 
         self.settings_group = QGroupBox("Configurações do Controle")
         self.settings_group.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
@@ -359,8 +359,8 @@ class SidebarGUI(QWidget):
         self.scroll_area.setWidget(self.settings_group)
 
         self.btn_update_settings = QPushButton("Atualizar Configurações")
-        self.layout.addWidget(self.scroll_area)
-        self.layout.addWidget(self.btn_update_settings)
+        self.main_layout.addWidget(self.scroll_area)
+        self.main_layout.addWidget(self.btn_update_settings)
 
         self.control_list.itemSelectionChanged.connect(self.update_config_fields)
         self.btn_update_settings.clicked.connect(self.update_control_settings)
@@ -416,7 +416,7 @@ class SidebarGUI(QWidget):
                 label = QLabel(f"{var_name}")
                 label.setStyleSheet("QLabel { font-size: 14px; }")
 
-                if var_type == bool:
+                if var_type is bool:
                     input_field = QCheckBox()
                     input_field.setChecked(bool(value))
                     input_field.setStyleSheet("QCheckBox { font-size: 14px; }")
@@ -451,25 +451,25 @@ class SidebarGUI(QWidget):
                         "new_value": new_value
                     }
 
-                    self.parent.command_triggered.emit(command, payload)
+                    self.parent_gui.command_triggered.emit(command, payload)
                     
                 except ValueError:
-                    self.parent.log.error("Entrada inválida para '%s'", var_name, extra={'method':'update control'})
+                    self.parent_gui.log.error("Entrada inválida para '%s'", var_name, extra={'method':'update control'})
             
             if(self.app_mirror.running_instance and self.app_mirror.running_instance.label == self.current_control.label):
                 self.app_mirror.update_setpoint(self.current_control.setpoints)
-                self.parent.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoints})
+                self.parent_gui.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoints})
                     
     def activate_control(self):
         current_control = self.control_list.currentItem()
         
-        if(current_control != None):
+        if(current_control is not None):
             current_control_label = current_control.text()
             self.app_mirror.update_setpoint(self.current_control.setpoints)
 
             self.app_mirror.running_instance = self.app_mirror.get_instance(current_control_label)
-            self.parent.command_triggered.emit("start_controller", {"control_name": current_control_label})
-            self.parent.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoints})
+            self.parent_gui.command_triggered.emit("start_controller", {"control_name": current_control_label})
+            self.parent_gui.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoints})
 
             # self.control_gui.update_setpoint_label()
             
@@ -477,7 +477,7 @@ class SidebarGUI(QWidget):
     
     def deactivate_control(self):
         self.app_mirror.stop_controller()
-        self.parent.command_triggered.emit("stop_controller", {})
+        self.parent_gui.command_triggered.emit("stop_controller", {})
         
         self.btn_deactivate_control.setEnabled(False)
 
@@ -494,26 +494,26 @@ class PlotterGUI(QWidget):
         self.log_manager = LogManager('Plotter', logging.DEBUG)
         self.log = self.log_manager.get_logger(component='PLOTTER')
 
-        self.layout = QHBoxLayout()
-        self.setLayout(self.layout)
+        self.main_layout = QHBoxLayout()
+        self.setLayout(self.main_layout)
 
         self.plotter_gui = ControlGUI(parent=self, app_mirror=self.app_mirror, x_label="Tempo decorrido (s)", y_label="Temperatura (°C)")
         self.sidebar = SidebarGUI(parent=self, app_mirror=self.app_mirror, control_gui=self.plotter_gui)
 
-        self.layout.addWidget(self.sidebar, 1)
-        self.layout.addWidget(self.plotter_gui, 4)
+        self.main_layout.addWidget(self.sidebar, 1)
+        self.main_layout.addWidget(self.plotter_gui, 4)
         
         self.hide_mode = False
    
     def toggle_hide_mode(self):
         if self.hide_mode:
             self.sidebar.show()
-            self.layout.insertWidget(0, self.sidebar, 1)
-            self.layout.setStretchFactor(self.sidebar, 1)
-            self.layout.setStretchFactor(self.plotter_gui, 4)
+            self.main_layout.insertWidget(0, self.sidebar, 1)
+            self.main_layout.setStretchFactor(self.sidebar, 1)
+            self.main_layout.setStretchFactor(self.plotter_gui, 4)
         else:
             self.sidebar.hide()
-            self.layout.setStretchFactor(self, 5)
+            self.main_layout.setStretchFactor(self, 5)
 
         self.hide_mode = not self.hide_mode
 

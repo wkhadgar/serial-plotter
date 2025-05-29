@@ -75,9 +75,9 @@ class MainGUI(QMainWindow):
         if self.hide_mode:
             if self.tabs.currentIndex() == 0:
                 self.plotter_gui.sidebar.show()
-                self.plotter_gui.layout.insertWidget(0, self.plotter_gui.sidebar, 1)
-                self.plotter_gui.layout.setStretchFactor(self.plotter_gui.sidebar, 1)
-                self.plotter_gui.layout.setStretchFactor(
+                self.plotter_gui.main_layout.insertWidget(0, self.plotter_gui.sidebar, 1)
+                self.plotter_gui.main_layout.setStretchFactor(self.plotter_gui.sidebar, 1)
+                self.plotter_gui.main_layout.setStretchFactor(
                     self.plotter_gui.plotter_gui, 4
                 )
             elif self.tabs.currentIndex() == 1:

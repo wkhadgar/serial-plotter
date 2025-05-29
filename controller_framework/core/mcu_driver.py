@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
+from typing import Tuple
 import socket
 import struct
 import time
@@ -34,7 +35,7 @@ class MCUDriver(ABC):
         pass
 
     @abstractmethod
-    def read(self):
+    def read(self) -> Tuple[tuple, tuple]:
         pass
 
     @abstractmethod
