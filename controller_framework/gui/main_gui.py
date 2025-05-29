@@ -40,7 +40,7 @@ class MainGUI(QMainWindow):
         self.installEventFilter(self)
 
         self.esc_shortcut = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key.Key_Escape), self)
-        self.esc_shortcut.activated.connect(self.on_escape_pressed)
+        self.esc_shortcut.activated.connect(self.close_gui)
 
         self.plotter_gui.command_triggered.connect(self.send_command)
 
@@ -57,10 +57,10 @@ class MainGUI(QMainWindow):
     def start_gui(app_mirror):
         app = QApplication(sys.argv)
         window = MainGUI(app_mirror)
-        window.showFullScreen()
+        window.showMaximized()
         sys.exit(app.exec())
 
-    def on_escape_pressed(self):
+    def close_gui(self):
         res = self.plotter_gui.close()
         if res:
             sys.exit(0)
@@ -98,6 +98,12 @@ class MainGUI(QMainWindow):
 
     def on_tab_changed(self, index):
         self.plotter_gui.toggle_select(index == 0)
+
+    def closeEvent(self, event):
+        self.log.info("Fechando janela principal")
+        self.close_gui()
+        QApplication.quit()
+        event.accept()
 
     @QtCore.Slot(str, object)
     def send_command(self, command, value):
