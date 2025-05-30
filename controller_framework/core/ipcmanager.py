@@ -38,12 +38,6 @@ class IPCManager:
             "update_setpoint": self.handler_update_setpoint,
         }
 
-    def __run(self):
-        self.log.info('started', extra={'method':'run'})
-        while not self.stop_event.is_set():
-            self.__send_full_state()
-            time.sleep(0.03)
-
     def init(self):
         self.thread_send = threading.Thread(target=self.__run, daemon=True)
         self.thread_recv = threading.Thread(target=self.__parse_command, daemon=True)
@@ -62,6 +56,12 @@ class IPCManager:
         self.rx_queue.cancel_join_thread()
         self.log.info('stopped')
 
+    def __run(self):
+        self.log.info('started', extra={'method':'run'})
+        while not self.stop_event.is_set():
+            self.__send_full_state()
+            time.sleep(0.03)
+
     def __send(self, command, payload):
         data = {"type": command, "payload": payload}
 
@@ -79,7 +79,9 @@ class IPCManager:
         }
 
         self.__send(command, payload)
+        self._clear_caches()
 
+    def _clear_caches(self):
         for values in self.core.sensor_cache:
             values.clear()
 
