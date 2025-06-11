@@ -2,6 +2,7 @@ from enum import Enum
 import numpy as np
 import pyqtgraph as pg
 
+
 class MarkerPlot:
     def __init__(self, plot, x_data=None, y_data=None, threshold=10):
         self.plot = plot
@@ -33,15 +34,17 @@ class MarkerPlot:
             self.marker.setData([], [])
             self.marker.setToolTip('')
             return
-        
+
         self.marker.setData([x_val], [y_val])
         tooltip = f"Tempo: {x_val:.4f}s\nTemp: {y_val:.4f}°C"
         self.marker.setToolTip(tooltip)
+
 
 class Mode(Enum):
     CLOSED = 'closed'
     OPEN = 'open'
     PLOTTER = 'plotter'
+
 
 class PlotWidget:
     def __init__(self, layout, mode: Mode = None):
@@ -60,7 +63,7 @@ class PlotWidget:
         self._legends = {0: [], 1: []}
 
     def clear(self):
-        curves: pg.PlotCurveItem  = self._curves.get(self.mode)
+        curves: pg.PlotCurveItem = self._curves.get(self.mode)
         if isinstance(curves, dict):
             for lst in curves.values():
                 lst.clear()
@@ -109,12 +112,12 @@ class PlotWidget:
         curves.clear()
 
     def add_legend(self, text: str = '', size: int = 11,
-                   color: str = 'black', style=pg.QtCore.Qt.PenStyle.SolidLine, plot_n: int = 0):
+                   color: str = 'black', txt_color="#808080FF", style=pg.QtCore.Qt.PenStyle.SolidLine, plot_n: int = 0):
         if not text:
             return
         plot, _, legends = self._get_plot_and_containers(plot_n)
 
-        legend = plot.addLegend(labelTextSize=f'{str(size)}pt')
+        legend = plot.addLegend(labelTextSize=f'{str(size)}pt', labelTextColor=txt_color)
         if style != 'dot':
             item = plot.plot([], [], pen=pg.mkPen(color, width=3, style=style))
         else:

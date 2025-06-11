@@ -14,7 +14,7 @@ import multiprocessing as mp
 
 
 class AppManager:
-    def __init__(self, mcu_type: MCUType, sample_time = 1, flush_time= 100, **kwargs):
+    def __init__(self, mcu_type: MCUType, sample_time=1, flush_time=100, **kwargs):
         if not isinstance(mcu_type, MCUType):
             raise ValueError(f"MCU inválida: {mcu_type}. Escolha entre {list(MCUType)}")
         self.__mcu: MCUDriver = MCUDriver.create_driver(mcu_type, **kwargs)
@@ -22,11 +22,13 @@ class AppManager:
         self.control_instances: dict[str, Controller] = {}
         self.running_instance: Optional[Controller] = None
 
-        self.sample_time = sample_time # ms
-        self.cache_flush_time = flush_time # ms
+        self.sample_time = sample_time  # ms
+        self.cache_flush_time = flush_time  # ms
 
         self.actuator_vars = {}
         self.sensor_vars = {}
+
+        self.is_connected = False
 
         self.num_sensors = 0
         self.num_actuators = 0
@@ -37,7 +39,7 @@ class AppManager:
         self.dt = 0
 
         self.setpoints = []
-        self.actuator_cache =  [[]]
+        self.actuator_cache = [[]]
         self.sensor_cache = [[]]
         self.timestamp_cache = []
 
@@ -70,7 +72,7 @@ class AppManager:
         del state['_AppManager__mcu']
 
         state['mcu_config'] = {
-            'mcu_type': self.__mcu.mcu_type.name, 
+            'mcu_type': self.__mcu.mcu_type.name,
             'kwargs': self.__mcu.kwargs,
         }
 
@@ -78,7 +80,7 @@ class AppManager:
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        
+
         self.reading_stop_event = threading.Event()
         self.command_stop_event = threading.Event()
         self.reading_thread = None
@@ -105,9 +107,9 @@ class AppManager:
             control_elapsed = 0
             read_elapsed = 0
             feedback_elapsed = 0
-            
+
             now = time.perf_counter()
-            
+
             dt_s = now - self.__last_read_timestamp if self.__last_read_timestamp != 0 else target_dt_s
             dt_ms = dt_s * 1000.0
 
@@ -130,7 +132,7 @@ class AppManager:
                 for i, val in enumerate(actuator_values):
                     self.actuator_cache[i].append(val)
             except Exception as e:
-                self.log.error("Erro ao ler dados dos sensores: %s", e, extra={'method':'read'})
+                self.log.error("Erro ao ler dados dos sensores: %s", e, extra={'method': 'read'})
 
             read_elapsed = (time.perf_counter() - read_start) * 1e3
 
@@ -162,8 +164,8 @@ class AppManager:
                 next_read_time = time.perf_counter()
 
             next_read_time += target_dt_s
-        
-        self.log.info('stopped', extra={'method':'read'})
+
+        self.log.info('stopped', extra={'method': 'read'})
 
     def __feedback(self):
         self.__mcu.send(*self.running_instance.actuator_values)
@@ -179,9 +181,9 @@ class AppManager:
         if not hasattr(self, '_control_worker'):
             self._control_worker = ControlWorker(self.running_instance)
 
-        result = self._control_worker.run(dt, timeout=(self.sample_time / 1000.0)*0.5)
+        result = self._control_worker.run(dt, timeout=(self.sample_time / 1000.0) * 0.5)
         if result is None:
-            self.log.warning('Controle demorou demais, usando valor anterior', extra={'method':'control'})
+            self.log.warning('Controle demorou demais, usando valor anterior', extra={'method': 'control'})
         else:
             self.running_instance.actuator_values = result
 
@@ -191,12 +193,6 @@ class AppManager:
         self.__mcu.connect()
 
     def init(self):
-        self.log.info("Try connect mcu", extra={'method':'init'})
-        self.__connect()
-
-        self.reading_thread = threading.Thread(target=self.__read_values, daemon=True)
-        self.reading_thread.start()
-
         time.sleep(0.1)
         self.ipcmanager.init()
 
@@ -205,10 +201,20 @@ class AppManager:
 
         self.gui_process.join()
 
-        self.reading_stop_event.set()
-        self.reading_thread.join()
+        if self.is_connected:
+            self.reading_stop_event.set()
+            self.reading_thread.join()
 
         self.ipcmanager.stop()
+
+    def start_connection(self):
+        self.log.info("Try connect mcu", extra={'method':'init'})
+        self.__connect()
+
+        self.reading_thread = threading.Thread(target=self.__read_values, daemon=True)
+        self.reading_thread.start()
+
+        self.is_connected = True
 
     def start_controller(self, label):
         if label in self.control_instances:
@@ -216,15 +222,15 @@ class AppManager:
                 self.stop_controller()
 
             try:
-                self.log.info("Start controller: %s", label, extra={'method':'start control'})
+                self.log.info("Start controller: %s", label, extra={'method': 'start control'})
                 self.running_instance = self.control_instances[label]
                 self.update_setpoint(self.running_instance.setpoints)
             except Exception as e:
-                self.log.error("Erro ao inicializar controle: %s", e, extra={'method':'start control'})
+                self.log.error("Erro ao inicializar controle: %s", e, extra={'method': 'start control'})
 
     def stop_controller(self):
         if self.running_instance is not None:
-            self.log.info("Stop controller: %s", self.running_instance.label, extra={'method':'stop control'})
+            self.log.info("Stop controller: %s", self.running_instance.label, extra={'method': 'stop control'})
             self.running_instance = None
 
     def append_instance(self, instance: Controller):
@@ -232,9 +238,9 @@ class AppManager:
 
     def list_instances(self):
         return list(self.control_instances.keys())
-    
+
     def get_instance(self, label):
-        if(label in self.control_instances):
+        if (label in self.control_instances):
             return self.control_instances[label]
         else:
             return None
@@ -242,7 +248,7 @@ class AppManager:
     def get_setpoint(self):
         if len(self.setpoints) == 0:
             return 0
-        
+
         return self.setpoints
 
     def update_setpoint(self, setpoints):
@@ -263,14 +269,14 @@ class AppManager:
             values.append(var_value)
 
         return values
-    
+
     def _random_color(self):
         n = 12
         hue = (self.color_index / n) % 1.0
         self.color_index += 2
 
         r, g, b = colorsys.hsv_to_rgb(hue, 0.9, 0.9)
-        return '#{:02X}{:02X}{:02X}'.format(int(r*255), int(g*255), int(b*255))
+        return '#{:02X}{:02X}{:02X}'.format(int(r * 255), int(g * 255), int(b * 255))
 
     def __set_var(self, var_dict, *args):
         for var in args:
@@ -282,32 +288,33 @@ class AppManager:
                 "unit": var_unit,
                 "color": self._random_color()
             }
-    
+
     def set_actuator_vars(self, *args):
         self.num_actuators += len(args)
         self.__set_var(self.actuator_vars, *args)
-    
+
     def set_sensor_vars(self, *args):
         self.num_sensors += len(args)
         self.__set_var(self.sensor_vars, *args)
 
     def get_actuator_values(self):
         return self.get_var_values(self.actuator_vars)
-    
+
     def get_sensor_values(self):
         return self.get_var_values(self.sensor_vars)
-    
+
     def __update_var(self, var_dict, new_values):
         for (var_name, value) in zip(var_dict, new_values):
             expected_type = var_dict[var_name]['type']
 
             if not isinstance(value, expected_type):
-                raise TypeError(f"Variável '{var_name}' espera tipo {expected_type.__name__}, recebeu {type(value).__name__}")
-            
+                raise TypeError(
+                    f"Variável '{var_name}' espera tipo {expected_type.__name__}, recebeu {type(value).__name__}")
+
             var_dict[var_name]['value'] = value
 
     def update_actuator_vars(self, new_values):
         self.__update_var(self.actuator_vars, new_values)
-    
+
     def update_sensors_vars(self, new_values):
         self.__update_var(self.sensor_vars, new_values)

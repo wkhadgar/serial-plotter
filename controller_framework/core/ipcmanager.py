@@ -33,6 +33,7 @@ class IPCManager:
 
         self.command_registry = {
             "update_variable": self.handler_update_variable,
+            "connect_mcu": lambda core, _: core.start_connection(),
             "stop_controller": lambda core, _: core.stop_controller(),
             "start_controller": self.handler_start_control,
             "update_setpoint": self.handler_update_setpoint,

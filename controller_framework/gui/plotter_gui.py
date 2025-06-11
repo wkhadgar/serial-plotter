@@ -199,7 +199,7 @@ class ControlGUI(QWidget):
                 f.write(data)
 
     def update_data(self):
-        while True:
+        while self.app_mirror.is_connected:
             try:
                 data = self.app_mirror.queue_to_gui.get_nowait()
                 if data is None:
@@ -217,7 +217,7 @@ class ControlGUI(QWidget):
                 break
 
     def update_plots(self):
-        if not self.is_selected:
+        if not (self.is_selected or self.app_mirror.is_connected):
             return
 
         view = self.plot_views[self.current_mode]
@@ -232,15 +232,20 @@ class ControlGUI(QWidget):
                 for (i, sensor_data), (var_name, props) in zip(enumerate(sensor_data_np),
                                                                self.app_mirror.sensor_vars.items()):
                     self.plot_widget.update_curve(plot_seconds_np, sensor_data, 0, i)
-
-                    legenda = f"{var_name}: {sensor_data[-1]:.4f} {props['unit']}"
+                    try:
+                        legenda = f"{var_name}: {sensor_data[-1]:.4f} {props['unit']}"
+                    except IndexError:
+                        legenda = f"{var_name}: - {props['unit']}"
                     self.plot_widget.update_legend(text=legenda, plot_n=0, idx=i)
 
                 for (i, actuator_data), (var_name, props) in zip(enumerate(actuator_data_np),
                                                                  self.app_mirror.actuator_vars.items()):
                     self.plot_widget.update_curve(plot_seconds_np, actuator_data, 1, i)
 
-                    legenda = f"{var_name}: {actuator_data[-1]:.4f} {props['unit']}"
+                    try:
+                        legenda = f"{var_name}: {actuator_data[-1]:.4f} {props['unit']}"
+                    except IndexError:
+                        legenda = f"{var_name}: - {props['unit']}"
                     self.plot_widget.update_legend(text=legenda, plot_n=1, idx=i)
 
             case _ if view in self.sensor_labels:
@@ -330,6 +335,10 @@ class SidebarGUI(QWidget):
 
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
+
+        self.btn_connect = QPushButton("Conectar Planta")
+        self.btn_connect.clicked.connect(self.connect)
+        self.main_layout.addWidget(self.btn_connect)
 
         self.controls_group = QGroupBox("Controles Disponíveis")
         self.controls_layout = QVBoxLayout()
@@ -466,6 +475,9 @@ class SidebarGUI(QWidget):
                     self.app_mirror.running_instance and self.app_mirror.running_instance.label == self.current_control.label):
                 self.app_mirror.update_setpoint(self.current_control.setpoints)
                 self.parent_gui.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoints})
+
+    def connect(self):
+        self.parent_gui.command_triggered.emit("connect_mcu", {})
 
     def activate_control(self):
         current_control = self.control_list.currentItem()
