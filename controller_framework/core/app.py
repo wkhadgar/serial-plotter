@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from typing import Optional
@@ -55,7 +56,7 @@ class AppManager:
 
         self.color_index = 0
 
-        self.log_manager = LogManager('APP')
+        self.log_manager = LogManager('APP', logging.CRITICAL)
         self.log = self.log_manager.get_logger(component='APP')
 
     def __getstate__(self):
@@ -113,8 +114,12 @@ class AppManager:
             read_start = time.perf_counter()
             try:
                 self.last_timestamp = now
-                sensor_values, actuator_values = self.__mcu.read()
+                values = list(self.__mcu.read())
+                self.log.info(values)
                 self.data_updated = True
+
+                sensor_values = values[0:self.num_sensors]
+                actuator_values = values[self.num_sensors:]
 
                 self.update_actuator_vars(actuator_values)
                 self.update_sensors_vars(sensor_values)

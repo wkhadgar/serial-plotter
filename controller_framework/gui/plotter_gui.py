@@ -9,14 +9,15 @@ import numpy as np
 import pandas as pd
 
 from PySide6 import QtCore
-from PySide6.QtWidgets import ( QGroupBox, QFormLayout, QVBoxLayout, QWidget, QLabel, QScrollArea,
-                             QPushButton, QHBoxLayout, QLineEdit, QListWidget, QCheckBox )
+from PySide6.QtWidgets import (QGroupBox, QFormLayout, QVBoxLayout, QWidget, QLabel, QScrollArea,
+                               QPushButton, QHBoxLayout, QLineEdit, QListWidget, QCheckBox)
 
 import re
 
 from controller_framework.core.logmanager import LogManager
 
 from .utils_gui import PlotWidget, Mode
+
 
 class DataWorker(QtCore.QObject):
     dataReady = QtCore.Signal()
@@ -47,6 +48,7 @@ class DataWorker(QtCore.QObject):
         if self._timer is not None and self._timer.isActive():
             self._timer.stop()
 
+
 class ControlGUI(QWidget):
     stopWorker = QtCore.Signal()
 
@@ -64,7 +66,7 @@ class ControlGUI(QWidget):
         self.actuator_data = [[] for _ in range(self.app_mirror.num_actuators)]
         self.sensor_data = [[] for _ in range(self.app_mirror.num_sensors)]
 
-        self.sensor_labels = [chr(ord("A")+i) for i in range(self.app_mirror.num_sensors)]
+        self.sensor_labels = [chr(ord("A") + i) for i in range(self.app_mirror.num_sensors)]
 
         self.plot_views = ["ALL"] + self.sensor_labels
         self.current_mode = -1
@@ -75,7 +77,7 @@ class ControlGUI(QWidget):
         self.container = QWidget()
         self.container_layout = QVBoxLayout()
         self.container.setLayout(self.container_layout)
-        
+
         self.plot_widget = PlotWidget(self.container_layout, Mode.PLOTTER)
         self.toggle_plot_view()
 
@@ -88,20 +90,20 @@ class ControlGUI(QWidget):
         self.main_layout.addWidget(self.container)
 
         self.container.keyPressEvent = partial(self.key_press_handle, self.container.keyPressEvent)
-        
+
         log_path = "./temp_logs/"
         if not os.path.exists(log_path):
             os.makedirs(log_path)
-        self.parent_gui.log.debug("Salvando dados em %s", log_path, extra={'method':'init'})
-        
+        self.parent_gui.log.debug("Salvando dados em %s", log_path, extra={'method': 'init'})
+
         datetime = pd.Timestamp.now()
         sensor_columns = [f"sensor_{i}" for i in range(self.app_mirror.num_sensors)]
         actuator_columns = [f"actuator_{i}" for i in range(self.app_mirror.num_actuators)]
 
-        columns = ["timestamp", "seconds"] + sensor_columns + actuator_columns + ["target"]
+        columns = ["seconds"] + sensor_columns + actuator_columns + ["target"]
 
         self.df = pd.DataFrame(columns=columns)
-        
+
         self.log_file_path = log_path + f"log_{datetime.year}-{datetime.month}-{datetime.day}-{datetime.hour}-{datetime.minute}-{datetime.second}.csv"
         self.df.to_csv(self.log_file_path, index=False)
 
@@ -143,7 +145,7 @@ class ControlGUI(QWidget):
     #         return self.app_mirror.queue_to_gui.get(timeout=timeout)
     #     except queue.Empty:
     #         return None
-        
+
     def __process_message(self, data):
         command = data.get('type')
         payload = data.get('payload')
@@ -176,24 +178,24 @@ class ControlGUI(QWidget):
         for lista, cache_values in zip(self.actuator_data, self.actuators_cache):
             lista.extend(cache_values)
 
-    def __write_csv(self, sensor_cache, actuator_cache):
+    def __write_csv(self):
         target_str = '"' + " ".join(map(str, self.app_mirror.setpoints)) + '"'
-        rows = [{
-            "timestamp": self.last_timestamp,
-            "seconds": f"{self.plot_seconds[-1]:.4f}",
+        for j in range(len(self.cache_timestamp)):
+            rows = [{
+                "seconds": f"{self.cache_timestamp[j] - self.init_timestamp:.4f}",
 
-            **{f"sensor_{i}": f"{sensor_values[i]:.4f}"
-                for i in range(self.app_mirror.num_sensors)},
+                **{f"sensor_{i}": f"{self.sensors_cache[i][j]:.4f}"
+                   for i in range(self.app_mirror.num_sensors)},
 
-            **{f"actuator_{i}": f"{actuator_values[i]:.4f}"
-                for i in range(self.app_mirror.num_actuators)},
+                **{f"actuator_{i}": f"{self.actuators_cache[i][j]:.4f}"
+                   for i in range(self.app_mirror.num_actuators)},
 
-            "target": target_str
-        } for sensor_values, actuator_values in zip(sensor_cache, actuator_cache)]
+                "target": target_str
+            }]
 
         with open(self.log_file_path, "a") as f:
             for row in rows:
-                data = ",".join(map(str, row.values())) + "\n" 
+                data = ",".join(map(str, row.values())) + "\n"
                 f.write(data)
 
     def update_data(self):
@@ -205,9 +207,11 @@ class ControlGUI(QWidget):
 
                 if not self.__process_message(data):
                     continue
-                
+
                 with QtCore.QMutexLocker(self.mutex):
                     self.__append_plot_data()
+
+                self.__write_csv()
 
             except queue.Empty:
                 break
@@ -225,13 +229,15 @@ class ControlGUI(QWidget):
 
         match view:
             case "ALL":
-                for (i, sensor_data), (var_name, props) in zip(enumerate(sensor_data_np), self.app_mirror.sensor_vars.items()):
+                for (i, sensor_data), (var_name, props) in zip(enumerate(sensor_data_np),
+                                                               self.app_mirror.sensor_vars.items()):
                     self.plot_widget.update_curve(plot_seconds_np, sensor_data, 0, i)
 
                     legenda = f"{var_name}: {sensor_data[-1]:.4f} {props['unit']}"
                     self.plot_widget.update_legend(text=legenda, plot_n=0, idx=i)
 
-                for (i, actuator_data), (var_name, props) in zip(enumerate(actuator_data_np), self.app_mirror.actuator_vars.items()):
+                for (i, actuator_data), (var_name, props) in zip(enumerate(actuator_data_np),
+                                                                 self.app_mirror.actuator_vars.items()):
                     self.plot_widget.update_curve(plot_seconds_np, actuator_data, 1, i)
 
                     legenda = f"{var_name}: {actuator_data[-1]:.4f} {props['unit']}"
@@ -248,7 +254,7 @@ class ControlGUI(QWidget):
                 legenda = f"{var_name}: {sensor_data[-1]:.4f} {props['unit']}"
                 self.plot_widget.update_legend(text=legenda, plot_n=0, idx=0)
             case _:
-                self.parent_gui.log.warning("Visualização '%s' não reconhecida.", view, extra={'method':'update plot'})
+                self.parent_gui.log.warning("Visualização '%s' não reconhecida.", view, extra={'method': 'update plot'})
 
     def toggle_plot_view(self):
         self.current_mode = (self.current_mode + 1) % len(self.plot_views)
@@ -263,21 +269,21 @@ class ControlGUI(QWidget):
                 for i, (var_name, props) in enumerate(self.app_mirror.sensor_vars.items()):
                     self.plot_widget.add_curve([0], [0], color=props['color'], plot_n=0)
                     self.plot_widget.add_legend(text=var_name, color=props['color'], plot_n=0)
-                
+
                 for i, (var_name, props) in enumerate(self.app_mirror.actuator_vars.items()):
                     self.plot_widget.add_curve([0], [0], color=props['color'], plot_n=1)
                     self.plot_widget.add_legend(text=var_name, color=props['color'], plot_n=1)
-                    
+
             case _ if view in self.sensor_labels:
                 idx = self.sensor_labels.index(view)
                 var_name, props = list(self.app_mirror.sensor_vars.items())[idx]
 
-                self.plot_widget.plotter_single_plot(var_name)  
+                self.plot_widget.plotter_single_plot(var_name)
                 self.plot_widget.add_curve([0], [0], color=props['color'])
                 self.plot_widget.add_legend(text=var_name, color=props['color'], plot_n=0)
-                    
+
             case _:
-                self.parent_gui.log.warning("Visualização '%s' não reconhecida.", view, extra={'method':'toggle plot'})
+                self.parent_gui.log.warning("Visualização '%s' não reconhecida.", view, extra={'method': 'toggle plot'})
 
     def reset_data(self):
         self.plot_seconds = []
@@ -307,10 +313,11 @@ class ControlGUI(QWidget):
             elif ev.key() == QtCore.Qt.Key.Key_F:
                 super_press_handler(ev)
 
+
 class SidebarGUI(QWidget):
     def __init__(self, parent, app_mirror, control_gui):
         super().__init__(parent)
-        
+
         from controller_framework.core import AppManager
         assert isinstance(app_mirror, AppManager)
         self.app_mirror = app_mirror
@@ -330,27 +337,27 @@ class SidebarGUI(QWidget):
 
         self.control_list = QListWidget()
         self.controls_layout.addWidget(self.control_list)
-        
+
         self.btn_activate_control = QPushButton("Ativar Controle")
         self.btn_activate_control.clicked.connect(self.activate_control)
-        
+
         self.btn_deactivate_control = QPushButton("Desativar Controle")
         self.btn_deactivate_control.clicked.connect(self.deactivate_control)
         self.btn_deactivate_control.setEnabled(False)
 
         self.main_layout.addWidget(self.controls_group)
-        
+
         self.hbox = QHBoxLayout()
         self.hbox.addWidget(self.btn_activate_control)
         self.hbox.addWidget(self.btn_deactivate_control)
-        
+
         self.main_layout.addLayout(self.hbox)
 
         self.settings_group = QGroupBox("Configurações do Controle")
         self.settings_group.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         self.settings_layout = QFormLayout()
         self.settings_group.setLayout(self.settings_layout)
-        
+
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFixedHeight(300)
@@ -362,16 +369,16 @@ class SidebarGUI(QWidget):
 
         self.control_list.itemSelectionChanged.connect(self.update_config_fields)
         self.btn_update_settings.clicked.connect(self.update_control_settings)
-        
+
         self.controls_group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; }")
         self.settings_group.setStyleSheet("QGroupBox { font-size: 16px; font-weight: bold; }")
         self.control_list.setStyleSheet("QListWidget { font-size: 14px; }")
-        
+
         btn_label_style = "QPushButton { font-size: 14px; }"
         self.btn_activate_control.setStyleSheet(btn_label_style)
         self.btn_deactivate_control.setStyleSheet(btn_label_style)
         self.btn_update_settings.setStyleSheet(btn_label_style)
-        
+
         self.scroll_area.setStyleSheet("""
                                             QScrollBar:vertical {
                                                 background: white;
@@ -398,11 +405,11 @@ class SidebarGUI(QWidget):
 
     def update_config_fields(self):
         selected_item = self.control_list.currentItem()
-        
+
         if selected_item:
             control_name = selected_item.text()
-            self.current_control:Controller = self.app_mirror.control_instances[control_name]
-                
+            self.current_control: Controller = self.app_mirror.control_instances[control_name]
+
             for i in reversed(range(self.settings_layout.count())):
                 self.settings_layout.itemAt(i).widget().deleteLater()
             self.input_fields.clear()
@@ -410,7 +417,7 @@ class SidebarGUI(QWidget):
             for var_name, var_data in self.current_control.configurable_vars.items():
                 value = var_data['value']
                 var_type = var_data['type']
-                
+
                 label = QLabel(f"{var_name}")
                 label.setStyleSheet("QLabel { font-size: 14px; }")
 
@@ -450,18 +457,20 @@ class SidebarGUI(QWidget):
                     }
 
                     self.parent_gui.command_triggered.emit(command, payload)
-                    
+
                 except ValueError:
-                    self.parent_gui.log.error("Entrada inválida para '%s'", var_name, extra={'method':'update control'})
-            
-            if(self.app_mirror.running_instance and self.app_mirror.running_instance.label == self.current_control.label):
+                    self.parent_gui.log.error("Entrada inválida para '%s'", var_name,
+                                              extra={'method': 'update control'})
+
+            if (
+                    self.app_mirror.running_instance and self.app_mirror.running_instance.label == self.current_control.label):
                 self.app_mirror.update_setpoint(self.current_control.setpoints)
                 self.parent_gui.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoints})
-                    
+
     def activate_control(self):
         current_control = self.control_list.currentItem()
-        
-        if(current_control is not None):
+
+        if (current_control is not None):
             current_control_label = current_control.text()
             self.app_mirror.update_setpoint(self.current_control.setpoints)
 
@@ -470,21 +479,22 @@ class SidebarGUI(QWidget):
             self.parent_gui.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoints})
 
             # self.control_gui.update_setpoint_label()
-            
+
             self.btn_deactivate_control.setEnabled(True)
-    
+
     def deactivate_control(self):
         self.app_mirror.stop_controller()
         self.parent_gui.command_triggered.emit("stop_controller", {})
-        
+
         self.btn_deactivate_control.setEnabled(False)
+
 
 class PlotterGUI(QWidget):
     command_triggered = QtCore.Signal(str, object)
 
     def __init__(self, app_mirror):
         super().__init__()
-        
+
         from controller_framework.core import AppManager
         assert isinstance(app_mirror, AppManager)
         self.app_mirror = app_mirror
@@ -495,14 +505,15 @@ class PlotterGUI(QWidget):
         self.main_layout = QHBoxLayout()
         self.setLayout(self.main_layout)
 
-        self.plotter_gui = ControlGUI(parent=self, app_mirror=self.app_mirror, x_label="Tempo decorrido (s)", y_label="Temperatura (°C)")
+        self.plotter_gui = ControlGUI(parent=self, app_mirror=self.app_mirror, x_label="Tempo decorrido (s)",
+                                      y_label="Temperatura (°C)")
         self.sidebar = SidebarGUI(parent=self, app_mirror=self.app_mirror, control_gui=self.plotter_gui)
 
         self.main_layout.addWidget(self.sidebar, 1)
         self.main_layout.addWidget(self.plotter_gui, 4)
-        
+
         self.hide_mode = False
-   
+
     def toggle_hide_mode(self):
         if self.hide_mode:
             self.sidebar.show()
