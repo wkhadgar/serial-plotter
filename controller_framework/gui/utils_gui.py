@@ -113,11 +113,12 @@ class PlotWidget:
         if not text:
             return
         plot, _, legends = self._get_plot_and_containers(plot_n)
-        legend = plot.addLegend(labelTextSize=str(size))
+
+        legend = plot.addLegend(labelTextSize=f'{str(size)}pt')
         if style != 'dot':
             item = plot.plot([], [], pen=pg.mkPen(color, width=3, style=style))
         else:
-            item = pg.ScatterPlotItem(size=3, brush=pg.mkBrush(color), pen=None, symbol='o')
+            item = pg.ScatterPlotItem(size=4, brush=pg.mkBrush(color), pen=None, symbol='o')
         legend.addItem(item, text)
         legends.append((legend, item))
 
@@ -136,15 +137,18 @@ class PlotWidget:
     def closed_loop_plot(self):
         self.mode = Mode.CLOSED
         self.clear()
-        self.plot = self.plot_widget.addPlot(title='Análise de Malha Fechada')
+        self.plot = self.plot_widget.addPlot()
+        self.plot.setTitle('Análise de Malha Fechada', size='20pt')
         self._setup_plot(self.plot)
         self.marker_closed = MarkerPlot(self.plot)
 
     def open_loop_plot(self):
         self.mode = Mode.OPEN
         self.clear()
-        self.plot_temp = self.plot_widget.addPlot(row=0, col=0, title='Análise de Malha Aberta')
-        self.plot_derivative = self.plot_widget.addPlot(row=1, col=0, title='Derivada dT/t')
+        self.plot_temp = self.plot_widget.addPlot(row=0, col=0)
+        self.plot_temp.setTitle('Análise de Malha Aberta', size='14pt')
+        self.plot_derivative = self.plot_widget.addPlot(row=1, col=0)
+        self.plot_derivative.setTitle(title='Derivada dT/t', size='14pt')
         self._setup_plot(self.plot_temp)
         self._setup_plot(self.plot_derivative)
         self.marker_temp = MarkerPlot(self.plot_temp)
@@ -175,10 +179,10 @@ class PlotWidget:
             text_pen = pg.mkPen('k')
 
         plot.showGrid(x=True, y=True, alpha=0.2)
-
+        
         for axis in ('left', 'bottom'):
             ax = plot.getAxis(axis)
             ax.setPen(text_pen)
             ax.setTextPen(text_pen)
 
-        plot.setLabel('bottom', 'Tempo', units='s', **{'color': text_pen.color().name()})
+            plot.setLabel('bottom', 'Tempo', units='s', **{'color': text_pen.color().name(), 'font-size': '12pt'})
