@@ -115,8 +115,9 @@ class PlotterAnalyzer(QWidget):
 
     def closed_loop_analyzer(self):
         self.plot_widget.marker_closed.set_data(self.x_data, self.y_data)
-        self.plot_widget.add_curve(self.x_data, self.y_data, 'blue', 1.5, 0)
-        self.plot_widget.add_legend(text="Temperatura", color='blue', size=16)
+        self.plot_widget.add_curve(self.x_data, self.y_data, 'blue', 3, 0)
+        self.plot_widget.add_legend(text="Temperatura", color='blue', size=20, txt_color="#000000")
+
 
         temp_inicial = self.y_data[0]
         h_line_init = pg.InfiniteLine(pos=temp_inicial, angle=0,
@@ -130,9 +131,9 @@ class PlotterAnalyzer(QWidget):
         self.plot_widget.add_item(h_line_max)
         self.reference_lines.append(h_line_max)
 
-        self.plot_widget.add_legend(size=16,text=f"Temperatura inicial ({temp_inicial:.2f}ºC)", color="green",
-                                    style=pg.QtCore.Qt.PenStyle.DashLine)
-        self.plot_widget.add_legend(size=16,text=f"Máximo Sobressinal ({max_over_signal:.2f}ºC)", color="red",
+        self.plot_widget.add_legend(size=20, text=f"Temperatura inicial ({temp_inicial:.2f}ºC)", color="green",
+                                    style=pg.QtCore.Qt.PenStyle.DashLine, txt_color="#000000")
+        self.plot_widget.add_legend(size=16, text=f"Máximo Sobressinal ({max_over_signal:.2f}ºC)", color="red",
                                     style=pg.QtCore.Qt.PenStyle.DashLine)
         targets = np.array(self.parent_gui.df["target"])
         label_targets = ""
@@ -143,8 +144,11 @@ class PlotterAnalyzer(QWidget):
                 label_targets += f"{t}ºC, "
         label_targets = label_targets[:-2]
 
-        self.plot_widget.add_legend(size=16,text=f"Temperaturas desejadas\n[{label_targets}]", color="orange")
+        self.plot_widget.add_legend(size=16, text=f"Temperaturas desejadas\n[{label_targets}]", color="orange")
         self.plot_widget.add_curve(self.x_data, targets, 'orange', plot_n=1, width=2)
+
+        self.plot_widget.plot.setTitle("Análise de Malha Fechada", size="20pt", color="#000000")
+
     def open_loop_analyzer(self):
         f_temps = np.array(sig.savgol_filter(self.y_data, 100, 3))
         f_temps = np.array(sig.savgol_filter(f_temps, 2000, 3))
@@ -158,8 +162,8 @@ class PlotterAnalyzer(QWidget):
         self.plot_widget.marker_temp.set_data(self.x_data, self.y_data)
         self.plot_widget.marker_derivative.set_data(self.x_data, f_temps_dt)
 
-        self.plot_widget.add_curve(self.x_data, f_temps, 'blue', 1.5, 0)
-        self.plot_widget.add_curve(self.x_data, f_temps_dt, 'blue', 1.5, 1)
+        self.plot_widget.add_curve(self.x_data, f_temps, 'blue', 3, 0)
+        self.plot_widget.add_curve(self.x_data, f_temps_dt, 'blue', 3, 1)
 
         h_line_max = pg.InfiniteLine(pos=self.x_data[max_dv_i], angle=90,
                                      pen=pg.mkPen("red", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
@@ -176,7 +180,7 @@ class PlotterAnalyzer(QWidget):
         self.plot_widget.add_curve(neighborhood,
                                    [(((x0 - self.x_data[max_dv_i]) * f_temps_dt[max_dv_i]) + f_temps[max_dv_i]) for x0
                                     in neighborhood],
-                                   'red')
+                                   'red', 3)
 
         v_initial_line = pg.InfiniteLine(pos=self.x_data[0], angle=90,
                                          pen=pg.mkPen("black", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
@@ -194,12 +198,12 @@ class PlotterAnalyzer(QWidget):
         self.plot_widget.add_item(v_final_line, 0)
         self.plot_widget.add_item(h_final_line, 0)
 
-        self.plot_widget.add_legend(text='Temperatura (ºC)', color='blue', plot_n=0, size=10)
-        self.plot_widget.add_legend(text='Ponto de maior derivada', color='red', style='dot', plot_n=0, size=10)
+        self.plot_widget.add_legend(text='Temperatura (ºC)', color='blue', plot_n=0, size=20, txt_color="#000000FF")
+        self.plot_widget.add_legend(text='Ponto de maior derivada', color='red', style='dot', plot_n=0)
         self.plot_widget.add_legend(text=f'Temperatura inicial ({f_temps[0]:.3f}ºC)', color='black',
-                                    style=pg.QtCore.Qt.PenStyle.DashLine, plot_n=0, size=10)
+                                    style=pg.QtCore.Qt.PenStyle.DashLine, plot_n=0)
         self.plot_widget.add_legend(text=f'Temperatura final ({f_temps[-1]:.3f}ºC)', color='black',
-                                    style=pg.QtCore.Qt.PenStyle.DashLine, plot_n=0, size="15pt")
+                                    style=pg.QtCore.Qt.PenStyle.DashLine, plot_n=0)
 
         self.plot_widget.plot_temp.setTitle(
             f"L = {L:.2f}, T (+L) = {T:.2f} (+{L:.2f}); Temperatura registrada", size="20pt", color="#000000")
