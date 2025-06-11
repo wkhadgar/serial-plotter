@@ -179,7 +179,7 @@ class PlotWidget:
             text_pen = pg.mkPen('k')
 
         plot.showGrid(x=True, y=True, alpha=0.2)
-        
+
         for axis in ('left', 'bottom'):
             ax = plot.getAxis(axis)
             ax.setPen(text_pen)

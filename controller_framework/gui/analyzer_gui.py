@@ -11,6 +11,7 @@ import pyqtgraph as pg
 
 from .utils_gui import PlotWidget
 
+
 class SidebarAnalyzer(QWidget):
     def __init__(self, parent):
         super().__init__(parent)
@@ -23,7 +24,7 @@ class SidebarAnalyzer(QWidget):
         self.file_list = QListWidget()
         self.file_list.itemClicked.connect(self.file_selected)
         self.main_layout.addWidget(self.file_list)
-        
+
         self.variable_list = QListWidget()
         self.main_layout.addWidget(self.variable_list)
 
@@ -79,11 +80,11 @@ class SidebarAnalyzer(QWidget):
 
     def start_analysis(self):
         mode = "closed" if self.radio_closed.isChecked() else "open"
-        selected_var = self.variable_list.selectedItems()[0]\
-                       .text()\
-                       .lower()\
-                       .replace(' ', '_')
-        
+        selected_var = self.variable_list.selectedItems()[0] \
+            .text() \
+            .lower() \
+            .replace(' ', '_')
+
         self.parent_gui.start_analysis(self.selected_file, selected_var, mode)
 
 
@@ -95,11 +96,11 @@ class PlotterAnalyzer(QWidget):
         self.setLayout(self.main_layout)
 
         self.plot_widget: PlotWidget = PlotWidget(self.main_layout)
-        
+
         self.df = None
         self.x_data = []
         self.y_data = []
-        self.reference_lines = []  
+        self.reference_lines = []
 
     def update_analyzer(self, x_data, y_data, mode):
         self.x_data = x_data
@@ -111,25 +112,28 @@ class PlotterAnalyzer(QWidget):
         elif mode == "open":
             self.plot_widget.open_loop_plot()
             self.open_loop_analyzer()
-    
+
     def closed_loop_analyzer(self):
         self.plot_widget.marker_closed.set_data(self.x_data, self.y_data)
         self.plot_widget.add_curve(self.x_data, self.y_data, 'blue', 1.5, 0)
-        self.plot_widget.add_legend(text="Temperatura", color= 'blue', size=16)
+        self.plot_widget.add_legend(text="Temperatura", color='blue', size=16)
 
         temp_inicial = self.y_data[0]
-        h_line_init = pg.InfiniteLine(pos=temp_inicial, angle=0, pen=pg.mkPen("green", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
+        h_line_init = pg.InfiniteLine(pos=temp_inicial, angle=0,
+                                      pen=pg.mkPen("green", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
         self.plot_widget.add_item(h_line_init)
         self.reference_lines.append(h_line_init)
 
         max_over_signal = np.max(self.y_data)
-        h_line_max = pg.InfiniteLine(pos=max_over_signal, angle=0, pen=pg.mkPen("red", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
+        h_line_max = pg.InfiniteLine(pos=max_over_signal, angle=0,
+                                     pen=pg.mkPen("red", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
         self.plot_widget.add_item(h_line_max)
         self.reference_lines.append(h_line_max)
-        
-        self.plot_widget.add_legend(size=16,text=f"Temperatura inicial ({temp_inicial:.2f}ºC)", color= "green", style=pg.QtCore.Qt.PenStyle.DashLine)
-        self.plot_widget.add_legend(size=16,text=f"Máximo Sobressinal ({max_over_signal:.2f}ºC)", color= "red", style=pg.QtCore.Qt.PenStyle.DashLine)
-        
+
+        self.plot_widget.add_legend(size=16,text=f"Temperatura inicial ({temp_inicial:.2f}ºC)", color="green",
+                                    style=pg.QtCore.Qt.PenStyle.DashLine)
+        self.plot_widget.add_legend(size=16,text=f"Máximo Sobressinal ({max_over_signal:.2f}ºC)", color="red",
+                                    style=pg.QtCore.Qt.PenStyle.DashLine)
         targets = np.array(self.parent_gui.df["target"])
         label_targets = ""
         last_target = targets[0] - 1
@@ -138,47 +142,51 @@ class PlotterAnalyzer(QWidget):
                 last_target = t
                 label_targets += f"{t}ºC, "
         label_targets = label_targets[:-2]
-        
+
         self.plot_widget.add_legend(size=16,text=f"Temperaturas desejadas\n[{label_targets}]", color="orange")
         self.plot_widget.add_curve(self.x_data, targets, 'orange', plot_n=1, width=2)
-                
     def open_loop_analyzer(self):
-        x = self.x_data
-        temps = self.y_data
-
-        f_temps = np.array(sig.savgol_filter(temps, int(len(x) * 0.02), 6))
-        f_temps_dt = np.gradient(f_temps, x, edge_order=1)
+        f_temps = np.array(sig.savgol_filter(self.y_data, 100, 3))
+        f_temps = np.array(sig.savgol_filter(f_temps, 2000, 3))
+        f_temps_dt = np.gradient(f_temps, self.x_data, edge_order=1)
+        f_temps_dt = np.array(sig.savgol_filter(f_temps_dt, 2000, 3)) - 0.005
 
         max_dv_i = np.argmax(f_temps_dt)
         self.y_data = f_temps
-        self.x_data = x
+        f_temps = np.array(sig.savgol_filter(f_temps, 20, 3))
 
         self.plot_widget.marker_temp.set_data(self.x_data, self.y_data)
         self.plot_widget.marker_derivative.set_data(self.x_data, f_temps_dt)
 
-        self.plot_widget.add_curve(x, f_temps, 'blue', 1.5, 0)
-        self.plot_widget.add_curve(x, f_temps_dt, 'blue', 1.5, 1)
+        self.plot_widget.add_curve(self.x_data, f_temps, 'blue', 1.5, 0)
+        self.plot_widget.add_curve(self.x_data, f_temps_dt, 'blue', 1.5, 1)
 
-        h_line_max = pg.InfiniteLine(pos=x[max_dv_i], angle=90, pen=pg.mkPen("red", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
+        h_line_max = pg.InfiniteLine(pos=self.x_data[max_dv_i], angle=90,
+                                     pen=pg.mkPen("red", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
 
         self.plot_widget.add_item(h_line_max, 1)
-        
-        L = x[max_dv_i] - ((f_temps[max_dv_i] - f_temps[0]) / f_temps_dt[max_dv_i])
+
+        L = self.x_data[max_dv_i] - ((f_temps[max_dv_i] - f_temps[0]) / f_temps_dt[max_dv_i])
         T = ((f_temps[-1] - f_temps[0]) / f_temps_dt[max_dv_i])
 
         neighborhood = np.linspace(L, T + L)
         max_dv_scarter = pg.ScatterPlotItem(size=5, brush=pg.mkBrush("r"), pen=pg.mkPen(None), symbol='o')
-        max_dv_scarter.setData(pos=[(x[max_dv_i], f_temps[max_dv_i])])
+        max_dv_scarter.setData(pos=[(self.x_data[max_dv_i], f_temps[max_dv_i])])
 
         self.plot_widget.add_curve(neighborhood,
-                                   [(((x0 - x[max_dv_i]) * f_temps_dt[max_dv_i]) + f_temps[max_dv_i]) for x0 in neighborhood],
+                                   [(((x0 - self.x_data[max_dv_i]) * f_temps_dt[max_dv_i]) + f_temps[max_dv_i]) for x0
+                                    in neighborhood],
                                    'red')
-        
-        v_initial_line = pg.InfiniteLine(pos=x[0], angle=90, pen=pg.mkPen("black", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
-        h_initial_line = pg.InfiniteLine(pos=f_temps[0], angle=0, pen=pg.mkPen("black", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
 
-        v_final_line = pg.InfiniteLine(pos=x[-1], angle=90, pen=pg.mkPen("black", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
-        h_final_line = pg.InfiniteLine(pos=f_temps[-1], angle=0, pen=pg.mkPen("black", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
+        v_initial_line = pg.InfiniteLine(pos=self.x_data[0], angle=90,
+                                         pen=pg.mkPen("black", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
+        h_initial_line = pg.InfiniteLine(pos=f_temps[0], angle=0,
+                                         pen=pg.mkPen("black", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
+
+        v_final_line = pg.InfiniteLine(pos=self.x_data[-1], angle=90,
+                                       pen=pg.mkPen("black", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
+        h_final_line = pg.InfiniteLine(pos=f_temps[-1], angle=0,
+                                       pen=pg.mkPen("black", width=2, style=pg.QtCore.Qt.PenStyle.DashLine))
 
         self.plot_widget.add_item(max_dv_scarter, 0)
         self.plot_widget.add_item(h_initial_line, 0)
@@ -186,12 +194,16 @@ class PlotterAnalyzer(QWidget):
         self.plot_widget.add_item(v_final_line, 0)
         self.plot_widget.add_item(h_final_line, 0)
 
-        self.plot_widget.add_legend(text='Temperatura (ºC)', color='blue', plot_n=0)
-        self.plot_widget.add_legend(text='Ponto de maior derivada', color='red', style='dot', plot_n=0)
-        self.plot_widget.add_legend(text=f'Temperatura inicial ({f_temps[0]:.3f}ºC)', color='black', style=pg.QtCore.Qt.PenStyle.DashLine, plot_n=0)
-        self.plot_widget.add_legend(text=f'Temperatura final ({f_temps[-1]:.3f}ºC)', color='black', style=pg.QtCore.Qt.PenStyle.DashLine, plot_n=0)
+        self.plot_widget.add_legend(text='Temperatura (ºC)', color='blue', plot_n=0, size=10)
+        self.plot_widget.add_legend(text='Ponto de maior derivada', color='red', style='dot', plot_n=0, size=10)
+        self.plot_widget.add_legend(text=f'Temperatura inicial ({f_temps[0]:.3f}ºC)', color='black',
+                                    style=pg.QtCore.Qt.PenStyle.DashLine, plot_n=0, size=10)
+        self.plot_widget.add_legend(text=f'Temperatura final ({f_temps[-1]:.3f}ºC)', color='black',
+                                    style=pg.QtCore.Qt.PenStyle.DashLine, plot_n=0, size="15pt")
 
-        self.plot_widget.plot_temp.setTitle(f"Temperatura registrada - L = {L:.2f}, T (+L) = {T:.2f} (+{L:.2f})")
+        self.plot_widget.plot_temp.setTitle(
+            f"L = {L:.2f}, T (+L) = {T:.2f} (+{L:.2f}); Temperatura registrada", size="20pt", color="#000000")
+
 
 class AnalyzerGUI(QWidget):
     def __init__(self, app_mirror):
@@ -216,10 +228,7 @@ class AnalyzerGUI(QWidget):
             self.mode = mode
             self.df = pd.read_csv(file_path)
             x_data = [float(row["seconds"]) - self.df.iloc[0]["seconds"] for _, row in self.df.iterrows()]
-            #temps = (self.df["temp_a"] + self.df["temp_b"]) / 2
+            # temps = (self.df["temp_a"] + self.df["temp_b"]) / 2
             temps = self.df[sensor_variable]
-
-            if mode == "open":
-                temps = np.array(sig.savgol_filter(temps, int(len(x_data) * 0.02), 6))
 
             self.plotter_gui.update_analyzer(x_data=x_data, y_data=temps, mode=mode)

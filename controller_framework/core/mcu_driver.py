@@ -83,10 +83,7 @@ class STM32Driver(MCUDriver):
         for i, (kw, _) in enumerate(self.kwargs.items()):
             self.kwargs[kw] = control_floats[i]
 
-        sensor1, sensor2, out1, out2 = self.kwargs.values()
-
-        return (sensor1, sensor2),\
-               (out1, out2)
+        return self.kwargs.values()
 
     def connect(self):
         self.ser = ConnectHelper.session_with_chosen_probe(target_override="STM32F103RC", connect_mode="attach")
