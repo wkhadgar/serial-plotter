@@ -3,32 +3,21 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "controller-framework"
-version = "0.0.2"
-description = "A framework to simplify creation of controllers"
+name = "splot-app"
+version = "0.0.1"
+description = "A app to simplify creation of controllers"
 authors = [
     { name = "Paulo Santos", email = "pauloxrms@gmail.com" },
     { name = "Higor Lima", email = "limahigor.g@gmail.com" },
     { name = "Rita Lemos", email = "rklp@ic.ufal.br" },
     { name = "Vinicius Rafael", email = "vinicius.rafael751@gmail.com" },
-    ]
+]
 license = { text = "GNU" }
 readme = "README.md"
 requires-python = ">=3.9"
 
 dependencies = [
     "PySide6>=6.8.2",
-    "numpy>=2.1.2",
-    "pandas>=2.2.3",
-    "pyqtgraph>=0.13.7",
-    "pyserial>=3.5",
-    "python-dateutil>=2.9.0.post0",
-    "pytz>=2024.2",
-    "six>=1.16.0",
-    "tzdata>=2024.2",
-    "matplotlib~=3.9.2",
-    "scipy~=1.14.1",
-    "pyocd>=0.36.0",
 ]
 
 [tool.setuptools]

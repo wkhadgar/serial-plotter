@@ -1,0 +1,79 @@
+QToolBar {
+    margin: 5px 0 5px 0;
+    padding: 0;
+    /* border: 1px solid red; */
+}
+
+QToolButton {
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    margin: 0 0 0 10px;
+
+    background-color: rgb(229, 231, 235);
+
+    color: rgb(55, 65, 81);
+    font-size: 14px;
+}
+
+QToolButton:checked{
+    background-color: rgb(37, 99, 235);
+    color: rgb(255, 255, 255);
+}
+
+QToolButton:hover:!checked{
+    background-color: rgb(209, 213, 219)
+}
+
+QToolBar QToolButton#addPlantButton {
+    padding: 2px;
+    background-color: rgb(34, 197, 94);
+    color: white;
+}
+
+QToolBar QToolButton#addPlantButton:hover {
+    background-color: rgb(28, 166, 79);
+    color: white;
+}
+
+QToolBar QToolButton#savePlantButton {
+    padding: 2px;
+    margin: 0 5px 0 10px;
+    background-color: rgb(20, 184, 166);
+    color: white;
+}
+
+QToolBar QToolButton#savePlantButton:hover {
+    background-color: rgb(16, 159, 142);
+    color: white;
+}
+
+QDialog QLabel{
+    color: rgb(47, 0, 20);
+    border: 1px solid green;
+}
+
+QRadioButton {
+    color: rgb(47, 0, 20);
+}
+
+#btnsModeContainer{
+    border: 1px solid blue;
+    padding: 0;
+}
+
+#contentContainer{
+    border: 1px solid yellow;
+}
+
+#contentContainer QLabel{
+    font-size: 16px;
+}
+
+#rodapeContainer{
+    border: 1px solid cyan;
+}
+
+#driverContentContainer{
+    border: 1px solid red;
+}

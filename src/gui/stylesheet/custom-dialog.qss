@@ -1,0 +1,79 @@
+#mainContainer{
+    margin: 0;
+    padding: 0;
+    border: none;
+
+    background-color:  rgb(249, 250, 251);
+}
+
+#titleDialogContainer{
+    /* border: 1px solid red; */
+    max-height: 50px;
+
+    background-color: rgb(31, 41, 55);
+    
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+} 
+
+#titleDialogContainer > QLabel{
+    color: rgb(255, 255, 255);
+
+    font-size: 24px;
+    font-weight: bold;
+}
+
+#titleDialogContainer > QPushButton{
+    background-color: transparent;
+    border: none;
+}
+
+#contentDialogContainer{
+    /* border: 1px solid green; */
+}
+
+
+/* CODE DIALOG */
+
+QTextEdit {
+    font-size: 16px;
+    background-color: rgb(39, 40, 34);
+}
+
+#importCodeBtn{
+    margin: 0px;
+    padding: 0px;
+
+    min-height: 40px;
+    max-height: 40px;
+    
+    min-width: 160px;
+    max-width: 160px;
+
+    font-size: 16px;
+    
+    background-color: rgb(75, 85, 99);
+}
+
+#importCodeBtn:hover{
+    background-color: rgb(65, 70, 78);
+}
+
+#addCodeBtn{
+    margin: 0px;
+    padding: 0px;
+
+    min-height: 40px;
+    max-height: 40px;
+    
+    min-width: 150px;
+    max-width: 150px;
+
+    font-size: 16px;
+
+    background-color: rgb(59, 130, 246);
+}
+
+#addCodeBtn:hover{
+    background-color: rgb(51, 117, 224);
+}

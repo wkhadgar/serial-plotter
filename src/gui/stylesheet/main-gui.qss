@@ -1,0 +1,46 @@
+#centralWidget {
+    margin: 0px;
+    padding: 0px;
+    background-color: rgb(249, 250, 251);
+}
+
+#titleContainer {
+    background-color: #1f2937;
+
+    border: none;
+
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+
+    padding: 0;
+    margin: 0;
+}
+
+#titleContainer QLabel {
+    font-size: 24px;
+    font-weight: bold;
+    color: rgb(255, 255, 255);
+
+    margin: 0;
+    padding: 0;
+    margin: 1px;
+}
+
+#mainContentWidget {
+    /* border: 1px solid green; */
+    background-color: rgb(255, 255, 255);
+
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+
+    margin: 0px 10px 0 10px;
+}
+
+QPushButton#closeButton{
+    background-color: transparent;
+    border: none;
+    
+    margin: 0;
+    margin-right: 20px;
+    padding: 0;
+}
