@@ -58,7 +58,7 @@ class AppManager:
 
         self.color_index = 0
 
-        self.log_manager = LogManager('APP', logging.CRITICAL)
+        self.log_manager = LogManager('APP', logging.INFO)
         self.log = self.log_manager.get_logger(component='APP')
 
     def __getstate__(self):
@@ -117,7 +117,7 @@ class AppManager:
             try:
                 self.last_timestamp = now
                 values = list(self.__mcu.read())
-                self.log.info(values)
+                self.log.debug(values)
                 self.data_updated = True
 
                 sensor_values = values[0:self.num_sensors]
@@ -150,7 +150,7 @@ class AppManager:
             elapsed = (time.perf_counter() - now) * 1e3
             sleep_time = next_read_time - time.perf_counter()
 
-            self.log.info(
+            self.log.debug(
                 "\ndt:         %8.3f ms       | all elapsed:      %8.3f ms | sleep time:      %8.3f ms\n"
                 "read elapsed:     %8.3f ms | control elapsed: %8.3f ms | feedback elapsed: %8.3f ms",
                 dt_ms, elapsed, sleep_time * 1e3, read_elapsed, control_elapsed, feedback_elapsed,

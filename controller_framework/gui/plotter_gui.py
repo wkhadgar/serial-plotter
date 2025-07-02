@@ -55,6 +55,8 @@ class ControlGUI(QWidget):
     def __init__(self, *, parent, app_mirror, x_label: str, y_label: str):
         super().__init__(parent)
 
+        self.value = 1
+
         self.parent_gui = parent
 
         from controller_framework.core import AppManager
@@ -151,6 +153,8 @@ class ControlGUI(QWidget):
         payload = data.get('payload')
 
         if command == "full_state":
+            self.app_mirror.is_connected = payload.get('is_connected')
+
             self.sensors_cache = payload.get('sensors')
             self.actuators_cache = payload.get('actuators')
             setpoints = payload.get('setpoints')
@@ -217,9 +221,12 @@ class ControlGUI(QWidget):
                 break
 
     def update_plots(self):
-        if not (self.is_selected or self.app_mirror.is_connected):
+        self.value += 1
+
+        if not self.is_selected or not self.app_mirror.is_connected:
             return
 
+        self.value += 1
         view = self.plot_views[self.current_mode]
 
         with QtCore.QMutexLocker(self.mutex):
@@ -477,6 +484,7 @@ class SidebarGUI(QWidget):
                 self.parent_gui.command_triggered.emit("update_setpoint", {"value": self.current_control.setpoints})
 
     def connect(self):
+        self.app_mirror.is_connected = True
         self.parent_gui.command_triggered.emit("connect_mcu", {})
 
     def activate_control(self):

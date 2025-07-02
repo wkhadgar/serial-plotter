@@ -69,6 +69,9 @@ class IPCManager:
         self.tx_queue.put(data)
 
     def __send_full_state(self):
+        if not self.core.is_connected:
+            return
+        
         command = "full_state"
         payload = {
             "sensors": [values.copy() for values in self.core.sensor_cache],
@@ -77,6 +80,7 @@ class IPCManager:
             "running_instance": self.core.running_instance,
             "control_instances": self.core.control_instances,
             "cache_timestamp": self.core.timestamp_cache.copy(),
+            "is_connected": self.core.is_connected,
         }
 
         self.__send(command, payload)
@@ -148,9 +152,9 @@ class IPCManager:
         if not value:
             raise ValueError("[IPC] update_setpoint exige 'value'")
 
-        if not isinstance(value, (list)):
+        if not isinstance(value, (list, tuple)):
             raise ValueError(
-                "[IPC] 'value' para 'update_setpoint' deve ser int ou float"
+                "[IPC] 'value' para 'update_setpoint' no formato incorreto"
             )
 
         core.update_setpoint(value)

@@ -117,8 +117,8 @@ class RandomDataDriver(MCUDriver):
         self.sensor_a = self.sensor_b = self.sensor_c = self.Tamb
 
     def read(self):
-        return (self.sensor_a, self.sensor_b, self.sensor_c),\
-               (self.duty1, self.duty2, self.duty3)
+        return (self.sensor_a, self.sensor_b, self.sensor_c,\
+                self.duty1, self.duty2, self.duty3)
 
     def send(self, v1, v2, v3):
         self.sensor_a = self._step(v1, self.sensor_a)
@@ -207,7 +207,7 @@ class VirtualBallNPlate(MCUDriver):
         except BlockingIOError:
             pass
 
-        return (self.x, self.y), (0.0, 0.0)
+        return (self.x, self.y, 0.0, 0.0)
     
     def send(self, *outs):
         pass
