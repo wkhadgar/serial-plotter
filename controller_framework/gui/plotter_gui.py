@@ -184,8 +184,9 @@ class ControlGUI(QWidget):
 
     def __write_csv(self):
         target_str = '"' + " ".join(map(str, self.app_mirror.setpoints)) + '"'
+        rows = []
         for j in range(len(self.cache_timestamp)):
-            rows = [{
+            rows.append({
                 "seconds": f"{self.cache_timestamp[j] - self.init_timestamp:.4f}",
 
                 **{f"sensor_{i}": f"{self.sensors_cache[i][j]:.4f}"
@@ -195,7 +196,7 @@ class ControlGUI(QWidget):
                    for i in range(self.app_mirror.num_actuators)},
 
                 "target": target_str
-            }]
+            })
 
         with open(self.log_file_path, "a") as f:
             for row in rows:
@@ -259,11 +260,10 @@ class ControlGUI(QWidget):
                 letters = self.sensor_labels
                 idx = letters.index(view)
 
-                sensor_data = np.array(self.sensor_data[idx])
-                self.plot_widget.update_curve(plot_seconds_np, sensor_data, plot_n=0, curve_n=0)
+                self.plot_widget.update_curve(plot_seconds_np, sensor_data_np[idx], plot_n=0, curve_n=0)
 
                 var_name, props = list(self.app_mirror.sensor_vars.items())[idx]
-                legenda = f"{var_name}: {sensor_data[-1]:.4f} {props['unit']}"
+                legenda = f"{var_name}: {sensor_data_np[idx][-1]:.4f} {props['unit']}"
                 self.plot_widget.update_legend(text=legenda, plot_n=0, idx=0)
             case _:
                 self.parent_gui.log.warning("Visualização '%s' não reconhecida.", view, extra={'method': 'update plot'})

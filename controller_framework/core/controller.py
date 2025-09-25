@@ -22,7 +22,8 @@ class ControlWorker:
             try:
                 self.running_instance.set_dt(dt)
                 self.result = self.running_instance.control()
-            except Exception:
+            except Exception as e:
+                print('Control error', e)
                 self.result = None
             finally:
                 self.done_event.set()

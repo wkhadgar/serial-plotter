@@ -13,6 +13,27 @@ from controller_framework.gui import MainGUI
 import multiprocessing as mp
 
 
+def update_var(var_dict, new_values):
+    for (var_name, value) in zip(var_dict, new_values):
+        expected_type = var_dict[var_name]['type']
+
+        if not isinstance(value, expected_type):
+            raise TypeError(
+                f"Variável '{var_name}' espera tipo {expected_type.__name__}, recebeu {type(value).__name__}")
+
+        var_dict[var_name]['value'] = value
+
+
+def get_var_values(var_dict):
+    values = []
+
+    for var_name in var_dict:
+        var_value = var_dict[var_name]['value']
+        values.append(var_value)
+
+    return values
+
+
 class AppManager:
     def __init__(self, mcu_type: MCUType, sample_time=1, flush_time=100, **kwargs):
         if not isinstance(mcu_type, MCUType):
@@ -21,6 +42,7 @@ class AppManager:
 
         self.control_instances: dict[str, Controller] = {}
         self.running_instance: Optional[Controller] = None
+        self.gui_process = None
 
         self.sample_time = sample_time  # ms
         self.cache_flush_time = flush_time  # ms
@@ -103,9 +125,7 @@ class AppManager:
         self.sensor_cache = [[] for _ in range(self.num_sensors)]
 
         while not self.reading_stop_event.is_set():
-            elapsed = 0
             control_elapsed = 0
-            read_elapsed = 0
             feedback_elapsed = 0
 
             now = time.perf_counter()
@@ -208,7 +228,7 @@ class AppManager:
         self.ipcmanager.stop()
 
     def start_connection(self):
-        self.log.info("Try connect mcu", extra={'method':'init'})
+        self.log.info("Try connect mcu", extra={'method': 'init'})
         self.__connect()
 
         self.reading_thread = threading.Thread(target=self.__read_values, daemon=True)
@@ -218,7 +238,7 @@ class AppManager:
 
     def start_controller(self, label):
         if label in self.control_instances:
-            if self.running_instance != None:
+            if self.running_instance is not None:
                 self.stop_controller()
 
             try:
@@ -240,7 +260,7 @@ class AppManager:
         return list(self.control_instances.keys())
 
     def get_instance(self, label):
-        if (label in self.control_instances):
+        if label in self.control_instances:
             return self.control_instances[label]
         else:
             return None
@@ -255,20 +275,11 @@ class AppManager:
         tam = min(self.num_sensors, len(setpoints))
         self.setpoints[:tam] = map(float, setpoints[:tam])
 
-        if self.running_instance != None:
+        if self.running_instance is not None:
             self.running_instance.setpoints = self.setpoints
 
             if "setpoints" in self.running_instance.configurable_vars:
                 self.running_instance.configurable_vars["setpoints"]["value"] = setpoints
-
-    def get_var_values(self, var_dict):
-        values = []
-
-        for var_name in var_dict:
-            var_value = var_dict[var_name]['value']
-            values.append(var_value)
-
-        return values
 
     def _random_color(self):
         n = 12
@@ -298,23 +309,13 @@ class AppManager:
         self.__set_var(self.sensor_vars, *args)
 
     def get_actuator_values(self):
-        return self.get_var_values(self.actuator_vars)
+        return get_var_values(self.actuator_vars)
 
     def get_sensor_values(self):
-        return self.get_var_values(self.sensor_vars)
-
-    def __update_var(self, var_dict, new_values):
-        for (var_name, value) in zip(var_dict, new_values):
-            expected_type = var_dict[var_name]['type']
-
-            if not isinstance(value, expected_type):
-                raise TypeError(
-                    f"Variável '{var_name}' espera tipo {expected_type.__name__}, recebeu {type(value).__name__}")
-
-            var_dict[var_name]['value'] = value
+        return get_var_values(self.sensor_vars)
 
     def update_actuator_vars(self, new_values):
-        self.__update_var(self.actuator_vars, new_values)
+        update_var(self.actuator_vars, new_values)
 
     def update_sensors_vars(self, new_values):
-        self.__update_var(self.sensor_vars, new_values)
+        update_var(self.sensor_vars, new_values)

@@ -27,6 +27,12 @@ class MCUDriver(ABC):
         self.mcu_type: MCUType = mcu_type
         self.kwargs = kwargs
 
+        if "convert_cb" in self.kwargs:
+            self.convert_cb = self.kwargs["convert_cb"]
+            self.kwargs.pop("convert_cb")
+        else:
+            self.convert_cb = None
+
         self.log_manager = LogManager('MCUDriver')
         self.log = self.log_manager.get_logger(component='MCU')
 
@@ -83,14 +89,20 @@ class STM32Driver(MCUDriver):
         for i, (kw, _) in enumerate(self.kwargs.items()):
             self.kwargs[kw] = control_floats[i]
 
-        return self.kwargs.values()
+        if self.convert_cb is None:
+            return self.kwargs.values()
+
+        return self.convert_cb(*self.kwargs.values())
+
+    def convert_read(self):
+        pass
 
     def connect(self):
+        self.log.debug("Finding control block area...", extra={'method': 'connect'})
         self.ser = ConnectHelper.session_with_chosen_probe(target_override="STM32F103RC", connect_mode="attach")
-        self.ram = self.ser.target.get_memory_map()[1]
         self.ser.open()
+        self.ram = self.ser.target.get_memory_map()[1]
 
-        self.log.debug("Finding control block area...", extra={'method':'connect'})
         key = [ord(c) for c in "!CTR"]
         for addr in range(self.ram.start, self.ram.end):
             byte = self.ser.target.read8(addr)
@@ -98,26 +110,26 @@ class STM32Driver(MCUDriver):
                 continue
 
             if self.ser.target.read_memory_block8(addr, len(key)) == key:
-                self.log.debug(f"Control block area found at 0x{addr:X}!", extra={'method':'connect'})
+                self.log.debug(f"Control block area found at 0x{addr:X}!", extra={'method': 'connect'})
                 self.control_block_addr = addr + len(key)
                 break
         else:
-            self.log.debug("Block control area not found!!!", extra={'method':'connect'})
+            self.log.debug("Block control area not found!!!", extra={'method': 'connect'})
             raise ValueError("MCU block control area not found")
 
 
 class RandomDataDriver(MCUDriver):
     def __init__(self, mcu_type, **kwargs):
         super().__init__(mcu_type, **kwargs)
-        self.Re   = 10
-        self.Rth  = 5
-        self.Cth  = 1000
+        self.Re = 10
+        self.Rth = 5
+        self.Cth = 1000
         self.Tamb = 25.0
-        self.dt   = 1
+        self.dt = 1
         self.sensor_a = self.sensor_b = self.sensor_c = self.Tamb
 
     def read(self):
-        return (self.sensor_a, self.sensor_b, self.sensor_c,\
+        return (self.sensor_a, self.sensor_b, self.sensor_c, \
                 self.duty1, self.duty2, self.duty3)
 
     def send(self, v1, v2, v3):
@@ -132,8 +144,8 @@ class RandomDataDriver(MCUDriver):
         self.sensor_a = self.sensor_b = self.sensor_c = self.Tamb
 
     def _step(self, V, T_current):
-        P = V**2 / self.Re
-        dT = (P - (T_current - self.Tamb)/self.Rth) * (self.dt / self.Cth)
+        P = V ** 2 / self.Re
+        dT = (P - (T_current - self.Tamb) / self.Rth) * (self.dt / self.Cth)
         return T_current + dT
 
 
@@ -169,15 +181,15 @@ class VirtualBallNPlate(MCUDriver):
     def __init__(self, mcu_type, **kwargs):
         super().__init__(mcu_type, **kwargs)
 
-        self.udp_addr    = ("0.0.0.0", 5007)
+        self.udp_addr = ("0.0.0.0", 5007)
         self.buffer_size = 1024
-        self.sock        = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 64 * 1024)
 
         self.x, self.y = 0.0, 0.0
-        self._buf      = bytearray(self.buffer_size)
+        self._buf = bytearray(self.buffer_size)
         self._connected = False
 
     def connect(self):
@@ -207,7 +219,7 @@ class VirtualBallNPlate(MCUDriver):
         except BlockingIOError:
             pass
 
-        return (self.x, self.y, 0.0, 0.0)
-    
+        return self.x, self.y, 0.0, 0.0
+
     def send(self, *outs):
         pass

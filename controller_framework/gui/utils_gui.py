@@ -149,9 +149,9 @@ class PlotWidget:
         self.mode = Mode.OPEN
         self.clear()
         self.plot_temp = self.plot_widget.addPlot(row=0, col=0)
-        self.plot_temp.setTitle('Análise de Malha Aberta', size='14pt')
+        self.plot_temp.setTitle('Análise de Malha Aberta', size='20pt', color='#000000')
         self.plot_derivative = self.plot_widget.addPlot(row=1, col=0)
-        self.plot_derivative.setTitle(title='Derivada dT/t', size='14pt')
+        self.plot_derivative.setTitle(title='Derivada dT/t', size='20pt', color="#000000")
         self._setup_plot(self.plot_temp)
         self._setup_plot(self.plot_derivative)
         self.marker_temp = MarkerPlot(self.plot_temp)
@@ -188,4 +188,4 @@ class PlotWidget:
             ax.setPen(text_pen)
             ax.setTextPen(text_pen)
 
-            plot.setLabel('bottom', 'Tempo', units='s', **{'color': text_pen.color().name(), 'font-size': '12pt'})
+            plot.setLabel('bottom', 'Tempo', units='s', **{'color': "#000000", 'font-size': '20pt'})
