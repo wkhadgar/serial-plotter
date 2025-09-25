@@ -42,22 +42,24 @@ class PIDControl(Controller):
             return [self.open_duty]
 
         sens_sum = self.sensor_values[0] + self.sensor_values[1]
-        out = self.step(0, self.setpoints[0], sens_sum >> 1)
+        out = self.step(0, self.setpoints[0], sens_sum / 2)
         result.append(out)
 
-        print(result)
         return result
 
 
 def convert_values(ntc_a_raw, ntc_b_raw, duty_raw):
-    ntc_a = -ntc_a_raw
-    ntc_b = ntc_b_raw
+    raw_n = np.array([ntc_a_raw, ntc_b_raw])
+    r_n = 10_000.0 / ((4025.0 / raw_n) - 1.0)
 
-    return ntc_a, ntc_b, round(duty_raw, 2)
+    t_n = ((298.15 * 3435.0) / (298.15 * np.log(r_n / 10_000.0) + 3435.0)) - 273.15
+
+    return *t_n, round(duty_raw, 2)
+
 
 if __name__ == '__main__':
     plant = AppManager(mcu_type=MCUType.STM32, sample_time=20, convert_cb=convert_values, ntc_a=0, ntc_b=0, duty=0)
-    plant.set_sensor_vars(("NTC 1", "ºC", float), ("NTC 2", "ºC", float))
+    plant.set_sensor_vars(("NTC Inner", "ºC", float), ("NTC Outer", "ºC", float))
     plant.set_actuator_vars(("Peltier", "%", float))
 
     pid_control1 = PIDControl("PID Control 1", init_setpoint=25, l=9.02, t=344.21)
