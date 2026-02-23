@@ -1,156 +1,125 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
+  import { appStore } from '$lib/stores/data.svelte';
+  import { getPlantData, getPlantStats, setPlantStats } from '$lib/stores/plantData';
+  import Sidebar from '$lib/components/layout/Sidebar.svelte';
+  import PlotterModule from '$lib/components/modules/PlotterModule.svelte';
+  import PoleAnalysisModule from '$lib/components/modules/PoleAnalysisModule.svelte';
+  import GlobalSettingsModal from '$lib/components/modals/GlobalSettingsModal.svelte';
+  import type { Plant } from '$lib/types/plant';
 
-  let name = $state("");
-  let greetMsg = $state("");
+  let showControllerPanel = $state(false);
+  const thermalState = new Map<string, { x1: number; x2: number }>();
 
-  async function greet(event: Event) {
-    event.preventDefault();
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsg = await invoke("greet", { name });
-  }
+  $effect(() => {
+    const theme = appStore.state.theme || 'dark';
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const body = document.body;
+    const isDark = theme === 'dark';
+    root.classList.toggle('dark', isDark);
+    body.classList.toggle('dark', isDark);
+    root.style.colorScheme = isDark ? 'dark' : 'light';
+  });
+
+  // Simulation at 10 Hz – all mutations go to plain (non-reactive) buffers
+  // so zero Svelte proxy overhead per tick.
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    const SIM_INTERVAL = 100; // 10 Hz
+    const DT = SIM_INTERVAL / 1000;
+    const MAX_DATA = 5000; // cap per plant
+
+    const interval = setInterval(() => {
+      appStore.state.plants.forEach((plant: Plant) => {
+        if (!plant.connected || plant.paused) return;
+
+        const data = getPlantData(plant.id);          // plain array!
+        const last = data.length > 0
+          ? data[data.length - 1]
+          : { pv: 0, mv: 0, time: 0, sp: plant.setpoint };
+
+        const time = last.time + DT;
+        let totalMv = 0;
+        const error = plant.setpoint - last.pv;
+
+        plant.controllers.forEach((ctrl) => {
+          if (!ctrl.active) return;
+          const p = ctrl.params as any;
+          if (p.manualMode?.value) { totalMv = 50; return; }
+          const kp = Number(p.kp?.value) || 0;
+          const ki = Number(p.ki?.value) || 0;
+          const kd = Number(p.kd?.value) || 0;
+          const prevPv = data.length > 1 ? data[data.length - 2].pv : last.pv;
+          totalMv += kp * error + ki * error * DT - kd * (last.pv - prevPv) / DT;
+        });
+
+        totalMv = Math.max(0, Math.min(100, totalMv + (Math.random() * 1.5 - 0.75)));
+
+        let newPv: number;
+        if (plant.id === 'p2') {
+          const k = 1.63, t1 = 0.003, t2 = 3.03;
+          const st = thermalState.get(plant.id) ?? { x1: 0, x2: 0 };
+          const x1 = st.x1 + DT * (-t1 * st.x1 + t1 * totalMv);
+          const x2 = st.x2 + DT * (-t2 * st.x2 + t2 * x1);
+          thermalState.set(plant.id, { x1, x2 });
+          newPv = k * x2 + (Math.random() * 0.2 - 0.1);
+        } else {
+          newPv = last.pv * 0.94 + totalMv * 0.06 + (Math.random() * 0.4 - 0.2);
+        }
+
+        // In-place push + trim on plain array — no proxy, no reactive cascade
+        data.push({ time, sp: plant.setpoint, pv: newPv, mv: totalMv });
+        if (data.length > MAX_DATA) data.splice(0, data.length - MAX_DATA);
+
+        // Stats in plain buffer
+        const prev = getPlantStats(plant.id);
+        setPlantStats(plant.id, {
+          errorAvg: prev.errorAvg * 0.95 + Math.abs(error) * 0.05,
+          stability: Math.max(0, 100 - (prev.errorAvg * 0.95 + Math.abs(error) * 0.05) * 2),
+          uptime: prev.uptime + 1
+        });
+      });
+    }, SIM_INTERVAL);
+
+    return () => clearInterval(interval);
+  });
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
+<div class="h-screen w-full select-none">
+  <div class="flex h-full w-full bg-slate-100 dark:bg-zinc-950 text-slate-800 dark:text-zinc-100 font-sans overflow-hidden transition-colors duration-300">
+    <Sidebar
+      theme={appStore.state.theme || 'dark'}
+      sidebarCollapsed={appStore.state.sidebarCollapsed ?? true}
+      activeModule={appStore.state.activeModule || 'plotter'}
+    />
 
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
+    <main class="flex-1 flex flex-col min-w-0 relative">
+      {#if appStore.state.activeModule === 'plotter'}
+        <PlotterModule
+          plants={appStore.state.plants || []}
+          activePlantId={appStore.state.activePlantId || 'p1'}
+          theme={appStore.state.theme || 'dark'}
+          bind:showControllerPanel
+        />
+      {:else if appStore.state.activeModule === 'poles'}
+        <PoleAnalysisModule theme={appStore.state.theme || 'dark'} />
+      {:else}
+        <div class="flex-1 flex items-center justify-center text-slate-400 dark:text-zinc-600 bg-slate-50 dark:bg-zinc-950">
+          <div class="text-center">
+            <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="opacity-20 mb-4 mx-auto">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+            </svg>
+            <p class="text-lg font-bold text-slate-500 dark:text-zinc-400">
+              Módulo não implementado
+            </p>
+          </div>
+        </div>
+      {/if}
+
+      <GlobalSettingsModal showGlobalSettings={appStore.state.showGlobalSettings || false} />
+    </main>
   </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
+</div>
 
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
-</main>
 
-<style>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
 
-.logo.svelte-kit:hover {
-  filter: drop-shadow(0 0 2em #ff3e00);
-}
-
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
-</style>
