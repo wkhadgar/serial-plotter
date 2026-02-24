@@ -5,14 +5,12 @@
   let { 
     plants,
     activePlantId,
-    alarmState,
     onSelect,
     onAdd,
     onRemove
   }: {
     plants: Plant[];
     activePlantId: string;
-    alarmState: string;
     onSelect: (id: string) => void;
     onAdd: () => void;
     onRemove: (id: string) => void;
@@ -29,7 +27,7 @@
             ? 'bg-slate-50 dark:bg-[#18181b] border-slate-300 dark:border-white/10 text-blue-600 dark:text-blue-400 border-b-slate-50 dark:border-b-[#18181b] mb-[-1px]'
             : 'bg-transparent border-transparent text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 mb-0'}`}
       >
-        <div class={`w-1.5 h-1.5 rounded-full ${alarmState !== 'NORMAL' && plant.id === activePlantId ? 'bg-red-500 animate-pulse' : plant.connected ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-zinc-700'}`}></div>
+        <div class={`w-1.5 h-1.5 rounded-full ${plant.connected ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-zinc-700'}`}></div>
         <span class="truncate">{plant.name}</span>
       </button>
       <button

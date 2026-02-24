@@ -51,7 +51,6 @@
       connected: false,
       paused: false,
       setpoint: 50,
-      limits: { high: 85, low: 15 },
       controllers: []
     });
     appStore.setActivePlantId(newId);
@@ -170,11 +169,6 @@
     appStore.updateSetpoint(activePlant.id, value);
   }
 
-  function updateLimits(field: 'high' | 'low', value: number) {
-    if (!activePlant) return;
-    appStore.updateLimits(activePlant.id, { ...activePlant.limits, [field]: value });
-  }
-
   let _displayTick = $state(0);
   let _displayTimer: ReturnType<typeof setInterval>;
   onMount(() => { _displayTimer = setInterval(() => _displayTick++, 200); });
@@ -194,15 +188,6 @@
     _displayTick;
     return getPlantStats(activePlantId);
   });
-  const alarmState = $derived.by(() => {
-    _displayTick;
-    if (!activePlant) return 'NORMAL';
-    const data = getPlantData(activePlantId);
-    const pv = data.length > 0 ? data[data.length - 1].pv : 0;
-    return pv > activePlant.limits.high ? 'HIGH' :
-           pv < activePlant.limits.low ? 'LOW' : 'NORMAL';
-  });
-
   const plantData = $derived(getPlantData(activePlantId));
 
   const pvSpSeries = $derived([
@@ -251,9 +236,6 @@
     xMin: chartState.xMin,
     xMax: chartState.xMax,
     showGrid: true,
-    showLimits: true,
-    limitHigh: activePlant?.limits?.high,
-    limitLow: activePlant?.limits?.low,
     showHover: true
   });
 
@@ -266,7 +248,6 @@
     xMin: chartState.xMin,
     xMax: chartState.xMax,
     showGrid: true,
-    showLimits: false,
     showHover: true
   });
 
@@ -281,7 +262,6 @@
   <PlantTabs
     {plants}
     {activePlantId}
-    {alarmState}
     onSelect={(id) => appStore.setActivePlantId(id)}
     onAdd={handleAddPlant}
     onRemove={handleRemovePlant}
@@ -291,7 +271,6 @@
     <div class="flex-1 flex flex-col min-w-0 relative">
       <PlotterToolbar
         plant={activePlant}
-        {alarmState}
         {currentStats}
         bind:showControllerPanel
         onToggleConnect={handleToggleConnect}
@@ -319,7 +298,7 @@
           onClose={closeContextMenu}
         />
 
-        <div class={`flex-[2] rounded-xl border relative shadow-sm overflow-hidden transition-all duration-500 group select-none ${alarmState !== 'NORMAL' ? 'bg-red-50/50 dark:bg-red-900/10 border-red-500/50' : 'bg-white dark:bg-[#0c0c0e] border-slate-200 dark:border-white/10'}`}>
+        <div class="flex-[2] rounded-xl border relative shadow-sm overflow-hidden transition-all duration-500 group select-none bg-white dark:bg-[#0c0c0e] border-slate-200 dark:border-white/10">
           <div class="absolute top-3 right-3 z-20 pointer-events-none flex items-center gap-3 bg-white/70 dark:bg-black/50 backdrop-blur-md rounded-lg px-3.5 py-2 border border-slate-200/50 dark:border-white/10 shadow-sm">
             <div class="flex flex-col items-end">
               <span class="text-[9px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">PV</span>
@@ -364,7 +343,6 @@
       onUpdateControllerMeta={updateControllerMeta}
       onUpdateControllerParam={updateControllerParam}
       onUpdateSetpoint={updateSetpoint}
-      onUpdateLimits={updateLimits}
     />
   </div>
 

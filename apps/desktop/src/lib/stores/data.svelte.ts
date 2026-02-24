@@ -19,7 +19,6 @@ class AppStore {
         paused: false,
         data: [],
         setpoint: 50,
-        limits: { high: 85, low: 15 },
         stats: { errorAvg: 0, stability: 100, uptime: 0 },
         controllers: [
           {
@@ -43,7 +42,6 @@ class AppStore {
         paused: false,
         data: [],
         setpoint: 60,
-        limits: { high: 90, low: 10 },
         stats: { errorAvg: 0, stability: 100, uptime: 0 },
         controllers: [
           {
@@ -168,11 +166,6 @@ class AppStore {
   updateSetpoint(plantId: string, setpoint: number) {
     const plant = this.state.plants.find(p => p.id === plantId);
     if (plant) plant.setpoint = setpoint;
-  }
-
-  updateLimits(plantId: string, limits: { high: number; low: number }) {
-    const plant = this.state.plants.find(p => p.id === plantId);
-    if (plant) plant.limits = limits;
   }
 
   updatePlantData(plantId: string, data: Plant['data']) {

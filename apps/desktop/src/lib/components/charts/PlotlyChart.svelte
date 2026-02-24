@@ -72,28 +72,6 @@
     return cols as uPlot.AlignedData;
   }
 
-  function limitDrawHook(u: uPlot) {
-    if (!config.showLimits) return;
-    const ctx = u.ctx;
-    const { left, top, width, height: h } = u.bbox;
-    ctx.save();
-    ctx.setLineDash([6, 4]);
-    ctx.lineWidth = 1 * devicePixelRatio;
-    ctx.strokeStyle = '#ef4444';
-    const drawLine = (yVal: number) => {
-      const yPx = u.valToPos(yVal, 'y', true);
-      if (yPx >= top && yPx <= top + h) {
-        ctx.beginPath();
-        ctx.moveTo(left, yPx);
-        ctx.lineTo(left + width, yPx);
-        ctx.stroke();
-      }
-    };
-    if (config.limitHigh != null) drawLine(config.limitHigh);
-    if (config.limitLow != null) drawLine(config.limitLow);
-    ctx.restore();
-  }
-
   function buildSeries(): uPlot.Series[] {
     const uSeries: uPlot.Series[] = [
       {
@@ -133,13 +111,14 @@
           time: false,
           auto: true,
           range: (_u: uPlot, dataMin: number, dataMax: number): [number, number] => {
+            const xPad = Math.max((dataMax - dataMin) * 0.03, 0.5);
             if (_scaleRef.xMode === 'sliding') {
-              return [Math.max(0, dataMax - _scaleRef.windowSize), dataMax];
+              return [Math.max(0, dataMax - _scaleRef.windowSize), dataMax + xPad];
             }
             if (_scaleRef.xMode === 'manual' && _scaleRef.xMin != null && _scaleRef.xMax != null) {
               return [_scaleRef.xMin, _scaleRef.xMax];
             }
-            return [Math.min(dataMin, 0), Math.max(dataMax, 1)];
+            return [Math.min(dataMin, 0), Math.max(dataMax, 1) + xPad];
           },
         },
         y: {
@@ -174,7 +153,6 @@
       ],
       series: buildSeries(),
       hooks: {
-        draw: [limitDrawHook],
         setSelect: [
           (u: uPlot) => {
             const sel = u.select;
@@ -387,9 +365,6 @@
       config.windowSize,
       config.yMin,
       config.yMax,
-      config.limitHigh,
-      config.limitLow,
-      config.showLimits,
     ];
     untrack(() => {
       if (_mounted && chart) updateChart();

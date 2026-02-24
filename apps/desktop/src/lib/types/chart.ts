@@ -28,9 +28,6 @@ export interface ChartConfig {
   xMin?: number | null;
   xMax?: number | null;
   showGrid: boolean;
-  showLimits: boolean;
-  limitHigh?: number;
-  limitLow?: number;
   showHover?: boolean;
 }
 

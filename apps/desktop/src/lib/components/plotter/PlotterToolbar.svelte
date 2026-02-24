@@ -4,7 +4,6 @@
 
   let {
     plant,
-    alarmState,
     currentStats,
     showControllerPanel = $bindable(false),
     onToggleConnect,
@@ -15,7 +14,6 @@
     formatTime
   }: {
     plant: Plant | undefined;
-    alarmState: string;
     currentStats: { errorAvg: number; stability: number; uptime: number };
     showControllerPanel: boolean;
     onToggleConnect: () => void;
@@ -93,9 +91,9 @@
     <div class="flex flex-col items-end mr-2">
       <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</span>
       <div class="flex items-center gap-1.5">
-        <span class={`w-2 h-2 rounded-full ${alarmState === 'HIGH' || alarmState === 'LOW' ? 'bg-red-500 animate-ping' : plant?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
-        <span class={`text-xs font-bold ${alarmState !== 'NORMAL' ? 'text-red-500' : plant?.connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>
-          {alarmState !== 'NORMAL' ? `ALARM ${alarmState}` : plant?.connected ? 'ONLINE' : 'OFFLINE'}
+        <span class={`w-2 h-2 rounded-full ${plant?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+        <span class={`text-xs font-bold ${plant?.connected ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500'}`}>
+          {plant?.connected ? 'ONLINE' : 'OFFLINE'}
         </span>
       </div>
     </div>

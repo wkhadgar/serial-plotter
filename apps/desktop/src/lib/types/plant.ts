@@ -8,11 +8,6 @@ export interface PlantDataPoint {
   [key: string]: number;
 }
 
-export interface AlarmLimits {
-  high: number;
-  low: number;
-}
-
 export interface PlantStats {
   errorAvg: number;
   stability: number;
@@ -26,7 +21,6 @@ export interface Plant {
   paused: boolean;
   data: PlantDataPoint[];
   setpoint: number;
-  limits: AlarmLimits;
   stats: PlantStats;
   controllers: Controller[];
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronsRight, AlertTriangle, Trash2 } from 'lucide-svelte';
+  import { ChevronsRight, Trash2 } from 'lucide-svelte';
   import SimpleToggle from '../ui/SimpleToggle.svelte';
   import DynamicParamInput from '../ui/DynamicParamInput.svelte';
   import type { Plant } from '$lib/types/plant';
@@ -12,8 +12,7 @@
     onDeleteController,
     onUpdateControllerMeta,
     onUpdateControllerParam,
-    onUpdateSetpoint,
-    onUpdateLimits
+    onUpdateSetpoint
   }: {
     visible: boolean;
     plant: Plant | undefined;
@@ -22,7 +21,6 @@
     onUpdateControllerMeta: (id: string, field: string, value: any) => void;
     onUpdateControllerParam: (id: string, paramKey: string, value: any) => void;
     onUpdateSetpoint: (value: number) => void;
-    onUpdateLimits: (field: 'high' | 'low', value: number) => void;
   } = $props();
 </script>
 
@@ -49,34 +47,6 @@
           onchange={(e: Event) => onUpdateSetpoint(Number((e.target as HTMLInputElement).value))}
           class="w-full h-1.5 bg-slate-300 dark:bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
         />
-      </div>
-      
-      <div class="bg-red-50/50 dark:bg-red-900/10 rounded-xl p-4 border border-red-100 dark:border-red-900/20 shadow-sm">
-        <div class="text-xs font-bold text-red-500 uppercase tracking-wide mb-3 flex items-center gap-2">
-          <AlertTriangle size={12} /> Limites de Alarme
-        </div>
-        <div class="flex gap-4">
-          <div class="flex-1">
-            <label for="limit-high" class="text-[10px] text-slate-500 uppercase">High (HI)</label>
-            <input
-              id="limit-high"
-              type="number"
-              value={plant.limits.high}
-              oninput={(e: Event) => onUpdateLimits('high', parseFloat((e.target as HTMLInputElement).value))}
-              class="w-full bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 rounded px-2 py-1 text-xs text-right font-mono"
-            />
-          </div>
-          <div class="flex-1">
-            <label for="limit-low" class="text-[10px] text-slate-500 uppercase">Low (LO)</label>
-            <input
-              id="limit-low"
-              type="number"
-              value={plant.limits.low}
-              oninput={(e: Event) => onUpdateLimits('low', parseFloat((e.target as HTMLInputElement).value))}
-              class="w-full bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 rounded px-2 py-1 text-xs text-right font-mono"
-            />
-          </div>
-        </div>
       </div>
       
       <div class="border-t border-slate-100 dark:border-white/5"></div>
