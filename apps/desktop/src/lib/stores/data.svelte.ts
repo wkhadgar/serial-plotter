@@ -24,7 +24,7 @@ class AppStore {
       {
         id: 'p1',
         name: 'Tanque Misturador T-200',
-        connected: true,
+        connected: false,
         paused: false,
         data: [],
         setpoint: 50,
@@ -48,7 +48,7 @@ class AppStore {
       {
         id: 'p2',
         name: 'Sistema Termico T-302',
-        connected: true,
+        connected: false,
         paused: false,
         data: [],
         setpoint: 60,

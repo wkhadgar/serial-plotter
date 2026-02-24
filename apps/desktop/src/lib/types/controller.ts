@@ -1,30 +1,15 @@
-/**
- * Tipo de controlador disponível
- */
 export type ControllerType = 'PID' | 'Flow' | 'Level';
 
-/**
- * Modo de operação do controlador
- */
 export type ControllerMode = 'auto' | 'manual' | 'alarm';
 
-/**
- * Tipo de parâmetro do controlador
- */
 export type ParamType = 'number' | 'boolean' | 'string';
 
-/**
- * Definição de um parâmetro do controlador
- */
 export interface ControllerParam {
   type: ParamType;
   value: number | boolean | string;
   label: string;
 }
 
-/**
- * Parâmetros PID
- */
 export interface PIDParams {
   kp: ControllerParam;
   ki: ControllerParam;
@@ -32,9 +17,6 @@ export interface PIDParams {
   manualMode: ControllerParam;
 }
 
-/**
- * Representa um controlador industrial
- */
 export interface Controller {
   id: string;
   name: string;
@@ -43,9 +25,6 @@ export interface Controller {
   params: PIDParams | Record<string, ControllerParam>;
 }
 
-/**
- * Configuração de um controlador PID
- */
 export interface PIDConfig {
   kp: number;
   ki: number;

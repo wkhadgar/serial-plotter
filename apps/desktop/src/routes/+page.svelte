@@ -21,19 +21,16 @@
     root.style.colorScheme = isDark ? 'dark' : 'light';
   });
 
-  // Simulation at 10 Hz – all mutations go to plain (non-reactive) buffers
-  // so zero Svelte proxy overhead per tick.
   $effect(() => {
     if (typeof window === 'undefined') return;
-    const SIM_INTERVAL = 100; // 10 Hz
+    const SIM_INTERVAL = 100;
     const DT = SIM_INTERVAL / 1000;
-    const MAX_DATA = 5000; // cap per plant
 
     const interval = setInterval(() => {
       appStore.state.plants.forEach((plant: Plant) => {
         if (!plant.connected || plant.paused) return;
 
-        const data = getPlantData(plant.id);          // plain array!
+        const data = getPlantData(plant.id);
         const last = data.length > 0
           ? data[data.length - 1]
           : { pv: 0, mv: 0, time: 0, sp: plant.setpoint };
@@ -67,11 +64,8 @@
           newPv = last.pv * 0.94 + totalMv * 0.06 + (Math.random() * 0.4 - 0.2);
         }
 
-        // In-place push + trim on plain array — no proxy, no reactive cascade
         data.push({ time, sp: plant.setpoint, pv: newPv, mv: totalMv });
-        if (data.length > MAX_DATA) data.splice(0, data.length - MAX_DATA);
 
-        // Stats in plain buffer
         const prev = getPlantStats(plant.id);
         setPlantStats(plant.id, {
           errorAvg: prev.errorAvg * 0.95 + Math.abs(error) * 0.05,
