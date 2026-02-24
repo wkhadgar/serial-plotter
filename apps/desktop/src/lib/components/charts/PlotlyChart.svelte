@@ -2,41 +2,10 @@
   import { onMount, onDestroy, untrack } from 'svelte';
   import uPlot from 'uplot';
   import 'uplot/dist/uPlot.min.css';
-
-  interface DataPoint {
-    time: number;
-    [key: string]: number;
-  }
-
-  interface DataSeries {
-    key: string;
-    label: string;
-    color: string;
-    visible: boolean;
-    data: DataPoint[];
-    dataKey: string;
-    type?: 'line' | 'step' | 'area';
-    strokeWidth?: number;
-    dashed?: boolean;
-  }
-
-  interface ChartConfig {
-    yMin: number;
-    yMax: number;
-    yMode: 'auto' | 'manual';
-    xMode: 'auto' | 'sliding' | 'manual';
-    windowSize: number;
-    xMin?: number | null;
-    xMax?: number | null;
-    showGrid: boolean;
-    showLimits: boolean;
-    limitHigh?: number;
-    limitLow?: number;
-    showHover?: boolean;
-  }
+  import type { ChartSeries, ChartConfig } from '$lib/types/chart';
 
   interface Props {
-    series: DataSeries[];
+    series: ChartSeries[];
     config: ChartConfig;
     theme: 'dark' | 'light';
     onRangeChange?: (xMin: number, xMax: number) => void;

@@ -31,12 +31,5 @@ export interface Plant {
   controllers: Controller[];
 }
 
-export interface PlantSimulationData {
-  plantId: string;
-  output: number;
-  input: number;
-  timeConstant: number;
-}
-
 export type { Controller } from './controller';
 

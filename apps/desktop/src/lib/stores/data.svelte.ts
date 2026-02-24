@@ -1,16 +1,7 @@
 import type { Plant } from '$lib/types/plant';
 import type { Controller, ControllerParam } from '$lib/types/controller';
 import type { TabKey } from '$lib/types/ui';
-
-interface AppState {
-  theme: 'dark' | 'light';
-  activeModule: TabKey;
-  activePlantId: string;
-  sidebarCollapsed: boolean;
-  showGlobalSettings: boolean;
-  showControllerPanel: boolean;
-  plants: Plant[];
-}
+import type { AppState } from '$lib/types/app';
 
 class AppStore {
   state = $state<AppState>({

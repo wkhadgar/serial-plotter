@@ -2,39 +2,18 @@
   import { onMount, onDestroy } from 'svelte';
   import { appStore } from '$lib/stores/data.svelte';
   import { getPlantData, getPlantStats } from '$lib/stores/plantData';
+  import { exportPlantDataCSV } from '$lib/services/export';
+  import { formatTime } from '$lib/utils/format';
   import PlotlyChart from '../charts/PlotlyChart.svelte';
   import PlantTabs from '../plotter/PlantTabs.svelte';
   import PlotterToolbar from '../plotter/PlotterToolbar.svelte';
   import ChartContextMenu from '../plotter/ChartContextMenu.svelte';
   import ControllerPanel from '../plotter/ControllerPanel.svelte';
-  import RemovalModal from '../plotter/RemovalModal.svelte';
+  import PlantRemovalModal from '../modals/PlantRemovalModal.svelte';
   import type { Plant } from '$lib/types/plant';
+  import { type ChartStateType, defaultChartState, DEFAULT_LINE_COLORS } from '$lib/types/chart';
 
   let { plants, activePlantId, theme, showControllerPanel = $bindable(false) } = $props();
-
-  interface ChartStateType {
-    xMode: 'auto' | 'sliding' | 'manual';
-    yMode: 'auto' | 'manual';
-    xMin: number | null;
-    xMax: number | null;
-    yMin: number;
-    yMax: number;
-    windowSize: number;
-    visible: { pv: boolean; sp: boolean; mv: boolean };
-  }
-
-  function defaultChartState(): ChartStateType {
-    return {
-      xMode: 'auto',
-      yMode: 'manual',
-      xMin: null,
-      xMax: null,
-      yMin: 0,
-      yMax: 100,
-      windowSize: 30,
-      visible: { pv: true, sp: true, mv: true }
-    };
-  }
 
   let chartStates: Record<string, ChartStateType> = $state(
     Object.fromEntries(plants.map((p: Plant) => [p.id, defaultChartState()]))
@@ -50,11 +29,7 @@
 
   const chartState = $derived(chartStates[activePlantId] ?? defaultChartState());
 
-  let lineColors = $state({
-    pv: '#3b82f6',
-    sp: '#f59e0b',
-    mv: '#10b981'
-  });
+  let lineColors = $state({ ...DEFAULT_LINE_COLORS });
 
   let contextMenu = $state({ visible: false, x: 0, y: 0 });
   let graphContainerRef: HTMLDivElement;
@@ -67,13 +42,6 @@
   });
 
   const activePlant = $derived(plants.find((p: Plant) => p.id === activePlantId));
-
-  function formatTime(seconds: number): string {
-    if (!Number.isFinite(seconds)) return '--:--';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
 
   function handleAddPlant() {
     const newId = Math.random().toString(36).substr(2, 9);
@@ -132,21 +100,9 @@
 
   function handleExportData() {
     const data = getPlantData(activePlantId);
-    if (!activePlant || data.length === 0) {
+    if (!activePlant || !exportPlantDataCSV(activePlant.name, data)) {
       alert('Sem dados para exportar.');
-      return;
     }
-    const csvContent =
-      'data:text/csv;charset=utf-8,' +
-      'Time,Setpoint,PV,MV\n' +
-      data.map((e) => `${e.time.toFixed(2)},${e.sp},${e.pv.toFixed(2)},${e.mv.toFixed(2)}`).join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `${activePlant.name.replace(/\s+/g, '_')}_data.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   }
 
   function handlePrint() {
@@ -412,7 +368,7 @@
     />
   </div>
 
-  <RemovalModal
+  <PlantRemovalModal
     bind:visible={removeModal.visible}
     plantName={removeModal.plantName}
     reason={removeModal.reason}

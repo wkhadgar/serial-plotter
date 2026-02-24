@@ -1,7 +1,5 @@
 export type ControllerType = 'PID' | 'Flow' | 'Level';
 
-export type ControllerMode = 'auto' | 'manual' | 'alarm';
-
 export type ParamType = 'number' | 'boolean' | 'string';
 
 export interface ControllerParam {
@@ -23,12 +21,4 @@ export interface Controller {
   type: ControllerType;
   active: boolean;
   params: PIDParams | Record<string, ControllerParam>;
-}
-
-export interface PIDConfig {
-  kp: number;
-  ki: number;
-  kd: number;
-  minOut: number;
-  maxOut: number;
 }
