@@ -56,6 +56,9 @@ const _pluginRegistry: PluginDefinition[] = [
       { name: 'auto_reconnect', type: 'bool', defaultValue: true, description: 'Reconectar automaticamente' },
       { name: 'register_addresses', type: 'list', defaultValue: [40001, 40002, 40003], description: 'Endereços de registros a ler' },
     ],
+    dependencies: [
+      { name: 'pymodbus', version: '>=3.0.0' },
+    ],
   },
   {
     id: 'plg_serial_raw',
@@ -73,6 +76,9 @@ const _pluginRegistry: PluginDefinition[] = [
       { name: 'data_bits', type: 'int', defaultValue: 8 },
       { name: 'parity', type: 'string', defaultValue: 'none' },
       { name: 'stop_bits', type: 'int', defaultValue: 1 },
+    ],
+    dependencies: [
+      { name: 'pyserial', version: '>=3.5' },
     ],
   },
   {
@@ -94,6 +100,9 @@ const _pluginRegistry: PluginDefinition[] = [
       { name: 'password', type: 'string', defaultValue: '' },
       { name: 'use_tls', type: 'bool', defaultValue: false },
       { name: 'subscriptions', type: 'list', defaultValue: ['sensors/#', 'actuators/#'], description: 'Tópicos extras' },
+    ],
+    dependencies: [
+      { name: 'paho-mqtt', version: '>=2.0.0' },
     ],
   },
 ];
@@ -158,6 +167,7 @@ export async function validatePluginFile(json: unknown): Promise<ValidatePluginR
     runtime: fileJson.runtime,
     sourceFile: fileJson.sourceFile,
     schema: finalSchema,
+    dependencies: fileJson.dependencies,
     description: fileJson.description,
     version: fileJson.version,
     author: fileJson.author,

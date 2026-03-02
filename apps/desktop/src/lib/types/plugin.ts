@@ -80,6 +80,14 @@ export function isFieldRequired(field: PluginSchemaField): boolean {
   return field.defaultValue === undefined;
 }
 
+// ─── Dependências ───────────────────────────────────────────────────────────
+
+/** Dependência de um plugin Python (nome + versão) */
+export interface PluginDependency {
+  name: string;
+  version: string;  // Ex: ">=1.0.0", "==2.3.1", "^3.0"
+}
+
 // ─── Plugin Definition ──────────────────────────────────────────────────────
 
 /**
@@ -91,7 +99,9 @@ export interface PluginDefinition {
   kind: PluginKind;
   runtime: PluginRuntime;
   sourceFile: string;        // main.py ou plugin.dll/.so
+  sourceCode?: string;       // Código fonte inline (editor de código)
   schema: PluginSchemaField[];
+  dependencies?: PluginDependency[];  // Dependências Python (pip)
   description?: string;
   version?: string;
   author?: string;
@@ -122,6 +132,7 @@ export interface PluginFileJSON {
   runtime: PluginRuntime;
   sourceFile: string;
   schema: PluginSchemaField[];
+  dependencies?: PluginDependency[];
   description?: string;
   version?: string;
   author?: string;

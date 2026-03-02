@@ -14,13 +14,14 @@
    *
    * Reutilizável em qualquer contexto (criação de planta, gestão de plugins, etc.)
    */
-  import { X, Plus, Trash2, Code, FileCode, AlertCircle } from 'lucide-svelte';
+  import { X, Plus, Trash2, Code, FileCode, AlertCircle, Pencil } from 'lucide-svelte';
   import type {
     PluginKind,
     PluginRuntime,
     SchemaFieldType,
     PluginSchemaField,
     PluginDefinition,
+    PluginDependency,
   } from '$lib/types/plugin';
   import {
     PLUGIN_KIND_LABELS,
@@ -34,6 +35,8 @@
   import { registerPlugin } from '$lib/services/pluginBackend';
   import { generateId } from '$lib/utils/format';
   import { openFileDialog } from '$lib/services/fileDialog';
+  import CodeEditorModal from './CodeEditorModal.svelte';
+  import type { CodeEditorResult } from './CodeEditorModal.svelte';
 
   interface Props {
     visible: boolean;
@@ -65,14 +68,17 @@
   let kind = $state<PluginKind>('driver');
   let runtime = $state<PluginRuntime>('python');
   let sourceFileName = $state('');
+  let sourceCode = $state('');
   let description = $state('');
   let formFields = $state<FormField[]>([]);
+  let dependencies = $state<PluginDependency[]>([]);
 
   // ─── UI State ───────────────────────────────────────────────────────────────
 
   let isLoading = $state(false);
   let error = $state<string | null>(null);
   let fieldErrors = $state<Record<number, string>>({});
+  let showCodeEditor = $state(false);
 
   // ─── Derivados ──────────────────────────────────────────────────────────────
 
@@ -171,7 +177,36 @@
     });
     if (result) {
       sourceFileName = result.name;
+      sourceCode = ''; // clear inline code when picking a file
     }
+  }
+
+  function handleOpenCodeEditor() {
+    showCodeEditor = true;
+  }
+
+  function handleCodeEditorSave(result: CodeEditorResult) {
+    sourceFileName = result.fileName;
+    sourceCode = result.code;
+    showCodeEditor = false;
+  }
+
+  // ─── Dependencies (Python) ───────────────────────────────────────────────────────
+
+  function addDependency() {
+    dependencies = [...dependencies, { name: '', version: '' }];
+  }
+
+  function removeDependency(index: number) {
+    dependencies = dependencies.filter((_, i) => i !== index);
+  }
+
+  function updateDependencyName(index: number, value: string) {
+    dependencies = dependencies.map((d, i) => (i === index ? { ...d, name: value } : d));
+  }
+
+  function updateDependencyVersion(index: number, value: string) {
+    dependencies = dependencies.map((d, i) => (i === index ? { ...d, version: value } : d));
   }
 
   // ─── Submit ─────────────────────────────────────────────────────────────────
@@ -185,9 +220,19 @@
       return;
     }
 
-    if (!sourceFileName) {
-      error = 'Selecione o arquivo de código fonte';
+    if (!sourceFileName && !sourceCode) {
+      error = 'Selecione ou escreva o código fonte';
       return;
+    }
+
+    // Valida dependências
+    if (runtime === 'python') {
+      for (let i = 0; i < dependencies.length; i++) {
+        if (!dependencies[i].name.trim()) {
+          error = `Dependência #${i + 1} precisa de um nome`;
+          return;
+        }
+      }
     }
 
     // Valida schema fields
@@ -219,8 +264,12 @@
         name: pluginName.trim(),
         kind,
         runtime,
-        sourceFile: sourceFileName,
+        sourceFile: sourceFileName || (runtime === 'python' ? 'main.py' : 'plugin.rs'),
+        sourceCode: sourceCode || undefined,
         schema: buildSchema(),
+        dependencies: runtime === 'python' && dependencies.length > 0
+          ? dependencies.filter(d => d.name.trim())
+          : undefined,
         description: description.trim() || undefined,
       };
 
@@ -245,8 +294,10 @@
     kind = forceKind ?? 'driver';
     runtime = 'python';
     sourceFileName = '';
+    sourceCode = '';
     description = '';
     formFields = [];
+    dependencies = [];
     error = null;
     fieldErrors = {};
   }
@@ -345,21 +396,82 @@
         <!-- Código Fonte -->
         <div>
           <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Código Fonte * ({runtimeExtension})</span>
-          <button
-            onclick={handlePickSourceFile}
-            class="w-full flex items-center gap-3 p-3 rounded-lg border border-dashed border-slate-300 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 bg-slate-50 dark:bg-white/[0.02] transition-colors text-left"
-          >
-            <FileCode size={20} class="text-slate-400 shrink-0" />
-            {#if sourceFileName}
-              <div>
-                <div class="text-sm font-medium text-slate-700 dark:text-zinc-300">{sourceFileName}</div>
-                <div class="text-xs text-slate-400 dark:text-zinc-500">Clique para alterar</div>
-              </div>
-            {:else}
-              <div class="text-sm text-slate-500 dark:text-zinc-400">Selecionar arquivo...</div>
-            {/if}
-          </button>
+          <div class="grid grid-cols-2 gap-2">
+            <button
+              onclick={handlePickSourceFile}
+              class="flex items-center gap-3 p-3 rounded-lg border border-dashed border-slate-300 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 bg-slate-50 dark:bg-white/[0.02] transition-colors text-left"
+            >
+              <FileCode size={20} class="text-slate-400 shrink-0" />
+              {#if sourceFileName && !sourceCode}
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-slate-700 dark:text-zinc-300 truncate">{sourceFileName}</div>
+                  <div class="text-xs text-slate-400 dark:text-zinc-500">Upload de arquivo</div>
+                </div>
+              {:else}
+                <div class="text-sm text-slate-500 dark:text-zinc-400">Upload de arquivo</div>
+              {/if}
+            </button>
+            <button
+              onclick={handleOpenCodeEditor}
+              class="flex items-center gap-3 p-3 rounded-lg border border-dashed border-slate-300 dark:border-white/10 hover:border-emerald-400 dark:hover:border-emerald-500 bg-slate-50 dark:bg-white/[0.02] transition-colors text-left"
+            >
+              <Pencil size={20} class="text-slate-400 shrink-0" />
+              {#if sourceCode}
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-emerald-600 dark:text-emerald-400 truncate">{sourceFileName || 'código inline'}</div>
+                  <div class="text-xs text-slate-400 dark:text-zinc-500">{sourceCode.split('\n').length} linhas</div>
+                </div>
+              {:else}
+                <div class="text-sm text-slate-500 dark:text-zinc-400">Editor de código</div>
+              {/if}
+            </button>
+          </div>
         </div>
+
+        <!-- Dependências Python -->
+        {#if runtime === 'python'}
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase">Dependências Python (pip)</span>
+              <span class="text-[10px] text-slate-400 dark:text-zinc-500">{dependencies.length} pacote(s)</span>
+            </div>
+
+            <div class="space-y-1.5">
+              {#each dependencies as dep, i (i)}
+                <div class="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={dep.name}
+                    oninput={(e) => updateDependencyName(i, (e.target as HTMLInputElement).value)}
+                    placeholder="nome-do-pacote"
+                    class="flex-1 h-9 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-mono"
+                  />
+                  <input
+                    type="text"
+                    value={dep.version}
+                    oninput={(e) => updateDependencyVersion(i, (e.target as HTMLInputElement).value)}
+                    placeholder=">=1.0.0"
+                    class="w-28 h-9 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-mono"
+                  />
+                  <button
+                    onclick={() => removeDependency(i)}
+                    class="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors shrink-0"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              {/each}
+            </div>
+
+            <button
+              onclick={addDependency}
+              class="w-full mt-2 p-2 rounded-lg border-2 border-dashed border-slate-200 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 transition-colors text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 flex items-center justify-center gap-2 text-xs"
+            >
+              <Plus size={14} />
+              Adicionar Dependência
+            </button>
+          </div>
+        {/if}
 
         <!-- Schema de Configuração -->
         <div>
@@ -494,4 +606,14 @@
       </div>
     </div>
   </div>
+
+  <!-- Code Editor Modal -->
+  <CodeEditorModal
+    bind:visible={showCodeEditor}
+    initialCode={sourceCode}
+    initialFileName={sourceFileName}
+    title="Editor de Código — Python"
+    onClose={() => { showCodeEditor = false; }}
+    onSave={handleCodeEditorSave}
+  />
 {/if}
