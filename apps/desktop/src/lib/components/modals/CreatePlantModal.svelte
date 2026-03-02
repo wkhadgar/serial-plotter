@@ -10,33 +10,35 @@
    * - Lista de variáveis
    * - Seletor de controladores
    */
-  import { X, Search, Plus, Trash2, ChevronDown, ChevronUp, Check, Settings, Cpu, Activity, Gauge, Zap, Link } from 'lucide-svelte';
+  import { X, Search, Plus, Trash2, ChevronDown, ChevronUp, Check, Settings, Cpu, Activity, Gauge, Zap, Link, Upload, Code } from 'lucide-svelte';
   import { onMount } from 'svelte';
   import type { PlantVariable, VariableType } from '$lib/types/plant';
   import type { Controller } from '$lib/types/controller';
-  import type { DriverConfig } from '$lib/types/driver';
+  import type { PluginDefinition, PluginInstance } from '$lib/types/plugin';
+  import { PLUGIN_KIND_LABELS, PLUGIN_RUNTIME_LABELS } from '$lib/types/plugin';
   import { createDefaultVariable, VARIABLE_TYPE_LABELS } from '$lib/types/plant';
-  import { listDrivers, listControllerTemplates, createPlant, type CreatePlantRequest } from '$lib/services/plantBackend';
-  import { DRIVER_TYPE_LABELS } from '$lib/types/driver';
+  import { listControllerTemplates, createPlant, type CreatePlantRequest } from '$lib/services/plantBackend';
+  import { listPlugins, validatePluginFile, registerPlugin } from '$lib/services/pluginBackend';
+  import { openFileDialog, readFileAsJSON, FILE_FILTERS } from '$lib/services/fileDialog';
   import { generateId } from '$lib/utils/format';
+  import CreatePluginModal from './CreatePluginModal.svelte';
+  import PluginInstanceConfigModal from './PluginInstanceConfigModal.svelte';
 
   interface Props {
     visible: boolean;
     onClose: () => void;
     onPlantCreated: (plant: any) => void;
-    onCreateDriver?: () => void;
   }
 
   let {
     visible = $bindable(),
     onClose,
     onPlantCreated,
-    onCreateDriver = () => {},
   }: Props = $props();
 
   // Form state
   let plantName = $state('');
-  let selectedDriverId = $state<string | null>(null);
+  let driverInstance = $state<PluginInstance | null>(null);
   let variables = $state<PlantVariable[]>([createDefaultVariable(0, 'Variável 1')]);
   let selectedControllers = $state<Controller[]>([]);
 
@@ -46,19 +48,21 @@
   let currentStep = $state<'info' | 'driver' | 'variables' | 'controllers'>('info');
   
   // Data from backend
-  let availableDrivers = $state<DriverConfig[]>([]);
+  let availablePlugins = $state<PluginDefinition[]>([]);
   let controllerTemplates = $state<Controller[]>([]);
   let driverSearch = $state('');
   let controllerSearch = $state('');
   
-  // Expanded sections
-  let driversExpanded = $state(true);
-  let controllersExpanded = $state(true);
+  // Child modal state
+  let showCreatePlugin = $state(false);
+  let showInstanceConfig = $state(false);
+  let pluginToConfig = $state<PluginDefinition | null>(null);
+  let importError = $state<string | null>(null);
 
-  const filteredDrivers = $derived(
-    availableDrivers.filter(d => 
+  const filteredPlugins = $derived(
+    availablePlugins.filter(d => 
       d.name.toLowerCase().includes(driverSearch.toLowerCase()) ||
-      DRIVER_TYPE_LABELS[d.type].toLowerCase().includes(driverSearch.toLowerCase())
+      PLUGIN_RUNTIME_LABELS[d.runtime].toLowerCase().includes(driverSearch.toLowerCase())
     )
   );
 
@@ -69,8 +73,6 @@
     )
   );
 
-  const selectedDriver = $derived(availableDrivers.find(d => d.id === selectedDriverId));
-
   // Lista de sensores para vincular atuadores
   const sensorVariables = $derived(
     variables.filter(v => v.type === 'sensor')
@@ -78,9 +80,61 @@
 
   onMount(async () => {
     // Carrega dados do backend
-    availableDrivers = await listDrivers();
+    availablePlugins = await listPlugins('driver');
     controllerTemplates = await listControllerTemplates();
   });
+
+  // ─── Plugin Import Flow ────────────────────────────────────────────────
+
+  async function handleImportPlugin() {
+    importError = null;
+    try {
+      const result = await openFileDialog({
+        title: 'Importar Plugin JSON',
+        filters: FILE_FILTERS.json,
+      });
+      if (!result) return;
+
+      const json = await readFileAsJSON(result.file);
+      const validation = await validatePluginFile(json);
+
+      if (!validation.success || !validation.plugin) {
+        importError = validation.error || 'Plugin inválido';
+        return;
+      }
+
+      // Registra e abre configuração
+      const reg = await registerPlugin(validation.plugin);
+      if (!reg.success || !reg.plugin) {
+        importError = reg.error || 'Erro ao registrar plugin';
+        return;
+      }
+
+      availablePlugins = await listPlugins('driver');
+      pluginToConfig = reg.plugin;
+      showInstanceConfig = true;
+    } catch (e) {
+      importError = e instanceof Error ? e.message : 'Erro ao importar arquivo';
+    }
+  }
+
+  function handlePluginCreated(plugin: PluginDefinition) {
+    // Atualiza lista e abre config
+    availablePlugins = [...availablePlugins, plugin];
+    pluginToConfig = plugin;
+    showInstanceConfig = true;
+  }
+
+  function handleSelectPlugin(plugin: PluginDefinition) {
+    pluginToConfig = plugin;
+    showInstanceConfig = true;
+  }
+
+  function handleInstanceConfigured(instance: PluginInstance) {
+    driverInstance = instance;
+    // Avança para variáveis
+    currentStep = 'variables';
+  }
 
   function addVariable() {
     const nextIndex = variables.length;
@@ -143,8 +197,8 @@
       return;
     }
 
-    if (!selectedDriverId) {
-      error = 'Selecione um driver de comunicação';
+    if (!driverInstance) {
+      error = 'Configure um driver de comunicação';
       currentStep = 'driver';
       return;
     }
@@ -160,7 +214,7 @@
     try {
       const request: CreatePlantRequest = {
         name: plantName.trim(),
-        driverId: selectedDriverId,
+        driverId: driverInstance.pluginId,
         variables,
         controllers: selectedControllers,
       };
@@ -183,11 +237,13 @@
 
   function resetForm() {
     plantName = '';
-    selectedDriverId = null;
+    driverInstance = null;
     variables = [createDefaultVariable(0, 'Variável 1')];
     selectedControllers = [];
     currentStep = 'info';
     error = null;
+    importError = null;
+    pluginToConfig = null;
   }
 
   function handleClose() {
@@ -234,7 +290,7 @@
           class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'driver' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
         >
           Driver
-          {#if selectedDriverId}
+          {#if driverInstance}
             <span class="ml-1.5 w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
           {/if}
         </button>
@@ -275,15 +331,15 @@
               />
             </label>
 
-            {#if selectedDriver}
+            {#if driverInstance}
               <div class="p-4 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10">
                 <div class="flex items-center gap-3">
                   <div class="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
                     <Cpu size={20} class="text-blue-600 dark:text-blue-400" />
                   </div>
                   <div class="flex-1">
-                    <div class="font-medium text-slate-800 dark:text-white">{selectedDriver.name}</div>
-                    <div class="text-xs text-slate-500 dark:text-zinc-400">{DRIVER_TYPE_LABELS[selectedDriver.type]}</div>
+                    <div class="font-medium text-slate-800 dark:text-white">{driverInstance.pluginName}</div>
+                    <div class="text-xs text-slate-500 dark:text-zinc-400">Configurado · {Object.keys(driverInstance.config).length} parâmetro(s)</div>
                   </div>
                   <button 
                     onclick={() => currentStep = 'driver'}
@@ -305,62 +361,99 @@
           </div>
 
         {:else if currentStep === 'driver'}
-          <!-- Seletor de Driver -->
+          <!-- Seletor de Driver (Plugin System) -->
           <div class="space-y-4">
+            {#if importError}
+              <div class="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400 text-sm">
+                {importError}
+              </div>
+            {/if}
+
+            {#if driverInstance}
+              <div class="p-4 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 rounded-lg bg-emerald-500 flex items-center justify-center">
+                    <Check size={20} class="text-white" />
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium text-slate-800 dark:text-white">{driverInstance.pluginName}</div>
+                    <div class="text-xs text-emerald-600 dark:text-emerald-400">{Object.keys(driverInstance.config).length} parâmetro(s) configurados</div>
+                  </div>
+                  <button
+                    onclick={() => { driverInstance = null; }}
+                    class="text-xs text-red-500 hover:underline"
+                  >
+                    Remover
+                  </button>
+                </div>
+              </div>
+            {/if}
+
             <!-- Barra de pesquisa -->
             <div class="relative">
               <Search size={18} class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
                 bind:value={driverSearch}
-                placeholder="Buscar driver..."
+                placeholder="Buscar plugin driver..."
                 class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
               />
             </div>
 
-            <!-- Lista de drivers -->
+            <!-- Lista de plugins -->
             <div class="space-y-2">
-              {#each filteredDrivers as driver (driver.id)}
+              {#each filteredPlugins as plugin (plugin.id)}
                 <button
-                  onclick={() => selectedDriverId = driver.id}
-                  class="w-full p-4 rounded-xl border text-left transition-all {selectedDriverId === driver.id 
+                  onclick={() => handleSelectPlugin(plugin)}
+                  class="w-full p-4 rounded-xl border text-left transition-all {driverInstance?.pluginId === plugin.id 
                     ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
                     : 'border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20 bg-white dark:bg-[#18181b]'}"
                 >
                   <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-lg {selectedDriverId === driver.id ? 'bg-blue-500' : 'bg-slate-100 dark:bg-white/10'} flex items-center justify-center">
-                      <Cpu size={20} class={selectedDriverId === driver.id ? 'text-white' : 'text-slate-500 dark:text-zinc-400'} />
+                    <div class="w-10 h-10 rounded-lg {driverInstance?.pluginId === plugin.id ? 'bg-blue-500' : 'bg-slate-100 dark:bg-white/10'} flex items-center justify-center">
+                      <Cpu size={20} class={driverInstance?.pluginId === plugin.id ? 'text-white' : 'text-slate-500 dark:text-zinc-400'} />
                     </div>
                     <div class="flex-1 min-w-0">
-                      <div class="font-medium text-slate-800 dark:text-white truncate">{driver.name}</div>
-                      <div class="text-xs text-slate-500 dark:text-zinc-400">{DRIVER_TYPE_LABELS[driver.type]}</div>
+                      <div class="font-medium text-slate-800 dark:text-white truncate">{plugin.name}</div>
+                      <div class="text-xs text-slate-500 dark:text-zinc-400">
+                        {PLUGIN_RUNTIME_LABELS[plugin.runtime]} · {plugin.schema.length} parâmetro(s)
+                      </div>
                     </div>
-                    {#if selectedDriverId === driver.id}
+                    {#if driverInstance?.pluginId === plugin.id}
                       <Check size={20} class="text-blue-500 shrink-0" />
                     {/if}
                   </div>
-                  {#if driver.description}
-                    <p class="mt-2 text-xs text-slate-500 dark:text-zinc-500 truncate">{driver.description}</p>
+                  {#if plugin.description}
+                    <p class="mt-2 text-xs text-slate-500 dark:text-zinc-500 truncate">{plugin.description}</p>
                   {/if}
                 </button>
               {/each}
 
-              {#if filteredDrivers.length === 0}
+              {#if filteredPlugins.length === 0}
                 <div class="text-center py-8 text-slate-400 dark:text-zinc-500">
                   <Cpu size={32} class="mx-auto mb-2 opacity-50" />
-                  <p class="text-sm">Nenhum driver encontrado</p>
+                  <p class="text-sm">Nenhum plugin driver encontrado</p>
                 </div>
               {/if}
             </div>
 
-            <!-- Botão criar novo driver -->
-            <button
-              onclick={onCreateDriver}
-              class="w-full p-3 rounded-xl border-2 border-dashed border-slate-200 dark:border-white/10 hover:border-emerald-400 dark:hover:border-emerald-500 transition-colors text-slate-500 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center justify-center gap-2"
-            >
-              <Plus size={18} />
-              <span class="text-sm font-medium">Criar Novo Driver</span>
-            </button>
+            <!-- Ações: Importar / Criar -->
+            <div class="grid grid-cols-2 gap-3">
+              <button
+                onclick={handleImportPlugin}
+                class="p-3 rounded-xl border-2 border-dashed border-slate-200 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 transition-colors text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 flex items-center justify-center gap-2"
+              >
+                <Upload size={18} />
+                <span class="text-sm font-medium">Importar .json</span>
+              </button>
+              <button
+                onclick={() => { showCreatePlugin = true; }}
+                class="p-3 rounded-xl border-2 border-dashed border-slate-200 dark:border-white/10 hover:border-emerald-400 dark:hover:border-emerald-500 transition-colors text-slate-500 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 flex items-center justify-center gap-2"
+              >
+                <Code size={18} />
+                <span class="text-sm font-medium">Criar Novo</span>
+              </button>
+            </div>
           </div>
 
         {:else if currentStep === 'variables'}
@@ -580,4 +673,19 @@
       </div>
     </div>
   </div>
+
+  <!-- Child Modals -->
+  <CreatePluginModal
+    bind:visible={showCreatePlugin}
+    forceKind="driver"
+    onClose={() => { showCreatePlugin = false; }}
+    onPluginCreated={handlePluginCreated}
+  />
+
+  <PluginInstanceConfigModal
+    bind:visible={showInstanceConfig}
+    plugin={pluginToConfig}
+    onClose={() => { showInstanceConfig = false; }}
+    onConfigured={handleInstanceConfigured}
+  />
 {/if}

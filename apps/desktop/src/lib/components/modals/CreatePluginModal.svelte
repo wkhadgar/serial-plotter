@@ -1,0 +1,497 @@
+<script lang="ts">
+  /**
+   * ============================================================================
+   * CREATE PLUGIN MODAL - Modal de Criação de Plugin
+   * ============================================================================
+   *
+   * Modal modular para criar um novo plugin (driver ou controlador).
+   * Campos:
+   * - Nome/ID
+   * - Tipo (driver | controller)
+   * - Runtime (python | rust-native)
+   * - Código fonte (file picker)
+   * - Schema de configuração (campos dinâmicos com valor padrão)
+   *
+   * Reutilizável em qualquer contexto (criação de planta, gestão de plugins, etc.)
+   */
+  import { X, Plus, Trash2, Code, FileCode, AlertCircle } from 'lucide-svelte';
+  import type {
+    PluginKind,
+    PluginRuntime,
+    SchemaFieldType,
+    PluginSchemaField,
+    PluginDefinition,
+  } from '$lib/types/plugin';
+  import {
+    PLUGIN_KIND_LABELS,
+    PLUGIN_RUNTIME_LABELS,
+    SCHEMA_FIELD_TYPE_LABELS,
+    isValidFieldName,
+    getDefaultValueForType,
+    AUTO_SCHEMA_FIELDS,
+    RESERVED_FIELD_NAMES,
+  } from '$lib/types/plugin';
+  import { registerPlugin } from '$lib/services/pluginBackend';
+  import { generateId } from '$lib/utils/format';
+  import { openFileDialog } from '$lib/services/fileDialog';
+
+  interface Props {
+    visible: boolean;
+    /** Filtra o tipo (se quiser forçar "driver" ou "controller") */
+    forceKind?: PluginKind;
+    onClose: () => void;
+    onPluginCreated: (plugin: PluginDefinition) => void;
+  }
+
+  let {
+    visible = $bindable(),
+    forceKind,
+    onClose,
+    onPluginCreated,
+  }: Props = $props();
+
+  // ─── Form State ─────────────────────────────────────────────────────────────
+
+  // Internal type for form state (tracks whether default is enabled)
+  interface FormField {
+    name: string;
+    type: SchemaFieldType;
+    hasDefault: boolean;
+    defaultValue: string; // stored as string, parsed on submit
+    defaultBool: boolean; // separate state for bool toggles
+  }
+
+  let pluginName = $state('');
+  let kind = $state<PluginKind>('driver');
+  let runtime = $state<PluginRuntime>('python');
+  let sourceFileName = $state('');
+  let description = $state('');
+  let formFields = $state<FormField[]>([]);
+
+  // ─── UI State ───────────────────────────────────────────────────────────────
+
+  let isLoading = $state(false);
+  let error = $state<string | null>(null);
+  let fieldErrors = $state<Record<number, string>>({});
+
+  // ─── Derivados ──────────────────────────────────────────────────────────────
+
+  const runtimeExtension = $derived(runtime === 'python' ? '.py' : '.dll / .so');
+  const schemaValid = $derived(formFields.every((f, i) => !fieldErrors[i]));
+
+  // ─── Sync forceKind ─────────────────────────────────────────────────────────
+  $effect(() => {
+    if (forceKind) kind = forceKind;
+  });
+
+  // ─── Schema Management ─────────────────────────────────────────────────────
+
+  function addSchemaField() {
+    formFields = [
+      ...formFields,
+      {
+        name: '',
+        type: 'string',
+        hasDefault: false,
+        defaultValue: '',
+        defaultBool: false,
+      },
+    ];
+  }
+
+  function removeSchemaField(index: number) {
+    formFields = formFields.filter((_, i) => i !== index);
+    const newErrors = { ...fieldErrors };
+    delete newErrors[index];
+    fieldErrors = newErrors;
+  }
+
+  function updateFieldName(index: number, value: string) {
+    formFields = formFields.map((f, i) => (i === index ? { ...f, name: value } : f));
+    const newErrors = { ...fieldErrors };
+    if (value && !isValidFieldName(value)) {
+      newErrors[index] = 'Apenas letras, números e _';
+    } else if (value && RESERVED_FIELD_NAMES.includes(value)) {
+      newErrors[index] = 'Nome reservado';
+    } else if (value && formFields.some((f, i) => i !== index && f.name === value)) {
+      newErrors[index] = 'Nome duplicado';
+    } else {
+      delete newErrors[index];
+    }
+    fieldErrors = newErrors;
+  }
+
+  function updateFieldType(index: number, value: SchemaFieldType) {
+    formFields = formFields.map((f, i) =>
+      i === index ? { ...f, type: value, defaultValue: '', defaultBool: false, hasDefault: false } : f
+    );
+  }
+
+  function updateFieldHasDefault(index: number, value: boolean) {
+    formFields = formFields.map((f, i) => (i === index ? { ...f, hasDefault: value } : f));
+  }
+
+  function updateFieldDefaultValue(index: number, value: string) {
+    formFields = formFields.map((f, i) => (i === index ? { ...f, defaultValue: value } : f));
+  }
+
+  function updateFieldDefaultBool(index: number, value: boolean) {
+    formFields = formFields.map((f, i) => (i === index ? { ...f, defaultBool: value } : f));
+  }
+
+  /** Converte FormField[] para PluginSchemaField[] */
+  function buildSchema(): PluginSchemaField[] {
+    const userFields: PluginSchemaField[] = formFields.map((f) => {
+      const field: PluginSchemaField = { name: f.name, type: f.type };
+      if (f.hasDefault) {
+        switch (f.type) {
+          case 'bool': field.defaultValue = f.defaultBool; break;
+          case 'int': field.defaultValue = parseInt(f.defaultValue, 10) || 0; break;
+          case 'float': field.defaultValue = parseFloat(f.defaultValue) || 0; break;
+          case 'string': field.defaultValue = f.defaultValue; break;
+          case 'list': field.defaultValue = []; break;
+        }
+      }
+      return field;
+    });
+    // Auto-inject num_sensors e num_actuators no início (para drivers)
+    if (kind === 'driver') {
+      return [...AUTO_SCHEMA_FIELDS, ...userFields];
+    }
+    return userFields;
+  }
+
+  // ─── Source File ────────────────────────────────────────────────────────────
+
+  async function handlePickSourceFile() {
+    const ext = runtime === 'python' ? ['py'] : ['dll', 'so'];
+    const result = await openFileDialog({
+      title: 'Selecionar Código Fonte',
+      filters: [{ name: 'Plugin Source', extensions: ext }],
+    });
+    if (result) {
+      sourceFileName = result.name;
+    }
+  }
+
+  // ─── Submit ─────────────────────────────────────────────────────────────────
+
+  async function handleSubmit() {
+    error = null;
+
+    // Validações
+    if (!pluginName.trim()) {
+      error = 'Nome do plugin é obrigatório';
+      return;
+    }
+
+    if (!sourceFileName) {
+      error = 'Selecione o arquivo de código fonte';
+      return;
+    }
+
+    // Valida schema fields
+    for (let i = 0; i < formFields.length; i++) {
+      if (!formFields[i].name.trim()) {
+        error = `Campo de schema #${i + 1} precisa de um nome`;
+        return;
+      }
+      if (!isValidFieldName(formFields[i].name)) {
+        error = `Campo "${formFields[i].name}" contém caracteres inválidos`;
+        return;
+      }
+      if (RESERVED_FIELD_NAMES.includes(formFields[i].name)) {
+        error = `Campo "${formFields[i].name}" é um nome reservado`;
+        return;
+      }
+    }
+
+    if (!schemaValid) {
+      error = 'Corrija os erros nos campos do schema';
+      return;
+    }
+
+    isLoading = true;
+
+    try {
+      const plugin: PluginDefinition = {
+        id: 'plg_' + generateId(),
+        name: pluginName.trim(),
+        kind,
+        runtime,
+        sourceFile: sourceFileName,
+        schema: buildSchema(),
+        description: description.trim() || undefined,
+      };
+
+      const response = await registerPlugin(plugin);
+
+      if (response.success && response.plugin) {
+        onPluginCreated(response.plugin);
+        resetForm();
+        onClose();
+      } else {
+        error = response.error || 'Erro ao registrar plugin';
+      }
+    } catch (e) {
+      error = e instanceof Error ? e.message : 'Erro inesperado';
+    } finally {
+      isLoading = false;
+    }
+  }
+
+  function resetForm() {
+    pluginName = '';
+    kind = forceKind ?? 'driver';
+    runtime = 'python';
+    sourceFileName = '';
+    description = '';
+    formFields = [];
+    error = null;
+    fieldErrors = {};
+  }
+
+  function handleClose() {
+    resetForm();
+    onClose();
+  }
+</script>
+
+{#if visible}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+    onclick={handleClose}
+  >
+    <div
+      class="bg-white dark:bg-[#0c0c0e] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-white/10"
+      onclick={(e) => e.stopPropagation()}
+    >
+      <!-- Header -->
+      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-white/5 shrink-0">
+        <div>
+          <h2 class="text-lg font-bold text-slate-800 dark:text-white">Criar Novo Plugin</h2>
+          <p class="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+            Defina um plugin reutilizável ({kind === 'driver' ? 'driver de comunicação' : 'controlador'})
+          </p>
+        </div>
+        <button
+          onclick={handleClose}
+          class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-400 transition-colors"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      <!-- Content -->
+      <div class="flex-1 overflow-y-auto p-6 space-y-5">
+        {#if error}
+          <div class="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400 text-sm flex items-center gap-2">
+            <AlertCircle size={16} class="shrink-0" />
+            {error}
+          </div>
+        {/if}
+
+        <!-- Nome e Descrição -->
+        <div class="grid grid-cols-1 gap-4">
+          <label class="block">
+            <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Nome do Plugin *</span>
+            <input
+              type="text"
+              bind:value={pluginName}
+              placeholder="Ex: Modbus TCP Driver"
+              class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+            />
+          </label>
+          <label class="block">
+            <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Descrição</span>
+            <input
+              type="text"
+              bind:value={description}
+              placeholder="Descrição opcional"
+              class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+            />
+          </label>
+        </div>
+
+        <!-- Tipo e Runtime -->
+        <div class="grid grid-cols-2 gap-4">
+          <label class="block">
+            <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Tipo *</span>
+            <select
+              bind:value={kind}
+              disabled={!!forceKind}
+              class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer disabled:opacity-60"
+            >
+              {#each Object.entries(PLUGIN_KIND_LABELS) as [value, label]}
+                <option {value} class="dark:bg-zinc-900">{label}</option>
+              {/each}
+            </select>
+          </label>
+          <label class="block">
+            <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Runtime *</span>
+            <select
+              bind:value={runtime}
+              class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer"
+            >
+              {#each Object.entries(PLUGIN_RUNTIME_LABELS) as [value, label]}
+                <option {value} class="dark:bg-zinc-900">{label}</option>
+              {/each}
+            </select>
+          </label>
+        </div>
+
+        <!-- Código Fonte -->
+        <div>
+          <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Código Fonte * ({runtimeExtension})</span>
+          <button
+            onclick={handlePickSourceFile}
+            class="w-full flex items-center gap-3 p-3 rounded-lg border border-dashed border-slate-300 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 bg-slate-50 dark:bg-white/[0.02] transition-colors text-left"
+          >
+            <FileCode size={20} class="text-slate-400 shrink-0" />
+            {#if sourceFileName}
+              <div>
+                <div class="text-sm font-medium text-slate-700 dark:text-zinc-300">{sourceFileName}</div>
+                <div class="text-xs text-slate-400 dark:text-zinc-500">Clique para alterar</div>
+              </div>
+            {:else}
+              <div class="text-sm text-slate-500 dark:text-zinc-400">Selecionar arquivo...</div>
+            {/if}
+          </button>
+        </div>
+
+        <!-- Schema de Configuração -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase">Schema de Configuração</span>
+              {#if kind === 'driver'}
+                <span class="text-[10px] text-slate-400 dark:text-zinc-500 ml-2">(num_sensors e num_actuators são adicionados automaticamente)</span>
+              {/if}
+            </div>
+            <span class="text-[10px] text-slate-400 dark:text-zinc-500">{formFields.length} campo(s)</span>
+          </div>
+
+          <div class="space-y-2">
+            {#each formFields as field, i (i)}
+              <div class="p-3 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] space-y-2">
+                <!-- Linha 1: Nome + Tipo + Remover -->
+                <div class="flex items-start gap-2">
+                  <div class="flex-1 grid grid-cols-[1fr_120px] gap-2 items-start">
+                    <!-- Nome -->
+                    <div>
+                      <input
+                        type="text"
+                        value={field.name}
+                        oninput={(e) => updateFieldName(i, (e.target as HTMLInputElement).value)}
+                        placeholder="nome_campo"
+                        class="w-full h-9 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-mono {fieldErrors[i] ? 'border-red-400 dark:border-red-500' : ''}"
+                      />
+                      {#if fieldErrors[i]}
+                        <p class="text-[10px] text-red-500 mt-0.5">{fieldErrors[i]}</p>
+                      {/if}
+                    </div>
+                    <!-- Tipo -->
+                    <select
+                      value={field.type}
+                      onchange={(e) => updateFieldType(i, (e.target as HTMLSelectElement).value as SchemaFieldType)}
+                      class="h-9 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none cursor-pointer"
+                    >
+                      {#each Object.entries(SCHEMA_FIELD_TYPE_LABELS) as [value, label]}
+                        <option {value} class="dark:bg-zinc-900">{label}</option>
+                      {/each}
+                    </select>
+                  </div>
+                  <button
+                    onclick={() => removeSchemaField(i)}
+                    class="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors shrink-0 mt-0.5"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <!-- Linha 2: Valor padrão -->
+                <div class="flex items-center gap-2">
+                  <label class="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={field.hasDefault}
+                      onchange={(e) => updateFieldHasDefault(i, (e.target as HTMLInputElement).checked)}
+                      class="w-3.5 h-3.5 rounded border-slate-300 dark:border-white/20 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span class="text-[10px] text-slate-500 dark:text-zinc-400 whitespace-nowrap">Valor padrão</span>
+                  </label>
+                  {#if field.hasDefault}
+                    {#if field.type === 'bool'}
+                      <button
+                        onclick={() => updateFieldDefaultBool(i, !field.defaultBool)}
+                        class="flex items-center gap-2 h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs"
+                      >
+                        <div class="w-7 h-3.5 rounded-full transition-colors relative {field.defaultBool ? 'bg-blue-500' : 'bg-slate-300 dark:bg-zinc-600'}">
+                          <div class="absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white shadow transition-transform {field.defaultBool ? 'translate-x-3.5' : 'translate-x-0.5'}"></div>
+                        </div>
+                        <span class="text-slate-500 dark:text-zinc-400">{field.defaultBool ? 'true' : 'false'}</span>
+                      </button>
+                    {:else if field.type === 'int' || field.type === 'float'}
+                      <input
+                        type="number"
+                        step={field.type === 'float' ? 'any' : '1'}
+                        value={field.defaultValue}
+                        oninput={(e) => updateFieldDefaultValue(i, (e.target as HTMLInputElement).value)}
+                        placeholder="0"
+                        class="flex-1 h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      />
+                    {:else if field.type === 'string'}
+                      <input
+                        type="text"
+                        value={field.defaultValue}
+                        oninput={(e) => updateFieldDefaultValue(i, (e.target as HTMLInputElement).value)}
+                        placeholder="valor padrão"
+                        class="flex-1 h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      />
+                    {:else if field.type === 'list'}
+                      <span class="text-[10px] text-slate-400 dark:text-zinc-500">lista vazia</span>
+                    {/if}
+                  {:else}
+                    <span class="text-[10px] text-amber-600 dark:text-amber-400">obrigatório</span>
+                  {/if}
+                </div>
+              </div>
+            {/each}
+          </div>
+
+          <button
+            onclick={addSchemaField}
+            class="w-full mt-2 p-2.5 rounded-lg border-2 border-dashed border-slate-200 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 transition-colors text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 flex items-center justify-center gap-2 text-sm"
+          >
+            <Plus size={16} />
+            Adicionar Campo
+          </button>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="flex items-center justify-between px-6 py-4 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] shrink-0">
+        <button
+          onclick={handleClose}
+          class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors"
+        >
+          Cancelar
+        </button>
+        <button
+          onclick={handleSubmit}
+          disabled={isLoading}
+          class="px-6 py-2 rounded-lg text-sm font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white transition-colors flex items-center gap-2"
+        >
+          {#if isLoading}
+            <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+            Criando...
+          {:else}
+            <Code size={16} />
+            Criar Plugin
+          {/if}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
