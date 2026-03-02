@@ -1,0 +1,182 @@
+<script lang="ts">
+  /**
+   * ============================================================================
+   * VARIABLE CARD - Card de Gráfico para Uma Variável
+   * ============================================================================
+   * 
+   * Renderiza os gráficos de uma variável individual:
+   * - Gráfico superior: PV (linha) + SP (degrau tracejado)
+   * - Gráfico inferior: Atuadores vinculados (múltiplas linhas)
+   * - Header com stats (erro médio e estabilidade)
+   * 
+   * Usado tanto no PlotterModule quanto no AnalyzerModule.
+   */
+  import PlotlyChart from './PlotlyChart.svelte';
+  import type { ChartDataPoint, ChartConfig, ChartSeries } from '$lib/types/chart';
+  import type { VariableStats } from '$lib/types/plant';
+
+  /**
+   * Descrição de um atuador vinculado ao sensor
+   */
+  interface LinkedActuator {
+    id: string;
+    name: string;
+    dataKey: string;
+    color: string;
+  }
+
+  interface Props {
+    title: string;
+    unit?: string;
+    pvData: ChartDataPoint[];
+    mvData: ChartDataPoint[];
+    pvKey: string;
+    spKey: string;
+    actuators?: LinkedActuator[];  // Lista de atuadores vinculados
+    pvConfig: ChartConfig;
+    mvConfig: ChartConfig;
+    theme: 'dark' | 'light';
+    colors?: { pv: string; sp: string };
+    visible?: { pv: boolean; sp: boolean };
+    lineStyles?: Record<string, { color: string; visible: boolean; label?: string }>;
+    showLegend?: boolean;
+    stats?: VariableStats;
+    onRangeChange?: (xMin: number, xMax: number) => void;
+  }
+
+  let {
+    title,
+    unit = '',
+    pvData,
+    mvData,
+    pvKey,
+    spKey,
+    actuators = [],
+    pvConfig,
+    mvConfig,
+    theme,
+    colors = { pv: '#3b82f6', sp: '#f59e0b' },
+    visible = { pv: true, sp: true },
+    lineStyles = {},
+    showLegend = true,
+    stats,
+    onRangeChange,
+  }: Props = $props();
+
+  const pvStyle = $derived(lineStyles[pvKey]);
+  const spStyle = $derived(lineStyles[spKey]);
+
+  const pvSpSeries = $derived<ChartSeries[]>([
+    {
+      key: 'pv',
+      label: `PV ${unit}`,
+      color: pvStyle?.color ?? colors.pv,
+      visible: pvStyle?.visible ?? visible.pv,
+      data: pvData,
+      dataKey: pvKey,
+      type: 'line',
+      strokeWidth: 2,
+    },
+    {
+      key: 'sp',
+      label: `SP ${unit}`,
+      color: spStyle?.color ?? colors.sp,
+      visible: spStyle?.visible ?? visible.sp,
+      data: pvData,
+      dataKey: spKey,
+      type: 'step',
+      strokeWidth: 1.5,
+      dashed: true,
+    },
+  ]);
+
+  // Cores para atuadores (cicla se tiver mais que 6)
+  const actuatorColors = ['#10b981', '#06b6d4', '#8b5cf6', '#f97316', '#ec4899', '#14b8a6'];
+
+  const mvSeries = $derived<ChartSeries[]>(
+    actuators.length > 0
+      ? actuators.map((act, idx) => ({
+          key: act.id,
+          label: act.name,
+          color: lineStyles[act.dataKey]?.color || act.color || actuatorColors[idx % actuatorColors.length],
+          visible: lineStyles[act.dataKey]?.visible ?? true,
+          data: mvData,
+          dataKey: act.dataKey,
+          type: 'line' as const,
+          strokeWidth: 2,
+        }))
+      : []
+  );
+</script>
+
+<div class="flex flex-col h-full bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm">
+  <!-- Header com título, stats e legenda -->
+  <div class="px-3 py-2 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-zinc-900/50 flex items-center justify-between shrink-0">
+    <div class="flex items-center gap-3">
+      <h3 class="text-sm font-bold text-slate-700 dark:text-zinc-300">
+        {title}
+        {#if unit}
+          <span class="text-xs font-normal text-slate-400 dark:text-zinc-500">({unit})</span>
+        {/if}
+      </h3>
+      {#if stats}
+        <div class="flex items-center gap-2 text-[10px] font-medium">
+          <div class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5">
+            <span class="text-slate-400 dark:text-zinc-500">Erro:</span>
+            <span class={stats.errorAvg < 3 ? 'text-emerald-600 dark:text-emerald-400' : stats.errorAvg < 10 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}>
+              {stats.errorAvg.toFixed(2)}
+            </span>
+          </div>
+          <div class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5">
+            <span class="text-slate-400 dark:text-zinc-500">Estab:</span>
+            <span class={stats.stability > 90 ? 'text-emerald-600 dark:text-emerald-400' : stats.stability > 70 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}>
+              {stats.stability.toFixed(0)}%
+            </span>
+          </div>
+        </div>
+      {/if}
+    </div>
+    {#if showLegend}
+      <div class="flex items-center gap-3 text-[10px] font-medium">
+        <div class="flex items-center gap-1">
+          <div class="w-2 h-2 rounded-full" style="background-color: {pvStyle?.color ?? colors.pv}"></div>
+          <span class="text-slate-500 dark:text-zinc-400">PV</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <div class="w-2 h-2 rounded-full" style="background-color: {spStyle?.color ?? colors.sp}"></div>
+          <span class="text-slate-500 dark:text-zinc-400">SP</span>
+        </div>
+        {#each actuators as act, idx}
+          <div class="flex items-center gap-1">
+            <div class="w-2 h-2 rounded-full" style="background-color: {lineStyles[act.dataKey]?.color || act.color || actuatorColors[idx % actuatorColors.length]}"></div>
+            <span class="text-slate-500 dark:text-zinc-400">{act.name}</span>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
+  <!-- Gráficos -->
+  <div class="flex-1 flex flex-col min-h-0">
+    <!-- PV + SP (2/3 da altura se tem atuadores, 100% se não) -->
+    <div class={actuators.length > 0 ? 'flex-[2] min-h-0' : 'flex-1 min-h-0'}>
+      <PlotlyChart
+        series={pvSpSeries}
+        config={pvConfig}
+        {theme}
+        {onRangeChange}
+      />
+    </div>
+    <!-- Atuadores (1/3 da altura, só se tiver atuadores vinculados) -->
+    {#if actuators.length > 0}
+      <div class="flex-1 min-h-0 border-t border-slate-100 dark:border-white/5">
+        <PlotlyChart
+          series={mvSeries}
+          config={mvConfig}
+          {theme}
+          {onRangeChange}
+        />
+      </div>
+    {/if}
+  </div>
+</div>

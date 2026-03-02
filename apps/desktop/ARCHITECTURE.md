@@ -1,7 +1,7 @@
 # Senamby Desktop — Arquitetura & Guia do Desenvolvedor
 
 > **Stack:** Tauri 2.0 · SvelteKit 2.0 · Svelte 5 (runes) · TypeScript · uPlot · Tailwind CSS  
-> **Última atualização:** Fevereiro 2026
+> **Última atualização:** Março 2026
 
 ---
 
@@ -14,18 +14,39 @@
 5. [Fluxo de Dados](#5-fluxo-de-dados)
 6. [Detalhamento dos Componentes](#6-detalhamento-dos-componentes)
 7. [Sistema de Tipos](#7-sistema-de-tipos)
-8. [Como Fazer: Receitas Comuns](#8-como-fazer-receitas-comuns)
-   - [Adicionar um módulo na sidebar](#81-adicionar-um-novo-módulo-na-sidebar)
-   - [Remover um módulo existente](#82-remover-um-módulo-existente)
-   - [Integrar dados reais do backend](#83-integrar-dados-reais-do-backend-tauri)
-   - [Adicionar uma nova variável ao gráfico](#84-adicionar-uma-nova-variável-ao-gráfico)
-   - [Criar um novo tipo de controlador](#85-criar-um-novo-tipo-de-controlador)
+8. [Sistema Universal de Gráficos](#8-sistema-universal-de-gráficos)
+9. [Como Fazer: Receitas Comuns](#9-como-fazer-receitas-comuns)
+   - [Adicionar um módulo na sidebar](#91-adicionar-um-novo-módulo-na-sidebar)
+   - [Enviar dados para plotagem](#92-enviar-dados-para-plotagem)
+   - [Remover um módulo existente](#93-remover-um-módulo-existente)
+   - [Alterar taxa de atualização](#94-alterar-a-taxa-de-atualização-do-plot)
+   - [Integrar dados reais do backend](#95-integrar-dados-reais-do-backend-tauri)
+   - [Adicionar uma nova variável ao gráfico](#96-adicionar-uma-nova-variável-ao-gráfico)
+   - [Criar um novo tipo de controlador](#97-criar-um-novo-tipo-de-controlador)
+   - [Usar o módulo Analyzer](#98-usar-o-módulo-analyzer)
 
 ---
 
 ## 1. Visão Geral
 
-O Senamby Desktop é uma aplicação SCADA (Supervisory Control and Data Acquisition) que roda como app desktop via Tauri. A interface permite monitorar plantas industriais em tempo real com gráficos de tendência, controladores PID configuráveis, e análise de lugar das raízes (LGR).
+O Senamby Desktop é uma aplicação SCADA (Supervisory Control and Data Acquisition) que roda como app desktop via Tauri. A interface permite monitorar plantas industriais em tempo real com gráficos de tendência, controladores PID configuráveis, e análise de dados históricos via CSV.
+
+### 1.1 Arquitetura de Módulos
+
+A aplicação utiliza uma arquitetura modular onde cada **botão na Sidebar** representa um **módulo independente**. Cada módulo é uma tela completa com funcionalidades específicas que preenchem a área principal da aplicação.
+
+| Módulo | Ícone | Descrição | Funcionalidades |
+|--------|-------|-----------|-----------------|
+| **Plotter** | 📈 TrendingUp | Monitoramento em tempo real | Gráficos de tendência, multi-plantas, controladores PID, exportação CSV |
+| **Analyzer** | 📊 BarChart3 | Análise de dados históricos | Upload de CSV, visualização de variáveis, zoom/pan, multi-abas |
+
+**Características dos módulos:**
+- **Isolados:** Cada módulo gerencia seu próprio estado interno
+- **Independentes:** Não há comunicação direta entre módulos
+- **Extensíveis:** Novos módulos podem ser adicionados via `MODULE_TABS` em `types/ui.ts`
+- **Consistentes:** Todos usam o mesmo sistema de gráficos (`PlotlyChart` + `ChartBuilder`)
+
+**Navegação:** O estado `activeModule` em `AppStore` controla qual módulo está visível. Apenas um módulo é renderizado por vez (renderização condicional em `+page.svelte`).
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -41,7 +62,7 @@ O Senamby Desktop é uma aplicação SCADA (Supervisory Control and Data Acquisi
 │  │  │  B   │  │  │  │(uPlot)│ │   Panel     │ │  │   │  │
 │  │  │  A   │  │  │  └──────┘ └─────────────┘ │  │   │  │
 │  │  │  R   │  │  └────────────────────────────┘  │   │  │
-│  │  │      │  │  OU: PoleAnalysisModule          │   │  │
+│  │  │      │  │  OU: AnalyzerModule              │   │  │
 │  │  └──────┘  └──────────────────────────────────┘   │  │
 │  └───────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
@@ -69,12 +90,17 @@ src/
 │   │   │
 │   │   ├── modals/                  # Todos os modais da aplicação
 │   │   │   ├── GlobalSettingsModal.svelte   # Preferências globais
-│   │   │   └── PlantRemovalModal.svelte     # Confirmação de remoção de planta
+│   │   │   ├── PlantRemovalModal.svelte     # Confirmação de remoção de planta
+│   │   │   └── GenericModal.svelte          # Modal genérico reutilizável (info/error/warning/success)
 │   │   │
 │   │   ├── modules/                 # Módulos de feature (telas principais)
 │   │   │   ├── PlotterModule.svelte         # Tela de tendências (principal)
-│   │   │   ├── PoleAnalysisModule.svelte    # Tela de Lugar das Raízes
-│   │   │   └── PlaceholderModule.svelte     # Placeholder genérico
+│   │   │   └── AnalyzerModule.svelte        # Tela de análise de CSV
+│   │   │
+│   │   ├── analyzer/                # Sub-componentes do Analyzer
+│   │   │   ├── AnalyzerTabs.svelte          # Abas de arquivos CSV
+│   │   │   ├── VariableSelectorPanel.svelte # Painel de seleção de variáveis
+│   │   │   └── VariableChart.svelte         # Gráficos de variável (sensor+target+actuator)
 │   │   │
 │   │   ├── plotter/                 # Sub-componentes exclusivos do Plotter
 │   │   │   ├── PlantTabs.svelte             # Abas das plantas
@@ -83,29 +109,30 @@ src/
 │   │   │   └── ControllerPanel.svelte       # Painel lateral de controladores
 │   │   │
 │   │   └── ui/                      # Primitivas reutilizáveis
-│   │       ├── Badge.svelte
-│   │       ├── Button.svelte
-│   │       ├── DynamicParamInput.svelte
-│   │       ├── Modal.svelte
-│   │       └── SimpleToggle.svelte
+│   │       ├── DynamicParamInput.svelte     # Input dinâmico para parâmetros
+│   │       └── SimpleToggle.svelte          # Toggle simples on/off
 │   │
 │   ├── services/                    # Lógica de negócio (sem UI)
 │   │   ├── simulation.ts           # Simulação PID + transferência térmica
-│   │   └── export.ts               # Exportação CSV
+│   │   ├── export.ts               # Exportação CSV
+│   │   └── analyzerBackend.ts      # Backend mockado (processa CSV) - TODO: integrar com Rust
 │   │
 │   ├── stores/                      # Estado global
 │   │   ├── data.svelte.ts           # AppStore (estado reativo com $state)
-│   │   └── plantData.ts             # Buffer de dados plain (Map, sem reatividade)
+│   │   ├── plantData.ts             # Buffer de dados plain (Map, sem reatividade)
+│   │   └── analyzerStore.svelte.ts  # Estado persistente do Analyzer (abas, seleções)
 │   │
 │   ├── types/                       # Interfaces e tipos TypeScript
 │   │   ├── app.ts                   # AppState
+│   │   ├── analyzer.ts              # AnalyzerVariable, ProcessedVariableData
 │   │   ├── chart.ts                 # ChartConfig, ChartSeries, ChartStateType
 │   │   ├── controller.ts            # Controller, ControllerParam, PIDParams
 │   │   ├── plant.ts                 # Plant, PlantDataPoint, PlantStats
 │   │   └── ui.ts                    # TabKey, MODULE_TABS
 │   │
 │   └── utils/                       # Funções puras utilitárias
-│       └── format.ts                # formatTime, generateId
+│       ├── format.ts                # formatTime, generateId
+│       └── chartBuilder.ts          # ChartBuilder (classe para criar gráficos facilmente)
 ```
 
 **Convenções de pasta:**
@@ -136,7 +163,7 @@ Classe singleton com `$state<AppState>()` do Svelte 5. Contém **tudo que a UI p
 ```typescript
 interface AppState {
   theme: 'dark' | 'light';        // Tema atual
-  activeModule: TabKey;            // Módulo ativo ('plotter' | 'poles')
+  activeModule: TabKey;            // Módulo ativo ('plotter' | 'analyzer')
   activePlantId: string;           // Planta selecionada
   sidebarCollapsed: boolean;       // Sidebar expandida/recolhida
   showGlobalSettings: boolean;     // Modal de preferências
@@ -159,7 +186,7 @@ setPlantStats(plantId, stats)
 clearPlant(plantId)      // Limpa dados e stats
 ```
 
-**Por que plain Map?** Dados de série temporal a 10Hz gerariam milhares de invalidações reativas por segundo. O array plain é mutado via `.push()` e o gráfico lê diretamente via `setInterval(200ms)` — sem overhead de reatividade.
+**Por que plain Map?** Dados de série temporal a 10Hz gerariam milhares de invalidações reativas por segundo. O array plain é mutado via `.push()` e o gráfico lê diretamente via `setInterval(33ms)` a ~30fps — sem overhead de reatividade.
 
 ### 3.3 Como a UI lê dados não-reativos
 
@@ -167,16 +194,57 @@ O `PlotterModule` usa um **tick de display** para forçar re-leitura periódica:
 
 ```typescript
 let _displayTick = $state(0);
-onMount(() => { _displayTimer = setInterval(() => _displayTick++, 200); });
+onMount(() => { _displayTimer = setInterval(() => _displayTick++, 33); });
 
 const currentPV = $derived.by(() => {
-  _displayTick; // Toca a reatividade a cada 200ms
+  _displayTick; // Toca a reatividade a cada 33ms (~30fps)
   const data = getPlantData(activePlantId);
   return data.length > 0 ? data[data.length - 1].pv : 0;
 });
 ```
 
-O `PlotlyChart` (uPlot) usa seu próprio `setInterval(200ms)` interno para checar se há dados novos e chamar `chart.setData()`.
+O `PlotlyChart` (uPlot) usa seu próprio `setInterval(33ms)` interno (~30fps) para checar se há dados novos e chamar `chart.setData()`.
+
+### 3.4 analyzerStore (`stores/analyzerStore.svelte.ts`) — Estado do Analyzer
+
+Classe singleton com `$state` para gerenciar o estado do módulo Analyzer. **Estado persiste ao trocar de módulo.**
+
+```typescript
+interface AnalyzerTab {
+  id: string;
+  name: string;                      // "Unnamed" ou nome do arquivo
+  processedVariables: ProcessedVariableData[];
+  selectedVariablesIndexes: number[];
+}
+
+class AnalyzerStore {
+  tabs = $state<AnalyzerTab[]>([]);           // Abas abertas
+  activeTabId = $state<string>('');           // Aba ativa
+  chartStates = $state<Record<string, ChartStateType>>({});  // Zoom/pan por aba
+  showVariablePanel = $state<boolean>(false); // Painel lateral visível
+  
+  // Getters
+  get activeTab(): AnalyzerTab | undefined;
+  get chartState(): ChartStateType;
+  get selectedVariables(): ProcessedVariableData[];
+  get isActiveTabEmpty(): boolean;
+  
+  // Métodos
+  createEmptyTab(): void;                     // Cria aba "Unnamed"
+  loadFileToActiveTab(fileName, data): void;  // Carrega CSV na aba ativa
+  removeTab(tabId): void;                     // Remove aba (mantém pelo menos 1)
+  selectTab(tabId): void;
+  toggleVariable(index): void;
+  setRange(xMin, xMax): void;
+  resetZoom(): void;
+}
+```
+
+**Comportamento de abas:**
+- Ao abrir o Analyzer: sempre tem pelo menos 1 aba ("Unnamed" se vazia)
+- Ao clicar "+": cria nova aba "Unnamed" com área de drop
+- Ao carregar CSV: renomeia aba para nome do arquivo
+- Ao fechar última aba: limpa dados (não remove a aba)
 
 ---
 
@@ -196,7 +264,12 @@ O `PlotlyChart` (uPlot) usa seu próprio `setInterval(200ms)` interno para checa
 │   ├── ControllerPanel              Painel lateral (setpoint, PIDs)
 │   └── PlantRemovalModal            Modal de confirmação de remoção
 │
-├── PoleAnalysisModule           ← quando activeModule === 'poles'
+├── AnalyzerModule               ← quando activeModule === 'analyzer'
+│   ├── AnalyzerTabs                 Abas de arquivos CSV (add/remove/select)
+│   ├── ChartContextMenu             Menu direito (zoom, reset, etc.)
+│   ├── VariableSelectorPanel        Painel lateral (selecionar variáveis)
+│   ├── VariableChart (grid)         Grid de gráficos (sensor+target+actuator)
+│   └── GenericModal                 Modal de erro ao processar CSV
 │
 └── GlobalSettingsModal              Preferências gerais (gridlines, etc.)
 ```
@@ -211,12 +284,12 @@ O `PlotlyChart` (uPlot) usa seu próprio `setInterval(200ms)` interno para checa
 
 ```
 ┌──────────────┐    push()     ┌──────────────┐  setInterval   ┌──────────────┐
-│  simulation  │──────────────→│  plantData   │───(200ms)─────→│  PlotlyChart │
-│   .ts        │               │  Map<id,[]>  │                │   (uPlot)    │
+│  simulation  │──────────────→│  plantData   │───(33ms)──────→│  PlotlyChart │
+│   .ts        │               │  Map<id,[]>  │   ~30fps       │   (uPlot)    │
 │  (10Hz)      │               │  plain array │                │  setData()   │
 └──────────────┘               └──────────────┘                └──────────────┘
        ↑                              │
-       │ lê plant config              │ _displayTick (200ms)
+       │ lê plant config              │ _displayTick (33ms)
        │                              ↓
 ┌──────────────┐               ┌──────────────┐
 │   AppStore   │←──callbacks───│  PlotterModule│
@@ -285,9 +358,23 @@ Usuário dá duplo-clique / clica "Home"
 
 ### 6.4 `Sidebar.svelte` (77 linhas)
 
-**Papel:** Navegação entre módulos. Mapeia `MODULE_TABS` em botões `SidebarBtn`.
-- Colapsável (16px ↔ 256px) com `appStore.toggleSidebar()`
-- Seção inferior: toggle tema + ajustes
+**Papel:** Navegação entre módulos. Cada botão na seção principal representa um **módulo** (tela completa com funcionalidades específicas).
+
+**Estrutura:**
+- **Logo/Toggle:** Primeiro elemento, permite expandir/recolher a sidebar. Exibe "Senamby" quando expandida.
+- **Área de Módulos:** Botões `SidebarBtn` mapeados de `MODULE_TABS`. Cada botão ativa um módulo diferente.
+- **Área de Utilidades:** Botões de tema e configurações globais (não são módulos).
+
+**Módulos disponíveis:**
+| Botão | Módulo | Descrição |
+|-------|--------|-----------|
+| 📈 Tendências | `PlotterModule` | Monitoramento em tempo real |
+| 📊 Analyzer | `AnalyzerModule` | Análise de dados CSV |
+
+**Comportamento:**
+- Colapsável (64px ↔ 256px) via `appStore.toggleSidebar()`
+- Módulo ativo indicado por destaque visual no botão
+- Seção inferior: toggle tema + ajustes (separador visual)
 
 ### 6.5 `ControllerPanel.svelte` (125 linhas)
 
@@ -302,9 +389,85 @@ Usuário dá duplo-clique / clica "Home"
 - Alternar modo do eixo Y (Auto/Manual) com campos min/max
 - Toggle visibilidade e cor de cada variável (PV/SP/MV)
 
-### 6.7 `PoleAnalysisModule.svelte` (76 linhas)
+### 6.7 `AnalyzerModule.svelte` (~350 linhas)
 
-**Papel:** Tela de análise de lugar das raízes. Renderiza SVG estático com polos e zeros plotados no plano complexo.
+**Papel:** Módulo de análise de dados históricos via CSV. Permite carregar múltiplos arquivos CSV em abas separadas e visualizar variáveis com as mesmas funcionalidades do PlotterModule (zoom, pan, seleção, botão direito).
+
+**Arquitetura:** Segue exatamente o padrão do PlotterModule:
+- Estado de tabs local (`tabs: AnalyzerTab[]`)
+- Estado do gráfico por aba (`chartStates: Record<string, ChartStateType>`)
+- Mesmos handlers de zoom/pan/context menu
+- Usa o mesmo `ChartContextMenu` e `PlotlyChart`
+
+**Fluxo:**
+1. Upload de arquivo CSV via input ou drag-and-drop
+2. **Backend mockado** (`analyzerBackend.ts`) processa o CSV:
+   - Valida formato
+   - Extrai variáveis (grupos sensor/actuator/target)
+   - Calcula ranges ótimos para cada gráfico
+   - Retorna dados estruturados prontos
+3. Nova aba é criada com dados processados
+4. Seleção interativa de variáveis via `VariableSelectorPanel`
+5. Grid responsível com múltiplas variáveis simultaneamente
+
+**Funcionalidades (idênticas ao PlotterModule):**
+- ✅ Zoom por seleção (drag para criar área)
+- ✅ Pan (Shift+drag ou middle-click)
+- ✅ Double-click para resetar zoom
+- ✅ Botão direito abre `ChartContextMenu`
+- ✅ Modos Auto/Sliding/Manual
+- ✅ Cores customizáveis por variável
+- ✅ Multi-abas com estado independente
+- ✅ Drag-and-drop de arquivos CSV
+
+**Error handling:** Usa `GenericModal` ao invés de `alert()` para mensagens de erro.
+
+**Formato CSV esperado:**
+```
+seconds, sensor_0, actuator_0, target_0, sensor_1, actuator_1, target_1, ...
+0.0, 25.3, 12.5, 20.0, 30.1, 8.2, 28.0, ...
+0.1, 25.5, 13.1, 20.0, 30.3, 8.5, 28.0, ...
+```
+
+### 6.8 `VariableSelectorPanel.svelte` (~70 linhas)
+
+**Papel:** Painel lateral deslizante do Analyzer. **Estilo consistente com `ControllerPanel`:**
+- Mesma animação (slide from right)
+- Botão de fechar no header
+- Cards de seleção com checkbox visual
+- Indicadores de cor para sensor/actuator/target
+- `$bindable` para controle do estado `visible`
+
+### 6.9 `VariableChart.svelte` (~100 linhas)
+
+**Papel:** Card de visualização de uma variável. Recebe **dados pré-processados** do backend:
+- Gráfico superior: sensor (azul) + target (laranja tracejado) com range otimizado
+- Gráfico inferior: actuator (verde) com range otimizado
+- Usa 2 instâncias de `PlotlyChart` com `yMode: 'manual'` e ranges calculados pelo backend
+- Zero processamento de dados (apenas mapeamento para formato do chart)
+
+### 6.10 `GenericModal.svelte` (~60 linhas)
+
+**Papel:** Modal genérico reutilizável para mensagens ao usuário. Substitui `alert()` e `confirm()`.
+
+**Tipos suportados:**
+- `info`: mensagens informativas (azul)
+- `error`: erros (vermelho)
+- `warning`: avisos (âmbar)
+- `success`: sucessos (verde)
+
+**Props:**
+```typescript
+{
+  visible: boolean;
+  type: 'info' | 'error' | 'warning' | 'success';
+  title: string;
+  message: string;
+  confirmLabel?: string;  // padrão: 'OK'
+  onConfirm?: () => void;
+  onClose?: () => void;   // botão Cancelar só aparece se onClose estiver definido
+}
+```
 
 ---
 
@@ -343,18 +506,457 @@ LineColors      { pv, sp, mv }
 AppState { theme, activeModule, activePlantId, sidebarCollapsed, showGlobalSettings, showControllerPanel, plants }
 ```
 
+### `types/analyzer.ts`
+
+```typescript
+AnalyzerVariable        { index, name, sensor, actuator, target, selected }
+ProcessedVariableData   { variable, sensorData, targetData, actuatorData, sensorRange, actuatorRange }
+```
+
+**Importante:** O Analyzer processa dados do backend e armazena em `ProcessedVariableData`.
+
 ### `types/ui.ts`
 
 ```typescript
-TabKey = 'plotter' | 'poles'
-MODULE_TABS = { plotter: { label, icon }, poles: { label, icon } }
+TabKey = 'plotter' | 'analyzer'
+MODULE_TABS = { plotter: { label, icon }, analyzer: { label, icon } }
 ```
 
 ---
 
-## 8. Como Fazer: Receitas Comuns
+## 8. Sistema Universal de Gráficos
 
-### 8.1. Adicionar um Novo Módulo na Sidebar
+O Senamby utiliza um **sistema de gráficos universal e reutilizável** baseado em **uPlot** que pode ser usado em qualquer módulo da aplicação. Todos os gráficos compartilham as mesmas funcionalidades:
+
+### 8.1. Funcionalidades Incluídas
+
+Todos os gráficos criados com o sistema têm automaticamente:
+
+- ✅ **Zoom**: Scroll do mouse sobre o gráfico
+- ✅ **Pan**: Shift+Drag ou Botão do meio do mouse
+- ✅ **Seleção de Área**: Drag para selecionar área e dar zoom
+- ✅ **Tooltip Hover**: Mostra valores ao passar o mouse
+- ✅ **Auto-resize**: Gráfico se ajusta ao container automaticamente
+- ✅ **Temas**: Suporta dark/light mode
+- ✅ **Performance**: Renderização otimizada com uPlot
+
+### 8.2. Arquitetura do Sistema
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  Sistema de Gráficos                     │
+├─────────────────────────────────────────────────────────┤
+│                                                          │
+│  ┌────────────────┐         ┌─────────────────────┐    │
+│  │   ChartBuilder │         │   PlotlyChart.svelte│    │
+│  │  (Utility)     │────────▶│   (Componente)      │    │
+│  │                │         │                     │    │
+│  │  Cria config.  │         │  Renderiza uPlot    │    │
+│  │  com API fluente│        │  + Interatividade   │    │
+│  └────────────────┘         └─────────────────────┘    │
+│         ▲                            ▲                  │
+│         │                            │                  │
+│   ┌─────┴──────┐              ┌─────┴──────┐          │
+│   │ ChartSeries│              │ChartConfig │          │
+│   │  (Tipos)   │              │  (Tipos)   │          │
+│   └────────────┘              └────────────┘          │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 8.3. Componentes do Sistema
+
+#### **PlotlyChart.svelte** — Componente de Renderização
+
+Componente Svelte que renderiza gráficos uPlot. Aceita:
+
+**Props:**
+- `series: ChartSeries[]` — Array de séries de dados
+- `config: ChartConfig` — Configuração do gráfico
+- `theme: 'dark' | 'light'` — Tema visual
+- `onRangeChange?: (xMin, xMax) => void` — Callback para mudanças de zoom/pan
+
+**Localização:** `lib/components/charts/PlotlyChart.svelte`
+
+**Exemplo de uso direto (não recomendado, use ChartBuilder):**
+
+```svelte
+<script>
+  import PlotlyChart from '$lib/components/charts/PlotlyChart.svelte';
+  
+  const series = [
+    { key: 'temp', label: 'Temperature', color: '#3b82f6', visible: true, data, dataKey: 'temp', type: 'line' }
+  ];
+  
+  const config = {
+    yMin: 0, yMax: 100, yMode: 'manual',
+    xMode: 'auto', windowSize: 30, showGrid: true, showHover: true
+  };
+</script>
+
+<PlotlyChart {series} {config} theme="dark" />
+```
+
+#### **ChartBuilder** — Classe Utilitária
+
+Classe com **API fluente** para construir configurações de gráfico facilmente.
+
+**Localização:** `lib/utils/chartBuilder.ts`
+
+**Métodos principais:**
+
+| Método | Descrição |
+|--------|-----------|
+| `addLineSeries(key, data, dataKey, label, color, options?)` | Adiciona linha normal |
+| `addStepSeries(key, data, dataKey, label, color, options?)` | Adiciona linha em degrau (para setpoints) |
+| `addAreaSeries(key, data, dataKey, label, color, options?)` | Adiciona área preenchida |
+| `setYAxis(mode, min?, max?)` | Configura eixo Y: 'auto' ou 'manual' |
+| `setXAxis(mode, windowSize?, min?, max?)` | Configura eixo X: 'auto', 'sliding', 'manual' |
+| `enableGrid()` / `disableGrid()` | Liga/desliga grid |
+| `enableHover()` / `disableHover()` | Liga/desliga tooltip |
+| `toggleSeries(key, visible)` | Mostra/esconde série |
+| `setSeriesColor(key, color)` | Altera cor de série |
+| `build()` | Retorna `{ series, config }` |
+
+**Métodos estáticos (presets):**
+
+| Método | Descrição |
+|--------|-----------|
+| `ChartBuilder.createRealtimeConfig(data, colors, visible)` | Cria config para gráfico PV/SP/MV |
+| `ChartBuilder.createAnalyzerConfig(...)` | Cria config para gráfico Sensor/Target/Actuator |
+| `ChartBuilder.from(series, config)` | Clona configuração existente |
+
+### 8.4. Como Criar um Gráfico (Passo a Passo)
+
+#### **Método 1: Usando ChartBuilder (Recomendado)**
+
+```typescript
+import { createChart } from '$lib/utils/chartBuilder';
+import PlotlyChart from '$lib/components/charts/PlotlyChart.svelte';
+
+// 1. Preparar dados
+const data = [
+  { time: 0, temperature: 25.3, setpoint: 25.0 },
+  { time: 1, temperature: 25.8, setpoint: 25.0 },
+  { time: 2, temperature: 26.1, setpoint: 30.0 },
+];
+
+// 2. Criar configuração com ChartBuilder
+const { series, config } = createChart()
+  .addLineSeries('temp', data, 'temperature', 'Temperatura', '#3b82f6')
+  .addStepSeries('sp', data, 'setpoint', 'Setpoint', '#f59e0b', { dashed: true })
+  .setYAxis('auto')
+  .setXAxis('auto')
+  .enableGrid()
+  .enableHover()
+  .build();
+
+// 3. Usar no componente Svelte
+<PlotlyChart {series} {config} theme="dark" />
+```
+
+#### **Método 2: Usando Presets**
+
+```typescript
+import { ChartPresets } from '$lib/utils/chartBuilder';
+
+// Para gráfico de tempo real (PV/SP/MV)
+const { pvsp, mv } = ChartPresets.realtime(
+  plantData,
+  { pv: '#3b82f6', sp: '#f59e0b', mv: '#10b981' },
+  { pv: true, sp: true, mv: true }
+);
+
+// Renderizar dois gráficos:
+<PlotlyChart series={pvsp.series} config={pvsp.config} theme="dark" />
+<PlotlyChart series={mv.series} config={mv.config} theme="dark" />
+```
+
+### 8.5. Configuração de Eixos
+
+#### **Eixo Y:**
+
+```typescript
+// Auto: calcula min/max automaticamente dos dados
+.setYAxis('auto')
+
+// Manual: valores fixos
+.setYAxis('manual', 0, 100)
+```
+
+#### **Eixo X:**
+
+```typescript
+// Auto: mostra todos os dados
+.setXAxis('auto')
+
+// Sliding: janela móvel (últimos N segundos)
+.setXAxis('sliding', 30)  // últimos 30 segundos
+
+// Manual: range fixo
+.setXAxis('manual', 30, 0, 60)  // de 0 a 60 segundos
+```
+
+### 8.6. Controle de Visibilidade
+
+```typescript
+const builder = createChart()
+  .addLineSeries('line1', data, 'value1', 'Line 1', '#3b82f6')
+  .addLineSeries('line2', data, 'value2', 'Line 2', '#10b981');
+
+// Esconder line2
+builder.toggleSeries('line2', false);
+
+// O build() retorna a config atualizada
+const { series, config } = builder.build();
+```
+
+### 8.7. Zoom e Pan Programáticos
+
+Para controlar zoom/pan programaticamente, use `onRangeChange`:
+
+```svelte
+<script>
+  let xMin = $state(0);
+  let xMax = $state(30);
+  
+  function handleRangeChange(newMin: number, newMax: number) {
+    xMin = newMin;
+    xMax = newMax;
+  }
+  
+  // Atualize config quando xMin/xMax mudarem
+  $effect(() => {
+    config.xMode = 'manual';
+    config.xMin = xMin;
+    config.xMax = xMax;
+  });
+</script>
+
+<PlotlyChart {series} {config} theme="dark" onRangeChange={handleRangeChange} />
+
+<!-- Botões de controle -->
+<button onclick={() => { xMin = 0; xMax = 30; }}>Reset Zoom</button>
+```
+
+### 8.8. Tipos do Sistema
+
+#### **ChartDataPoint**
+
+```typescript
+interface ChartDataPoint {
+  time: number;              // Eixo X (em segundos)
+  [key: string]: number;     // Valores das séries
+}
+
+// Exemplo:
+const point: ChartDataPoint = {
+  time: 10.5,
+  temperature: 25.3,
+  pressure: 101.3,
+  flow: 42.7
+};
+```
+
+#### **ChartSeries**
+
+```typescript
+interface ChartSeries {
+  key: string;               // Identificador único
+  label: string;             // Nome no tooltip
+  color: string;             // Cor hex: '#3b82f6'
+  visible: boolean;          // Se está visível
+  data: ChartDataPoint[];    // Array de dados
+  dataKey: string;           // Chave do valor: 'temperature'
+  type?: 'line' | 'step' | 'area';  // Tipo de visualização
+  strokeWidth?: number;      // Espessura da linha
+  dashed?: boolean;          // Se é tracejada
+}
+```
+
+#### **ChartConfig**
+
+```typescript
+interface ChartConfig {
+  yMin: number;              // Mínimo do eixo Y
+  yMax: number;              // Máximo do eixo Y
+  yMode: 'auto' | 'manual';  // Modo de escala Y
+  xMode: 'auto' | 'sliding' | 'manual';  // Modo de escala X
+  windowSize: number;        // Tamanho da janela (segundos) para 'sliding'
+  xMin?: number | null;      // Mínimo do eixo X (manual)
+  xMax?: number | null;      // Máximo do eixo X (manual)
+  showGrid: boolean;         // Mostrar grid
+  showHover?: boolean;       // Mostrar tooltip
+}
+```
+
+### 8.9. Exemplos Práticos
+
+#### **Exemplo 1: Gráfico de Temperatura Simples**
+
+```typescript
+const temperatureData = [
+  { time: 0, temp: 20 },
+  { time: 1, temp: 22 },
+  { time: 2, temp: 25 },
+  { time: 3, temp: 24 },
+];
+
+const { series, config } = createChart()
+  .addLineSeries('temp', temperatureData, 'temp', 'Temperatura °C', '#ef4444')
+  .setYAxis('auto')
+  .setXAxis('auto')
+  .enableGrid()
+  .build();
+```
+
+#### **Exemplo 2: Múltiplas Variáveis com Janela Móvel**
+
+```typescript
+const sensorData = [
+  { time: 0, temp: 25, humidity: 60, pressure: 1013 },
+  { time: 1, temp: 26, humidity: 62, pressure: 1012 },
+  // ... mais dados
+];
+
+const { series, config } = createChart()
+  .addLineSeries('temp', sensorData, 'temp', 'Temperatura', '#ef4444')
+  .addLineSeries('humidity', sensorData, 'humidity', 'Umidade', '#3b82f6')
+  .addLineSeries('pressure', sensorData, 'pressure', 'Pressão', '#10b981')
+  .setYAxis('auto')  // Cada série pode ter sua própria escala
+  .setXAxis('sliding', 60)  // Últimos 60 segundos
+  .enableGrid()
+  .enableHover()
+  .build();
+```
+
+#### **Exemplo 3: Gráfico com Setpoint (Degrau)**
+
+```typescript
+const controlData = [
+  { time: 0, pv: 20, sp: 25 },
+  { time: 5, pv: 23, sp: 25 },
+  { time: 10, pv: 25, sp: 30 },  // Setpoint muda instantaneamente
+  { time: 15, pv: 28, sp: 30 },
+];
+
+const { series, config } = createChart()
+  .addLineSeries('pv', controlData, 'pv', 'Variável de Processo', '#3b82f6', { strokeWidth: 2 })
+  .addStepSeries('sp', controlData, 'sp', 'Setpoint', '#f59e0b', { dashed: true })
+  .setYAxis('manual', 0, 100)
+  .setXAxis('auto')
+  .build();
+```
+
+#### **Exemplo 4: Área Preenchida (Output de Controlador)**
+
+```typescript
+const outputData = [
+  { time: 0, output: 50 },
+  { time: 1, output: 60 },
+  { time: 2, output: 55 },
+];
+
+const { series, config } = createChart()
+  .addAreaSeries('output', outputData, 'output', 'Saída do Controlador', '#10b981')
+  .setYAxis('manual', 0, 100)
+  .setXAxis('auto')
+  .build();
+```
+
+### 8.10. Integração com Módulos
+
+#### **PlotterModule (Tempo Real)**
+
+O PlotterModule já usa o sistema de gráficos. Para customizar:
+
+```typescript
+// Em PlotterModule.svelte
+
+// Séries PV/SP
+const pvSpSeries = $derived([
+  {
+    key: 'pv',
+    label: 'PV (Process Variable)',
+    color: lineColors.pv,
+    visible: chartState.visible.pv,
+    data: plantData,
+    dataKey: 'pv' as const,
+    type: 'line' as const,
+    strokeWidth: 2
+  },
+  {
+    key: 'sp',
+    label: 'SP (Setpoint)',
+    color: lineColors.sp,
+    visible: chartState.visible.sp,
+    data: plantData,
+    dataKey: 'sp' as const,
+    type: 'step' as const,
+    strokeWidth: 1.5,
+    dashed: true
+  }
+]);
+```
+
+#### **AnalyzerModule (Dados Históricos)**
+
+O AnalyzerModule usa os presets para criar gráficos:
+
+```typescript
+// Em VariableChart.svelte
+import { ChartPresets } from '$lib/utils/chartBuilder';
+
+const charts = $derived(
+  ChartPresets.analyzer(
+    sensorData,
+    targetData,
+    actuatorData,
+    processedData.sensorRange,
+    processedData.actuatorRange
+  )
+);
+
+// Renderizar:
+<PlotlyChart series={charts.sensor.series} config={charts.sensor.config} theme={theme} />
+<PlotlyChart series={charts.actuator.series} config={charts.actuator.config} theme={theme} />
+```
+
+### 8.11. Boas Práticas
+
+1. **Use ChartBuilder**: Sempre prefira `ChartBuilder` ao invés de criar `series` e `config` manualmente
+2. **Use Presets**: Para casos comuns (tempo real, análise), use `ChartPresets`
+3. **Keys únicas**: Cada série precisa de um `key` único
+4. **dataKey correto**: Certifique-se que `dataKey` existe nos dados
+5. **Performance**: Limite o buffer de dados (ex: max 50.000 pontos)
+6. **Cores consistentes**: Use as cores padrão ou defina um tema consistente
+7. **Tipos TypeScript**: Sempre use `ChartDataPoint`, `ChartSeries`, `ChartConfig`
+
+### 8.12. Troubleshooting
+
+**Problema: Gráfico não aparece**
+- ✓ Container tem altura definida? (`h-full`, `min-h-0`, ou `height: 300px`)
+- ✓ Dados têm propriedade `time`?
+- ✓ `dataKey` corresponde às propriedades dos dados?
+
+**Problema: Zoom não funciona**
+- ✓ Configurou `onRangeChange`?
+- ✓ Está atualizando `config.xMin` e `config.xMax`?
+- ✓ `config.xMode` está em 'manual' quando definir range?
+
+**Problema: Cores não aparecem no dark mode**
+- ✓ Passou prop `theme` corretamente?
+- ✓ Cores são válidas (hex: '#3b82f6')?
+
+**Problema: Performance ruim com muitos pontos**
+- ✓ Limite o buffer de dados (splice quando > 50k pontos)
+- ✓ Use `xMode: 'sliding'` ao invés de 'auto' para janela móvel
+
+---
+
+## 9. Como Fazer: Receitas Comuns
+
+### 9.1. Adicionar um Novo Módulo na Sidebar
 
 **Exemplo:** Adicionar um módulo "Histórico" com ícone `Clock`.
 
@@ -362,17 +964,15 @@ MODULE_TABS = { plotter: { label, icon }, poles: { label, icon } }
 
 ```typescript
 // ANTES:
-export type TabKey = 'plotter' | 'poles';
+export type TabKey = 'plotter';
 export const MODULE_TABS = {
-  plotter: { label: 'Tendências', icon: 'TrendingUp' },
-  poles: { label: 'Polos', icon: 'Activity' }
+  plotter: { label: 'Tendências', icon: 'TrendingUp' }
 } as const;
 
 // DEPOIS:
-export type TabKey = 'plotter' | 'poles' | 'history';
+export type TabKey = 'plotter' | 'history';
 export const MODULE_TABS = {
   plotter: { label: 'Tendências', icon: 'TrendingUp' },
-  poles: { label: 'Polos', icon: 'Activity' },
   history: { label: 'Histórico', icon: 'Clock' }
 } as const;
 ```
@@ -399,10 +999,10 @@ export const MODULE_TABS = {
 ```svelte
 <script lang="ts">
   // Adicionar o import do ícone:
-  import { TrendingUp, Activity, Clock, Sun, Moon, Settings as SettingsIcon } from 'lucide-svelte';
+  import { TrendingUp, Clock, Sun, Moon, Settings as SettingsIcon } from 'lucide-svelte';
 </script>
 
-<!-- No <nav>, adicionar após o botão de poles: -->
+<!-- No <nav>, adicionar após o botão de plotter: -->
 <SidebarBtn
   icon={Clock}
   label={MODULE_TABS.history.label}
@@ -429,14 +1029,100 @@ export const MODULE_TABS = {
 
 ---
 
-### 8.2. Remover um Módulo Existente
+### 9.2. Enviar Dados para Plotagem
 
-**Exemplo:** Remover o módulo "Lugar das Raízes" (`poles`).
+O sistema de plotagem é desacoplado da fonte de dados. Qualquer fonte (simulação, serial, WebSocket, arquivo) só precisa fazer `push()` no buffer plain.
+
+**Passo 1 — Importar o buffer:**
+
+```typescript
+import { getPlantData, setPlantStats } from '$lib/stores/plantData';
+import type { PlantDataPoint } from '$lib/types/plant';
+```
+
+**Passo 2 — Enviar um ponto de dado:**
+
+```typescript
+const data = getPlantData(plantId);
+data.push({
+  time: elapsedSeconds,   // tempo em segundos (eixo X)
+  pv: sensorValue,        // variável de processo (ex: temperatura lida)
+  sp: setpointValue,      // setpoint desejado
+  mv: controllerOutput,   // saída do controlador (0-100%)
+});
+```
+
+**O que acontece automaticamente:**
+- `PlotlyChart` detecta `data.length` mudou a cada 33ms (~30fps) e chama `setData()`
+- `PlotterModule` atualiza `currentPV`, `currentMV` e stats via `_displayTick` (33ms)
+- O gráfico renderiza o novo ponto imediatamente no próximo frame
+
+**Passo 3 (opcional) — Limitar tamanho do buffer:**
+
+```typescript
+const MAX_POINTS = 50000;
+if (data.length > MAX_POINTS) {
+  data.splice(0, data.length - MAX_POINTS);
+}
+```
+
+**Passo 4 (opcional) — Atualizar estatísticas:**
+
+```typescript
+import { setPlantStats } from '$lib/stores/plantData';
+setPlantStats(plantId, {
+  errorAvg: calculatedError,
+  stability: stabilityIndex,
+  uptime: uptimeSeconds,
+});
+```
+
+---
+
+### 9.4. Alterar a Taxa de Atualização do Plot
+
+A taxa de renderização do gráfico é controlada por **dois timers independentes**:
+
+| Timer | Arquivo | Variável | Controla |
+|-------|---------|----------|----------|
+| Render timer | `PlotlyChart.svelte` | `renderTimer` | Frequência de `setData()` do uPlot |
+| Display tick | `PlotterModule.svelte` | `_displayTimer` | Atualização dos valores numéricos (PV, MV, stats) na toolbar |
+
+**Para mudar a taxa de plotagem (ambos devem usar o mesmo intervalo):**
+
+```typescript
+// PlotlyChart.svelte — onMount
+renderTimer = setInterval(() => {
+  const n = series.length > 0 ? series[0].data.length : 0;
+  if (n !== prevLen) {
+    prevLen = n;
+    updateChart();
+  }
+}, 33);  // 33ms ≈ 30fps | 16ms ≈ 60fps | 100ms ≈ 10fps
+
+// PlotterModule.svelte — onMount
+_displayTimer = setInterval(() => _displayTick++, 33);  // deve acompanhar o render timer
+```
+
+**Valores recomendados:**
+
+| FPS | Intervalo (ms) | Uso recomendado |
+|-----|---------------|------------------|
+| 60  | 16            | Animações ultra-suaves, alto consumo de CPU |
+| 30  | 33            | Padrão — bom equilíbrio entre fluidez e performance |
+| 10  | 100           | Dados lentos, economia de CPU |
+| 5   | 200           | Dados muito lentos, mínimo consumo |
+
+> **Nota:** O timer só chama `updateChart()` se houver dados novos (`n !== prevLen`), então CPU idle é zero mesmo com o timer rodando.
+
+### 9.3. Remover um Módulo Existente
+
+**Exemplo:** Remover um módulo customizado "History".
 
 **Passo 1 — Remover de `types/ui.ts`:**
 
 ```typescript
-// Remover 'poles' do TabKey e MODULE_TABS:
+// Remover 'history' do TabKey e MODULE_TABS:
 export type TabKey = 'plotter';
 export const MODULE_TABS = {
   plotter: { label: 'Tendências', icon: 'TrendingUp' }
@@ -446,40 +1132,40 @@ export const MODULE_TABS = {
 **Passo 2 — Remover da `Sidebar.svelte`:**
 
 ```svelte
-<!-- Remover este bloco inteiro: -->
+<!-- Remover o bloco do botão: -->
 <SidebarBtn
-  icon={Activity}
-  label={MODULE_TABS.poles.label}
-  active={activeModule === 'poles'}
+  icon={Clock}
+  label={MODULE_TABS.history.label}
+  active={activeModule === 'history'}
   collapsed={sidebarCollapsed}
-  onclick={() => appStore.setActiveModule('poles')}
+  onclick={() => appStore.setActiveModule('history')}
 />
 
-<!-- E remover o import Activity se não for mais usado -->
+<!-- E remover o import Clock se não for mais usado -->
 ```
 
 **Passo 3 — Remover do `+page.svelte`:**
 
 ```svelte
 <!-- Remover import: -->
-import PoleAnalysisModule from '$lib/components/modules/PoleAnalysisModule.svelte';
+import HistoryModule from '$lib/components/modules/HistoryModule.svelte';
 
 <!-- Remover bloco condicional: -->
-{:else if appStore.state.activeModule === 'poles'}
-  <PoleAnalysisModule theme={appStore.state.theme || 'dark'} />
+{:else if appStore.state.activeModule === 'history'}
+  <HistoryModule theme={appStore.state.theme || 'dark'} />
 ```
 
 **Passo 4 — Deletar o arquivo:**
 
 ```bash
-rm src/lib/components/modules/PoleAnalysisModule.svelte
+rm src/lib/components/modules/HistoryModule.svelte
 ```
 
 **Passo 5 — Garantir que o `activeModule` padrão no `data.svelte.ts` não aponte para o módulo removido** (já é `'plotter'`, então OK).
 
 ---
 
-### 8.3. Integrar Dados Reais do Backend (Tauri)
+### 9.5. Integrar Dados Reais do Backend (Tauri)
 
 Atualmente o app usa simulação local (`services/simulation.ts`). Para conectar ao backend real via Tauri:
 
@@ -569,7 +1255,7 @@ app_handle.emit(&format!("serial-data-{}", plant_id), SerialPayload {
 
 ---
 
-### 8.4. Adicionar uma Nova Variável ao Gráfico
+### 9.6. Adicionar uma Nova Variável ao Gráfico
 
 **Exemplo:** Adicionar variável "Temperatura" (`temp`) ao gráfico superior.
 
@@ -634,7 +1320,7 @@ const pvSpSeries = $derived([
 
 ---
 
-### 8.5. Criar um Novo Tipo de Controlador
+### 9.7. Criar um Novo Tipo de Controlador
 
 **Exemplo:** Adicionar controlador tipo "Fuzzy".
 
@@ -666,6 +1352,69 @@ export interface Controller {
 **Passo 4 — No `PlotterModule.svelte`, atualizar `addController()` para permitir escolher o tipo** (ou manter como default PID e adicionar um select no `ControllerPanel`).
 
 **Passo 5 — Implementar a lógica do controlador** no serviço de simulação (`services/simulation.ts`) ou no backend Rust.
+
+---
+
+### 9.8. Usar o Módulo Analyzer
+
+O módulo Analyzer permite analisar dados históricos de múltiplas variáveis a partir de arquivos CSV. **Importante:** Todo processamento é feito pelo backend (atualmente mockado).
+
+**Arquitetura:**
+
+```
+Upload CSV → Backend Mockado → Dados Processados → UI Renderiza
+            (analyzerBackend.ts)
+            - Valida formato
+            - Extrai variáveis
+            - Calcula ranges
+            - Otimiza dados
+```
+
+**Formato do CSV:**
+
+```csv
+seconds, sensor_0, actuator_0, target_0, sensor_1, actuator_1, target_1
+0.0, 25.3, 12.5, 20.0, 30.1, 8.2, 28.0
+0.1, 25.5, 13.1, 20.0, 30.3, 8.5, 28.0
+0.2, 25.8, 14.2, 20.0, 30.5, 9.1, 28.0
+```
+
+**Regras:**
+- Primeira coluna deve ser `seconds` (tempo em segundos)
+- Cada variável é um grupo de 3 colunas: `sensor_N`, `actuator_N`, `target_N`
+- N deve ser sequencial (0, 1, 2, ...)
+- Todas as 3 colunas do grupo devem estar presentes
+
+**Uso:**
+
+1. **Carregar CSV:** Clique em "Carregar CSV" no header do Analyzer
+2. **Selecionar variáveis:** Use o painel lateral para marcar as variáveis desejadas
+3. **Visualizar:** As variáveis selecionadas aparecem em grid, cada uma com:
+   - Gráfico superior: sensor (azul) + target (laranja tracejado)
+   - Gráfico inferior: actuator (verde)
+4. **Layout responsivo:** O grid se ajusta automaticamente ao número de variáveis
+
+**Exemplo de criação de CSV via Python:**
+
+```python
+import pandas as pd
+import numpy as np
+
+# Simular 3 variáveis por 100 segundos
+time = np.arange(0, 100, 0.1)
+data = {
+    'seconds': time,
+    'sensor_0': 20 + 5 * np.sin(time * 0.1) + np.random.randn(len(time)),
+    'actuator_0': 50 + 10 * np.cos(time * 0.05),
+    'target_0': np.full(len(time), 20),
+    'sensor_1': 30 + 8 * np.sin(time * 0.15) + np.random.randn(len(time)),
+    'actuator_1': 60 + 15 * np.cos(time * 0.08),
+    'target_1': np.full(len(time), 30),
+}
+
+df = pd.DataFrame(data)
+df.to_csv('plant_data.csv', index=False)
+```
 
 ---
 

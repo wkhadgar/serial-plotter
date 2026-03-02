@@ -1,20 +1,36 @@
 <script lang="ts">
   import { Plus, X } from 'lucide-svelte';
   import type { Plant } from '$lib/types/plant';
+  import PlantAddMenu from './PlantAddMenu.svelte';
 
   let { 
     plants,
     activePlantId,
     onSelect,
-    onAdd,
+    onOpenFile,
+    onCreateNew,
     onRemove
   }: {
     plants: Plant[];
     activePlantId: string;
     onSelect: (id: string) => void;
-    onAdd: () => void;
+    onOpenFile: () => void;
+    onCreateNew: () => void;
     onRemove: (id: string) => void;
   } = $props();
+
+  // Menu state
+  let menuVisible = $state(false);
+  let menuX = $state(0);
+  let menuY = $state(0);
+  let addButtonRef: HTMLButtonElement;
+
+  function handleAddClick(e: MouseEvent) {
+    const rect = addButtonRef.getBoundingClientRect();
+    menuX = rect.left;
+    menuY = rect.bottom + 4;
+    menuVisible = true;
+  }
 </script>
 
 <header class="h-10 bg-white dark:bg-[#0c0c0e] border-b border-slate-200 dark:border-white/5 flex items-end px-4 select-none z-10 print:hidden">
@@ -38,7 +54,20 @@
       </button>
     </div>
   {/each}
-  <button onclick={onAdd} class="h-7 w-7 mb-0.5 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors">
+  <button 
+    bind:this={addButtonRef}
+    onclick={handleAddClick} 
+    class="h-7 w-7 mb-0.5 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors"
+  >
     <Plus size={16} />
   </button>
 </header>
+
+<PlantAddMenu
+  visible={menuVisible}
+  x={menuX}
+  y={menuY}
+  onClose={() => menuVisible = false}
+  {onOpenFile}
+  {onCreateNew}
+/>

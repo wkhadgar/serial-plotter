@@ -1,37 +1,55 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { appStore } from '$lib/stores/data.svelte';
-  import { getPlantData, getPlantStats } from '$lib/stores/plantData';
-  import { exportPlantDataCSV } from '$lib/services/export';
+  import { getPlantData, getPlantStats, getVariableStats } from '$lib/stores/plantData';
+  import { exportPlantDataCSV, exportPlantDataJSON } from '$lib/services/export';
   import { formatTime } from '$lib/utils/format';
-  import PlotlyChart from '../charts/PlotlyChart.svelte';
+  import VariableGrid from '../charts/VariableGrid.svelte';
   import PlantTabs from '../plotter/PlantTabs.svelte';
   import PlotterToolbar from '../plotter/PlotterToolbar.svelte';
   import ChartContextMenu from '../plotter/ChartContextMenu.svelte';
   import ControllerPanel from '../plotter/ControllerPanel.svelte';
   import PlantRemovalModal from '../modals/PlantRemovalModal.svelte';
-  import type { Plant } from '$lib/types/plant';
-  import { type ChartStateType, defaultChartState, DEFAULT_LINE_COLORS } from '$lib/types/chart';
+  import CreatePlantModal from '../modals/CreatePlantModal.svelte';
+  import type { Plant, PlantVariable, VariableStats } from '$lib/types/plant';
+  import { createDefaultVariable } from '$lib/types/plant';
+  import { getVariableKeys } from '$lib/types/plant';
+  import { type ChartStateType, defaultChartState, DEFAULT_LINE_COLORS, nextViewState, resetToGridView } from '$lib/types/chart';
+  import { generateId } from '$lib/utils/format';
+  import { openPlant } from '$lib/services/plantBackend';
+  import { openFileDialog, readFileAsJSON, FILE_FILTERS } from '$lib/services/fileDialog';
 
   let { plants, activePlantId, theme, showControllerPanel = $bindable(false) } = $props();
 
-  let chartStates: Record<string, ChartStateType> = $state(
-    Object.fromEntries(plants.map((p: Plant) => [p.id, defaultChartState()]))
-  );
+  let chartStates: Record<string, ChartStateType> = $state({});
 
+  // Inicializa chartStates para novas plantas
+  // Conta apenas sensores para navegação (atuadores são plotados nos sensores)
   $effect(() => {
     for (const plant of plants) {
+      const sensorCount = plant.variables.filter((v: any) => v.type === 'sensor').length;
       if (!(plant.id in chartStates)) {
-        chartStates[plant.id] = defaultChartState();
+        chartStates[plant.id] = defaultChartState(sensorCount);
+      } else if (chartStates[plant.id].variableCount !== sensorCount) {
+        // Atualiza se o número de sensores mudou
+        chartStates[plant.id].variableCount = sensorCount;
       }
     }
   });
 
   const chartState = $derived(chartStates[activePlantId] ?? defaultChartState());
 
-  let lineColors = $state({ ...DEFAULT_LINE_COLORS });
+  type SeriesStyle = {
+    color: string;
+    visible: boolean;
+    label: string;
+  };
+
+  let seriesStyles = $state<Record<string, SeriesStyle>>({});
+  const actuatorPalette = ['#10b981', '#06b6d4', '#8b5cf6', '#f97316', '#ec4899', '#14b8a6'];
 
   let contextMenu = $state({ visible: false, x: 0, y: 0 });
+  let contextSensorIndex = $state(0);
   let graphContainerRef: HTMLDivElement;
 
   let removeModal = $state({
@@ -41,19 +59,178 @@
     reason: '' as 'confirm' | 'min-units'
   });
 
+  let createPlantModal = $state(false);
+  let openPlantLoading = $state(false);
+
   const activePlant = $derived(plants.find((p: Plant) => p.id === activePlantId));
 
-  function handleAddPlant() {
-    const newId = Math.random().toString(36).substr(2, 9);
-    appStore.addPlant({
-      id: newId,
-      name: `Unidade ${plants.length + 1}`,
-      connected: false,
-      paused: false,
-      setpoint: 50,
-      controllers: []
+  const sensorVariables = $derived(
+    activePlant?.variables
+      .map((variable: PlantVariable, index: number) => ({ variable, index }))
+      .filter(({ variable }: { variable: PlantVariable; index: number }) => variable.type === 'sensor') ?? []
+  );
+
+  const focusedSensor = $derived.by(() => {
+    if (sensorVariables.length === 0) return null;
+    const safeIndex = Math.max(0, Math.min(chartState.focusedVariableIndex, sensorVariables.length - 1));
+    return sensorVariables[safeIndex];
+  });
+
+  // Sensor selecionado pelo clique direito (para o menu contextual)
+  const contextSensor = $derived.by(() => {
+    if (sensorVariables.length === 0) return null;
+    const safeIndex = Math.max(0, Math.min(contextSensorIndex, sensorVariables.length - 1));
+    return sensorVariables[safeIndex];
+  });
+
+  $effect(() => {
+    if (!activePlant) return;
+
+    // untrack para evitar dependência circular (lê seriesStyles sem rastrear)
+    const current = untrack(() => seriesStyles);
+    const next: Record<string, SeriesStyle> = {};
+    let actuatorColorIndex = 0;
+
+    activePlant.variables.forEach((variable: PlantVariable, index: number) => {
+      const keys = getVariableKeys(index);
+
+      if (variable.type === 'sensor') {
+        next[keys.pv] = current[keys.pv] ?? {
+          color: DEFAULT_LINE_COLORS.pv,
+          visible: true,
+          label: `${variable.name} PV`,
+        };
+        next[keys.sp] = current[keys.sp] ?? {
+          color: DEFAULT_LINE_COLORS.sp,
+          visible: true,
+          label: `${variable.name} SP`,
+        };
+      } else {
+        next[keys.pv] = current[keys.pv] ?? {
+          color: actuatorPalette[actuatorColorIndex % actuatorPalette.length],
+          visible: true,
+          label: variable.name,
+        };
+        actuatorColorIndex += 1;
+      }
     });
-    appStore.setActivePlantId(newId);
+
+    seriesStyles = next;
+  });
+
+  const contextSeriesControls = $derived.by(() => {
+    if (!activePlant || !contextSensor) return [];
+
+    const controls: { key: string; label: string; color: string; visible: boolean }[] = [];
+    const sensorKeys = getVariableKeys(contextSensor.index);
+
+    const pvStyle = seriesStyles[sensorKeys.pv];
+    const spStyle = seriesStyles[sensorKeys.sp];
+
+    controls.push({
+      key: sensorKeys.pv,
+      label: 'PV (Sensor)',
+      color: pvStyle?.color ?? DEFAULT_LINE_COLORS.pv,
+      visible: pvStyle?.visible ?? true,
+    });
+
+    controls.push({
+      key: sensorKeys.sp,
+      label: 'SP (Setpoint)',
+      color: spStyle?.color ?? DEFAULT_LINE_COLORS.sp,
+      visible: spStyle?.visible ?? true,
+    });
+
+    activePlant.variables.forEach((variable: PlantVariable, index: number) => {
+      if (variable.type !== 'atuador' || !variable.linkedSensorIds?.includes(contextSensor.variable.id)) {
+        return;
+      }
+
+      const actuatorKey = getVariableKeys(index).pv;
+      const actuatorStyle = seriesStyles[actuatorKey];
+
+      controls.push({
+        key: actuatorKey,
+        label: `${variable.name} (Atuador)`,
+        color: actuatorStyle?.color ?? DEFAULT_LINE_COLORS.mv,
+        visible: actuatorStyle?.visible ?? true,
+      });
+    });
+
+    return controls;
+  });
+
+  const contextSeriesTitle = $derived(
+    contextSensor ? `Linhas - ${contextSensor.variable.name}` : 'Linhas'
+  );
+
+  const mockDt = $derived.by(() => {
+    _displayTick;
+    return activePlant?.connected ? 0.1 : 0;
+  });
+
+  function toggleSeriesVisibility(key: string) {
+    const current = seriesStyles[key];
+    if (!current) return;
+    seriesStyles = {
+      ...seriesStyles,
+      [key]: {
+        ...current,
+        visible: !current.visible,
+      },
+    };
+  }
+
+  function updateSeriesColor(key: string, color: string) {
+    const current = seriesStyles[key];
+    if (!current) return;
+    seriesStyles = {
+      ...seriesStyles,
+      [key]: {
+        ...current,
+        color,
+      },
+    };
+  }
+
+  async function handleOpenFile() {
+    openPlantLoading = true;
+    try {
+      // Abre seletor de arquivo usando serviço modular
+      const result = await openFileDialog({
+        title: 'Abrir Planta',
+        filters: FILE_FILTERS.plant,
+      });
+
+      if (!result) {
+        openPlantLoading = false;
+        return;
+      }
+
+      // Lê e processa o arquivo
+      const plantResult = await openPlant({ filePath: result.name });
+      if (plantResult.success && plantResult.plant) {
+        appStore.addPlant(plantResult.plant);
+        appStore.setActivePlantId(plantResult.plant.id);
+      } else {
+        alert(plantResult.error || 'Erro ao abrir planta');
+      }
+    } catch (e) {
+      console.error('Erro ao abrir planta:', e);
+      alert('Erro ao abrir planta');
+    } finally {
+      openPlantLoading = false;
+    }
+  }
+
+  function handleCreateNew() {
+    createPlantModal = true;
+  }
+
+  function handlePlantCreated(plant: Plant) {
+    appStore.addPlant(plant);
+    appStore.setActivePlantId(plant.id);
+    createPlantModal = false;
   }
 
   function handleRemovePlant(plantId: string) {
@@ -97,9 +274,16 @@
     }
   }
 
-  function handleExportData() {
+  function handleExportCSV() {
     const data = getPlantData(activePlantId);
-    if (!activePlant || !exportPlantDataCSV(activePlant.name, data)) {
+    if (!activePlant || !exportPlantDataCSV(activePlant, data)) {
+      alert('Sem dados para exportar.');
+    }
+  }
+
+  function handleExportJSON() {
+    const data = getPlantData(activePlantId);
+    if (!activePlant || !exportPlantDataJSON(activePlant, data)) {
       alert('Sem dados para exportar.');
     }
   }
@@ -117,9 +301,24 @@
     chartState.xMax = null;
   }
 
+  let _displayTick = $state(0);
+  let _displayTimer: ReturnType<typeof setInterval>;
+
   function handleContextMenu(e: MouseEvent) {
     e.preventDefault();
     if (!graphContainerRef) return;
+
+    // Detecta qual card de sensor foi clicado via data-sensor-index
+    let target = e.target as HTMLElement | null;
+    while (target && target !== graphContainerRef) {
+      const idx = target.dataset?.sensorIndex;
+      if (idx !== undefined) {
+        contextSensorIndex = parseInt(idx, 10);
+        break;
+      }
+      target = target.parentElement;
+    }
+
     const bounds = graphContainerRef.getBoundingClientRect();
     const menuWidth = 250;
     const menuHeight = 360;
@@ -164,68 +363,52 @@
     appStore.updateControllerParam(activePlant.id, controllerId, paramKey, value);
   }
 
-  function updateSetpoint(value: number) {
+  function updateSetpoint(varIndex: number, value: number) {
     if (!activePlant) return;
-    appStore.updateSetpoint(activePlant.id, value);
+    appStore.updateVariableSetpoint(activePlant.id, varIndex, value);
   }
 
-  let _displayTick = $state(0);
-  let _displayTimer: ReturnType<typeof setInterval>;
-  onMount(() => { _displayTimer = setInterval(() => _displayTick++, 200); });
-  onDestroy(() => clearInterval(_displayTimer));
+  // Keyboard navigation para modos de visualização
+  function handleKeyDown(event: KeyboardEvent) {
+    // Ignora se estiver em um input
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+      return;
+    }
+    
+    const state = chartStates[activePlantId];
+    if (!state) return;
+    
+    if (event.code === 'Space') {
+      event.preventDefault();
+      nextViewState(state);
+    } else if (event.code === 'KeyH') {
+      event.preventDefault();
+      resetToGridView(state);
+    }
+  }
 
-  const currentPV = $derived.by(() => {
-    _displayTick;
-    const data = getPlantData(activePlantId);
-    return data.length > 0 ? data[data.length - 1].pv : 0;
+  onMount(() => {
+    _displayTimer = setInterval(() => _displayTick++, 33);
+    window.addEventListener('keydown', handleKeyDown);
   });
-  const currentMV = $derived.by(() => {
-    _displayTick;
-    const data = getPlantData(activePlantId);
-    return data.length > 0 ? data[data.length - 1].mv : 0;
+  
+  onDestroy(() => {
+    clearInterval(_displayTimer);
+    window.removeEventListener('keydown', handleKeyDown);
   });
+
   const currentStats = $derived.by(() => {
     _displayTick;
     return getPlantStats(activePlantId);
   });
   const plantData = $derived(getPlantData(activePlantId));
-
-  const pvSpSeries = $derived([
-    {
-      key: 'pv',
-      label: 'PV (Process Variable)',
-      color: lineColors.pv,
-      visible: chartState.visible.pv,
-      data: plantData,
-      dataKey: 'pv' as const,
-      type: 'line' as const,
-      strokeWidth: 2
-    },
-    {
-      key: 'sp',
-      label: 'SP (Setpoint)',
-    color: lineColors.sp,
-      visible: chartState.visible.sp,
-      data: plantData,
-      dataKey: 'sp' as const,
-      type: 'step' as const,
-      strokeWidth: 1.5,
-      dashed: true
-    }
-  ]);
-
-  const mvSeries = $derived([
-    {
-      key: 'mv',
-      label: 'MV (Output)',
-      color: lineColors.mv,
-      visible: chartState.visible.mv,
-      data: plantData,
-      dataKey: 'mv' as const,
-      type: 'area' as const,
-      strokeWidth: 1.5
-    }
-  ]);
+  
+  // Stats por variável (atualiza com displayTick)
+  const variableStatsArray = $derived.by(() => {
+    _displayTick;
+    if (!activePlant) return [];
+    return activePlant.variables.map((_: unknown, idx: number) => getVariableStats(activePlantId, idx));
+  });
 
   const pvSpConfig = $derived({
     yMin: chartState.yMin,
@@ -263,7 +446,8 @@
     {plants}
     {activePlantId}
     onSelect={(id) => appStore.setActivePlantId(id)}
-    onAdd={handleAddPlant}
+    onOpenFile={handleOpenFile}
+    onCreateNew={handleCreateNew}
     onRemove={handleRemovePlant}
   />
 
@@ -272,11 +456,13 @@
       <PlotterToolbar
         plant={activePlant}
         {currentStats}
+        dt={mockDt}
         bind:showControllerPanel
         onToggleConnect={handleToggleConnect}
         onTogglePause={handleTogglePause}
         onResetZoom={resetZoom}
-        onExport={handleExportData}
+        onExportCSV={handleExportCSV}
+        onExportJSON={handleExportJSON}
         onPrint={handlePrint}
         {formatTime}
       />
@@ -294,44 +480,27 @@
           x={contextMenu.x}
           y={contextMenu.y}
           {chartState}
-          {lineColors}
+          seriesControls={contextSeriesControls}
+          seriesTitle={contextSeriesTitle}
+          onToggleSeries={toggleSeriesVisibility}
+          onChangeSeriesColor={updateSeriesColor}
           onClose={closeContextMenu}
         />
 
-        <div class="flex-[2] rounded-xl border relative shadow-sm overflow-hidden transition-all duration-500 group select-none bg-white dark:bg-[#0c0c0e] border-slate-200 dark:border-white/10">
-          <div class="absolute top-3 right-3 z-20 pointer-events-none flex items-center gap-3 bg-white/70 dark:bg-black/50 backdrop-blur-md rounded-lg px-3.5 py-2 border border-slate-200/50 dark:border-white/10 shadow-sm">
-            <div class="flex flex-col items-end">
-              <span class="text-[9px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">PV</span>
-              <span class="text-lg font-mono font-bold leading-tight" style="color: {lineColors.pv}">{currentPV.toFixed(2)}<span class="text-[10px] font-medium text-slate-400 ml-0.5">%</span></span>
-            </div>
-            <div class="w-px h-8 bg-slate-200 dark:bg-white/10"></div>
-            <div class="flex flex-col items-end">
-              <span class="text-[9px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">SP</span>
-              <span class="text-lg font-mono font-bold leading-tight" style="color: {lineColors.sp}">{activePlant?.setpoint.toFixed(1) ?? '--'}<span class="text-[10px] font-medium text-slate-400 ml-0.5">%</span></span>
-            </div>
-          </div>
-          <PlotlyChart 
-            series={pvSpSeries} 
-            config={pvSpConfig} 
-            theme={theme}
+        {#if activePlant}
+          <VariableGrid
+            variables={activePlant.variables}
+            data={plantData}
+            pvConfig={pvSpConfig}
+            {mvConfig}
+            {theme}
+            viewMode={chartState.viewMode}
+            focusedIndex={chartState.focusedVariableIndex}
+            lineStyles={seriesStyles}
+            variableStats={variableStatsArray}
             onRangeChange={handleRangeChange}
           />
-        </div>
-
-        <div class="flex-1 bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 relative shadow-sm overflow-hidden group">
-          <div class="absolute top-3 right-3 z-20 pointer-events-none flex items-center gap-2 bg-white/70 dark:bg-black/50 backdrop-blur-md rounded-lg px-3.5 py-2 border border-slate-200/50 dark:border-white/10 shadow-sm">
-            <div class="flex flex-col items-end">
-              <span class="text-[9px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">MV</span>
-              <span class="text-lg font-mono font-bold leading-tight" style="color: {lineColors.mv}">{currentMV.toFixed(1)}<span class="text-[10px] font-medium text-slate-400 ml-0.5">%</span></span>
-            </div>
-          </div>
-          <PlotlyChart 
-            series={mvSeries} 
-            config={mvConfig} 
-            theme={theme}
-            onRangeChange={handleRangeChange}
-          />
-        </div>
+        {/if}
       </div>
     </div>
 
@@ -352,6 +521,12 @@
     reason={removeModal.reason}
     onConfirm={confirmRemovePlant}
     onCancel={cancelRemovePlant}
+  />
+
+  <CreatePlantModal
+    bind:visible={createPlantModal}
+    onPlantCreated={handlePlantCreated}
+    onClose={() => createPlantModal = false}
   />
 </div>
 

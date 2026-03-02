@@ -1,7 +1,7 @@
 <script lang="ts">
   import { appStore } from '$lib/stores/data.svelte';
   import SidebarBtn from './SidebarBtn.svelte';
-  import { TrendingUp, Activity, Sun, Moon, Settings as SettingsIcon } from 'lucide-svelte';
+  import { TrendingUp, BarChart3, Sun, Moon, Settings as SettingsIcon } from 'lucide-svelte';
   import { MODULE_TABS } from '$lib/types/ui';
 
   let { theme, sidebarCollapsed, activeModule } = $props();
@@ -27,21 +27,19 @@
     aria-label={sidebarCollapsed ? 'Expandir menu' : 'Recolher menu'}
     class={`h-16 flex items-center border-b border-slate-100 dark:border-white/5 transition-all duration-300 cursor-pointer hover:bg-slate-50 dark:hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 ${sidebarCollapsed ? 'justify-center' : 'px-4 gap-3'}`}
   >
-    <div class="w-9 h-9 rounded-lg bg-blue-600 flex-shrink-0 flex items-center justify-center text-white shadow-md hover:scale-105 transition-transform">
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M9 20a3 3 0 0 1-3-3v-2a4 4 0 0 1 4-4h4a4 4 0 0 0 4-4V5" />
-        <path d="M18 5a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
-        <path d="M18 1v-1" />
+    <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-blue-500 to-blue-700 flex-shrink-0 flex items-center justify-center text-white shadow-md hover:scale-105 transition-transform">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
       </svg>
     </div>
     {#if !sidebarCollapsed}
       <span class="font-bold tracking-tight text-lg text-slate-800 dark:text-white whitespace-nowrap">
-        SCA<span class="text-blue-600">DA</span>.js
+        Sena<span class="text-blue-600">mby</span>
       </span>
     {/if}
   </button>
 
-  <nav class="flex-1 py-6 px-3 space-y-2">
+  <nav class="flex-1 py-2 px-3 space-y-1">
     <SidebarBtn
       icon={TrendingUp}
       label={MODULE_TABS.plotter.label}
@@ -50,11 +48,11 @@
       onclick={() => appStore.setActiveModule('plotter')}
     />
     <SidebarBtn
-      icon={Activity}
-      label={MODULE_TABS.poles.label}
-      active={activeModule === 'poles'}
+      icon={BarChart3}
+      label={MODULE_TABS.analyzer.label}
+      active={activeModule === 'analyzer'}
       collapsed={sidebarCollapsed}
-      onclick={() => appStore.setActiveModule('poles')}
+      onclick={() => appStore.setActiveModule('analyzer')}
     />
   </nav>
 

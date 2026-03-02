@@ -1,9 +1,6 @@
-export type TabKey = 'plotter' | 'poles';
+export type TabKey = 'plotter' | 'analyzer';
 
 export const MODULE_TABS = {
   plotter: { label: 'Tendências', icon: 'TrendingUp' },
-  poles: { label: 'Polos', icon: 'Activity' }
+  analyzer: { label: 'Analyzer', icon: 'BarChart3' }
 } as const;
-
-export type ThemeMode = 'dark' | 'light';
-

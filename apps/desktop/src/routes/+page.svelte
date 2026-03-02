@@ -3,7 +3,7 @@
   import { startSimulation } from '$lib/services/simulation';
   import Sidebar from '$lib/components/layout/Sidebar.svelte';
   import PlotterModule from '$lib/components/modules/PlotterModule.svelte';
-  import PoleAnalysisModule from '$lib/components/modules/PoleAnalysisModule.svelte';
+  import AnalyzerModule from '$lib/components/modules/AnalyzerModule.svelte';
   import GlobalSettingsModal from '$lib/components/modals/GlobalSettingsModal.svelte';
 
   let showControllerPanel = $state(false);
@@ -41,8 +41,8 @@
           theme={appStore.state.theme || 'dark'}
           bind:showControllerPanel
         />
-      {:else if appStore.state.activeModule === 'poles'}
-        <PoleAnalysisModule theme={appStore.state.theme || 'dark'} />
+      {:else if appStore.state.activeModule === 'analyzer'}
+        <AnalyzerModule theme={appStore.state.theme || 'dark'} />
       {:else}
         <div class="flex-1 flex items-center justify-center text-slate-400 dark:text-zinc-600 bg-slate-50 dark:bg-zinc-950">
           <div class="text-center">

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronsRight, Trash2 } from 'lucide-svelte';
+  import { ChevronsRight, Trash2, ChevronDown, ChevronUp } from 'lucide-svelte';
   import SimpleToggle from '../ui/SimpleToggle.svelte';
   import DynamicParamInput from '../ui/DynamicParamInput.svelte';
   import type { Plant } from '$lib/types/plant';
@@ -20,8 +20,18 @@
     onDeleteController: (id: string) => void;
     onUpdateControllerMeta: (id: string, field: string, value: any) => void;
     onUpdateControllerParam: (id: string, paramKey: string, value: any) => void;
-    onUpdateSetpoint: (value: number) => void;
+    onUpdateSetpoint: (varIndex: number, value: number) => void;
   } = $props();
+
+  // Estado para expandir/colapsar seção de setpoints
+  let setpointsExpanded = $state(true);
+
+  // Filtra apenas sensores para setpoints
+  const sensorVariables = $derived(
+    plant?.variables
+      .map((v, idx) => ({ variable: v, index: idx }))
+      .filter(({ variable }) => variable.type === 'sensor') ?? []
+  );
 </script>
 
 <div class={`${visible ? 'w-80 translate-x-0' : 'w-0 translate-x-full'} bg-white dark:bg-[#0c0c0e] border-l border-slate-200 dark:border-white/5 flex flex-col transition-all duration-300 ease-in-out shadow-xl relative z-30 print:hidden`}>
@@ -33,20 +43,49 @@
   </div>
   <div class="flex-1 overflow-y-auto p-5 space-y-6 min-w-[320px]">
     {#if plant}
-      <div class="bg-slate-50 dark:bg-[#121215] rounded-xl p-4 border border-slate-200 dark:border-white/5 shadow-sm">
-        <div class="flex justify-between items-end mb-2">
-          <span class="text-xs font-bold text-slate-500 uppercase tracking-wide">Setpoint</span>
-          <span class="text-xl font-mono font-bold text-blue-600 dark:text-blue-400">{plant.setpoint.toFixed(1)}%</span>
-        </div>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          step="0.5"
-          value={plant.setpoint}
-          onchange={(e: Event) => onUpdateSetpoint(Number((e.target as HTMLInputElement).value))}
-          class="w-full h-1.5 bg-slate-300 dark:bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-blue-600"
-        />
+      <!-- Setpoints por variável (apenas sensores) -->
+      <div class="bg-slate-50 dark:bg-[#121215] rounded-xl border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden">
+        <button 
+          onclick={() => setpointsExpanded = !setpointsExpanded}
+          class="w-full p-3 flex items-center justify-between hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+        >
+          <span class="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wide">
+            Setpoints ({sensorVariables.length} sensores)
+          </span>
+          {#if setpointsExpanded}
+            <ChevronUp size={16} class="text-slate-400" />
+          {:else}
+            <ChevronDown size={16} class="text-slate-400" />
+          {/if}
+        </button>
+        
+        {#if setpointsExpanded}
+          <div class="px-3 pb-3 space-y-2">
+            {#each sensorVariables as { variable, index } (variable.id)}
+              <div class="flex items-center gap-2 p-2 rounded-lg bg-white dark:bg-black/20 border border-slate-100 dark:border-white/5">
+                <div class="flex-1 min-w-0">
+                  <span class="text-xs font-medium text-slate-600 dark:text-zinc-300 truncate block">
+                    {variable.name}
+                  </span>
+                </div>
+                <div class="flex items-center gap-1">
+                  <input
+                    type="number"
+                    value={variable.setpoint}
+                    min={variable.pvMin}
+                    max={variable.pvMax}
+                    step="0.1"
+                    onchange={(e: Event) => onUpdateSetpoint(index, Number((e.target as HTMLInputElement).value))}
+                    class="w-20 px-2 py-1 text-sm font-mono font-bold text-right text-blue-600 dark:text-blue-400 bg-transparent border border-slate-200 dark:border-white/10 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  />
+                  <span class="text-[10px] text-slate-400 dark:text-zinc-500 w-6">
+                    {variable.unit}
+                  </span>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
       </div>
       
       <div class="border-t border-slate-100 dark:border-white/5"></div>

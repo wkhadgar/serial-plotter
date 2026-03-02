@@ -322,7 +322,7 @@
         prevLen = n;
         updateChart();
       }
-    }, 200);
+    }, 33);
     const ro = new ResizeObserver(() => {
       if (chart && wrapper) {
         const rect = wrapper.getBoundingClientRect();

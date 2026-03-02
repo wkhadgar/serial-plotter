@@ -1,29 +1,54 @@
 <script lang="ts">
-  import { Power, Play, Pause, Home, Download, Camera, AlertTriangle, Gauge, Timer, Sliders } from 'lucide-svelte';
+  import { Power, Play, Pause, Home, Download, Camera, Timer, Sliders, ChevronDown } from 'lucide-svelte';
   import type { Plant } from '$lib/types/plant';
 
   let {
     plant,
     currentStats,
+    dt,
     showControllerPanel = $bindable(false),
     onToggleConnect,
     onTogglePause,
     onResetZoom,
-    onExport,
+    onExportCSV,
+    onExportJSON,
     onPrint,
     formatTime
   }: {
     plant: Plant | undefined;
     currentStats: { errorAvg: number; stability: number; uptime: number };
+    dt: number;
     showControllerPanel: boolean;
     onToggleConnect: () => void;
     onTogglePause: () => void;
     onResetZoom: () => void;
-    onExport: () => void;
+    onExportCSV: () => void;
+    onExportJSON: () => void;
     onPrint: () => void;
     formatTime: (seconds: number) => string;
   } = $props();
+
+  let exportMenuOpen = $state(false);
+
+  function handleExportCSV() {
+    exportMenuOpen = false;
+    onExportCSV();
+  }
+
+  function handleExportJSON() {
+    exportMenuOpen = false;
+    onExportJSON();
+  }
+
+  function handleClickOutside(e: MouseEvent) {
+    const target = e.target as HTMLElement;
+    if (!target.closest('.export-dropdown')) {
+      exportMenuOpen = false;
+    }
+  }
 </script>
+
+<svelte:window onclick={handleClickOutside} />
 
 <div class="h-14 bg-white dark:bg-[#0c0c0e] border-b border-slate-200 dark:border-white/5 flex items-center justify-between px-6 shadow-sm z-20 print:hidden">
   <div class="flex items-center gap-3">
@@ -53,9 +78,32 @@
     <button onclick={onResetZoom} class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors" title="Home (Ver Tudo)">
       <Home size={20} />
     </button>
-    <button onclick={onExport} class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors" title="Exportar CSV">
-      <Download size={20} />
-    </button>
+    <div class="relative export-dropdown">
+      <button
+        onclick={(e) => { e.stopPropagation(); exportMenuOpen = !exportMenuOpen; }}
+        class="flex items-center gap-0.5 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors"
+        title="Exportar dados"
+      >
+        <Download size={20} />
+        <ChevronDown size={12} />
+      </button>
+      {#if exportMenuOpen}
+        <div class="absolute top-full left-0 mt-1 bg-white dark:bg-[#18181b] border border-slate-200 dark:border-white/10 rounded-lg shadow-lg z-50 min-w-[160px] py-1">
+          <button
+            onclick={handleExportCSV}
+            class="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+          >
+            Exportar CSV
+          </button>
+          <button
+            onclick={handleExportJSON}
+            class="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+          >
+            Exportar JSON
+          </button>
+        </div>
+      {/if}
+    </div>
     <button onclick={onPrint} class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors" title="Imprimir">
       <Camera size={20} />
     </button>
@@ -65,18 +113,9 @@
     {#if plant?.connected}
       <div class="hidden md:flex items-center gap-4 mr-4">
         <div class="flex flex-col items-end">
-          <span class="text-[9px] font-bold text-slate-400 uppercase">Erro Médio</span>
-          <div class="text-xs font-mono font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-            <AlertTriangle size={10} class="text-amber-500" />
-            {currentStats.errorAvg.toFixed(1)}%
-          </div>
-        </div>
-        <div class="h-6 w-px bg-slate-200 dark:bg-white/10 mx-1"></div>
-        <div class="flex flex-col items-end">
-          <span class="text-[9px] font-bold text-slate-400 uppercase">Estabilidade</span>
-          <div class="text-xs font-mono font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-            <Gauge size={10} class="text-blue-500" />
-            {currentStats.stability.toFixed(1)}%
+          <span class="text-[9px] font-bold text-slate-400 uppercase">dt</span>
+          <div class="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">
+            {dt.toFixed(3)} s
           </div>
         </div>
         <div class="flex flex-col items-end">
