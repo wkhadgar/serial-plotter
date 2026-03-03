@@ -18,7 +18,7 @@ import type {
   PluginFileJSON,
   SchemaFieldType,
 } from '$lib/types/plugin';
-import { validatePluginJSON, getDefaultValueForType, isFieldRequired, AUTO_SCHEMA_FIELDS } from '$lib/types/plugin';
+import { validatePluginJSON, getDefaultValueForType, isFieldRequired, AUTO_SCHEMA_FIELDS, DRIVER_REQUIRED_METHODS } from '$lib/types/plugin';
 import { generateId } from '$lib/utils/format';
 
 // ─── Response Types ─────────────────────────────────────────────────────────
@@ -220,6 +220,59 @@ export async function validatePluginInstanceConfig(
         return { success: false, error: `Campo "${field.name}" é obrigatório` };
       }
     }
+  }
+
+  return { success: true };
+}
+
+// ─── Validação de Código-Fonte ──────────────────────────────────────────────
+
+export interface ValidateDriverCodeResponse {
+  success: boolean;
+  errors?: string[];
+}
+
+/**
+ * Valida o código-fonte Python de um driver.
+ * Verifica se contém uma classe que herda de MCUDriver
+ * e se implementa todos os métodos obrigatórios.
+ *
+ * Mock — em produção o backend Rust faz AST parsing real.
+ */
+export async function validateDriverSourceCode(
+  code: string,
+  expectedClassName?: string
+): Promise<ValidateDriverCodeResponse> {
+  await mockDelay(300);
+
+  const errors: string[] = [];
+
+  // Verifica herança de MCUDriver
+  const classPattern = /class\s+(\w+)\s*\(\s*MCUDriver\s*\)/;
+  const classMatch = code.match(classPattern);
+
+  if (!classMatch) {
+    errors.push('Nenhuma classe que herda de MCUDriver foi encontrada');
+    return { success: false, errors };
+  }
+
+  const foundClass = classMatch[1];
+
+  if (expectedClassName && foundClass !== expectedClassName) {
+    errors.push(`Nome da classe esperado: "${expectedClassName}", encontrado: "${foundClass}"`);
+  }
+
+  // Verifica métodos obrigatórios
+  for (const method of DRIVER_REQUIRED_METHODS) {
+    // Procura def method( dentro do código
+    const methodPattern = new RegExp(`def\\s+${method}\\s*\\(`);
+    if (!methodPattern.test(code)) {
+      errors.push(`Método obrigatório ausente: ${method}()`);
+    }
+  }
+
+  if (errors.length > 0) {
+    return { success: false, errors };
   }
 
   return { success: true };

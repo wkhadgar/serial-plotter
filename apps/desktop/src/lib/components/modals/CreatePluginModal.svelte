@@ -31,8 +31,10 @@
     getDefaultValueForType,
     AUTO_SCHEMA_FIELDS,
     RESERVED_FIELD_NAMES,
+    generateDriverTemplate,
+    toDriverClassName,
   } from '$lib/types/plugin';
-  import { registerPlugin } from '$lib/services/pluginBackend';
+  import { registerPlugin, validateDriverSourceCode } from '$lib/services/pluginBackend';
   import { generateId } from '$lib/utils/format';
   import { openFileDialog } from '$lib/services/fileDialog';
   import CodeEditorModal from './CodeEditorModal.svelte';
@@ -182,6 +184,10 @@
   }
 
   function handleOpenCodeEditor() {
+    // Se não tem código ainda e é um driver, preenche com template
+    if (!sourceCode && kind === 'driver' && runtime === 'python') {
+      sourceCode = generateDriverTemplate(pluginName);
+    }
     showCodeEditor = true;
   }
 
@@ -223,6 +229,16 @@
     if (!sourceFileName && !sourceCode) {
       error = 'Selecione ou escreva o código fonte';
       return;
+    }
+
+    // Valida código-fonte Python de driver
+    if (sourceCode && kind === 'driver' && runtime === 'python') {
+      const expectedClass = toDriverClassName(pluginName);
+      const codeValidation = await validateDriverSourceCode(sourceCode, expectedClass);
+      if (!codeValidation.success && codeValidation.errors) {
+        error = codeValidation.errors.join('; ');
+        return;
+      }
     }
 
     // Valida dependências

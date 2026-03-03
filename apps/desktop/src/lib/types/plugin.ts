@@ -140,6 +140,73 @@ export interface PluginFileJSON {
 
 // ─── Validação ──────────────────────────────────────────────────────────────
 
+// ─── Template de Driver Python ──────────────────────────────────────────────
+
+/** Métodos obrigatórios que todo driver Python deve implementar */
+export const DRIVER_REQUIRED_METHODS = [
+  '__init__',
+  'connect',
+  'reconnect',
+  'stop',
+  'read',
+  'send',
+] as const;
+
+/**
+ * Converte o nome do plugin em um nome de classe Python válido.
+ * Ex: "Modbus TCP Driver" → "ModbusTcpDriver"
+ */
+export function toDriverClassName(pluginName: string): string {
+  if (!pluginName.trim()) return 'MyDriver';
+  return pluginName
+    .replace(/[^a-zA-Z0-9\s_]/g, '')
+    .split(/[\s_]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join('');
+}
+
+/**
+ * Gera o template padrão de código Python para um driver.
+ * Essa interface é obrigatória — o backend valida a presença da classe e métodos.
+ */
+export function generateDriverTemplate(pluginName: string): string {
+  const className = toDriverClassName(pluginName);
+  return `from senamby import MCUDriver
+
+
+class ${className}(MCUDriver):
+    """Driver: ${pluginName || 'Novo Driver'}"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Inicialização do driver
+        pass
+
+    def connect(self):
+        """Estabelece conexão com o dispositivo."""
+        pass
+
+    def reconnect(self):
+        """Reconecta ao dispositivo após perda de conexão."""
+        pass
+
+    def stop(self):
+        """Encerra a conexão e libera recursos."""
+        pass
+
+    def read(self):
+        """Lê dados do dispositivo. Retorna os valores dos sensores."""
+        pass
+
+    def send(self, *outs):
+        """Envia comandos/valores para os atuadores do dispositivo."""
+        pass
+`;
+}
+
+// ─── Validação ──────────────────────────────────────────────────────────────
+
 /** Regex para nomes de campo: apenas letras, números e underscore */
 const FIELD_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
