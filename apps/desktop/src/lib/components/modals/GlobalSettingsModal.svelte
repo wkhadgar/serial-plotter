@@ -24,7 +24,7 @@
     aria-labelledby="settings-title"
     onkeydown={handleKeyDown}
     tabindex="0"
-    class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 print:hidden"
+    class="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 print:hidden"
     onclick={(e: MouseEvent) => e.target === e.currentTarget && closeSettings()}
   >
     <div class="bg-white dark:bg-zinc-900 w-full max-w-lg rounded-xl shadow-2xl border border-slate-200 dark:border-white/10 overflow-hidden">

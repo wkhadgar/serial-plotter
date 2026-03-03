@@ -18,7 +18,7 @@
 
 {#if visible}
   <div
-    class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100] print:hidden"
+    class="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] print:hidden"
     onclick={onCancel}
     onkeydown={(e: KeyboardEvent) => e.key === 'Escape' && onCancel()}
     role="dialog"

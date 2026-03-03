@@ -72,6 +72,15 @@
   let highlightedHtml = $state('');
   let textareaEl = $state<HTMLTextAreaElement | null>(null);
   let preEl = $state<HTMLPreElement | null>(null);
+  let lineNumEl = $state<HTMLDivElement | null>(null);
+
+  // Derived line metrics — avoids splitting on every render
+  const lineCount = $derived((code.match(/\n/g)?.length ?? 0) + 1);
+  const lineNumbersHtml = $derived(
+    Array.from({ length: lineCount }, (_, i) =>
+      `<div class="text-[11px] leading-[1.65] text-zinc-600 font-mono">${i + 1}</div>`
+    ).join('')
+  );
 
   // ─── Init on visible ───────────────────────────────────────────────────────
 
@@ -123,6 +132,9 @@
       preEl.scrollTop = textareaEl.scrollTop;
       preEl.scrollLeft = textareaEl.scrollLeft;
     }
+    if (textareaEl && lineNumEl) {
+      lineNumEl.scrollTop = textareaEl.scrollTop;
+    }
   }
 
   // ─── Tab key ───────────────────────────────────────────────────────────────
@@ -164,7 +176,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+    class="fixed inset-0 z-[80] flex items-center justify-center bg-black/70"
     onclick={handleClose}
   >
     <div
@@ -207,11 +219,13 @@
         <!-- Line numbers + code container -->
         <div class="absolute inset-0 flex">
           <!-- Line numbers -->
-          <div class="shrink-0 w-12 bg-[#0d1117] border-r border-white/5 overflow-hidden select-none" aria-hidden="true">
+          <div
+            bind:this={lineNumEl}
+            class="shrink-0 w-12 bg-[#0d1117] border-r border-white/5 overflow-hidden select-none"
+            aria-hidden="true"
+          >
             <div class="pt-4 pb-4 text-right pr-3">
-              {#each code.split('\n') as _, idx}
-                <div class="text-[11px] leading-[1.65] text-zinc-600 font-mono">{idx + 1}</div>
-              {/each}
+              {@html lineNumbersHtml}
             </div>
           </div>
           <!-- Highlight + textarea overlay -->
@@ -240,7 +254,7 @@
       <!-- Footer -->
       <div class="flex items-center justify-between px-5 py-3 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] shrink-0">
         <div class="text-xs text-slate-400 dark:text-zinc-500">
-          {code.split('\n').length} linhas · {code.length} caracteres · {CODE_LANGUAGE_LABELS[language]}
+          {lineCount} linhas · {code.length} caracteres · {CODE_LANGUAGE_LABELS[language]}
         </div>
         <div class="flex items-center gap-2">
           <button

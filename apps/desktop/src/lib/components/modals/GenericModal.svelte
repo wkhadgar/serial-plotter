@@ -47,7 +47,7 @@
 </script>
 
 {#if visible}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 animate-in fade-in duration-200">
     <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md mx-4 animate-in zoom-in-95 duration-200">
       <div class={`${color.bg} p-6 rounded-t-2xl border-b border-slate-200 dark:border-white/5`}>
         <div class="flex items-start gap-4">
