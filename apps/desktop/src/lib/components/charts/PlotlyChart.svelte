@@ -15,7 +15,7 @@
 
   let wrapper: HTMLDivElement;
   let chart: uPlot | null = null;
-  let renderTimer: ReturnType<typeof setInterval> | null = null;
+  let renderTimer: number | null = null;
   let prevLen = -1;
   let _mounted = false;
   let _panning = false;
@@ -313,32 +313,52 @@
     }
   }
 
-  onMount(() => {
-    initChart();
-    _mounted = true;
-    renderTimer = setInterval(() => {
+  function renderLoop() {
+    if (chart && wrapper) {
       const n = series.length > 0 ? series[0].data.length : 0;
       if (n !== prevLen) {
         prevLen = n;
         updateChart();
       }
-    }, 33);
+    }
+    renderTimer = requestAnimationFrame(renderLoop);
+  }
+
+  onMount(() => {
+    initChart();
+    _mounted = true;
+    renderTimer = requestAnimationFrame(renderLoop);
+
+    let resizeRaf: number | null = null;
     const ro = new ResizeObserver(() => {
-      if (chart && wrapper) {
+      if (!wrapper) return;
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      resizeRaf = requestAnimationFrame(() => {
+        if (!wrapper) return;
         const rect = wrapper.getBoundingClientRect();
         const w = Math.floor(rect.width);
         const h = Math.floor(rect.height);
         if (w > 10 && h > 10) {
-          chart.setSize({ width: w, height: h });
+          if (chart) {
+            chart.setSize({ width: w, height: h });
+            // Reset prevLen to force data refresh on next rAF tick
+            // (handles visibility change after display:none)
+            prevLen = -1;
+          } else {
+            initChart();
+          }
         }
-      }
+      });
     });
     if (wrapper) ro.observe(wrapper);
-    return () => ro.disconnect();
+    return () => {
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      ro.disconnect();
+    };
   });
 
   onDestroy(() => {
-    if (renderTimer) clearInterval(renderTimer);
+    if (renderTimer) cancelAnimationFrame(renderTimer);
     if (chart) {
       chart.destroy();
       chart = null;

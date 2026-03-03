@@ -14,7 +14,7 @@
    * 
    * Estado persistido via analyzerStore (singleton reativo)
    */
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { untrack } from 'svelte';
   import { Upload, Sliders } from 'lucide-svelte';
   import { processJSONFile } from '$lib/services/analyzerBackend';
   import { analyzerStore } from '$lib/stores/analyzerStore.svelte';
@@ -24,7 +24,7 @@
   import GenericModal from '$lib/components/modals/GenericModal.svelte';
   import ChartContextMenu from '$lib/components/plotter/ChartContextMenu.svelte';
 
-  let { theme }: { theme: 'dark' | 'light' } = $props();
+  let { theme, active = true }: { theme: 'dark' | 'light'; active?: boolean } = $props();
 
   type SeriesStyle = { color: string; visible: boolean; label: string };
 
@@ -282,12 +282,11 @@
     }
   }
 
-  onMount(() => {
+  // Keyboard handler controlado pelo prop active
+  $effect(() => {
+    if (!active) return;
     window.addEventListener('keydown', handleKeyDown);
-  });
-  
-  onDestroy(() => {
-    window.removeEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   });
 </script>
 

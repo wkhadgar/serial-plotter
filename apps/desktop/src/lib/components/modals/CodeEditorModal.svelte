@@ -15,9 +15,10 @@
    * Projetado para ser usado em qualquer contexto da aplicação.
    */
   import { X, Check, FileCode } from 'lucide-svelte';
-  import { untrack } from 'svelte';
+  import { untrack, onDestroy } from 'svelte';
   import hljs from 'highlight.js/lib/core';
   import python from 'highlight.js/lib/languages/python';
+  import 'highlight.js/styles/github-dark.css';
 
   // Registra linguagem
   hljs.registerLanguage('python', python);
@@ -102,10 +103,17 @@
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  // Debounce highlight with rAF — avoids blocking the main thread during rapid typing
+  let _hlRaf: number | null = null;
+
   $effect(() => {
-    // Re-highlight when code changes
-    code;
-    updateHighlight();
+    code; // track dependency
+    if (_hlRaf) cancelAnimationFrame(_hlRaf);
+    _hlRaf = requestAnimationFrame(updateHighlight);
+  });
+
+  onDestroy(() => {
+    if (_hlRaf) cancelAnimationFrame(_hlRaf);
   });
 
   // ─── Sync scroll ───────────────────────────────────────────────────────────
@@ -151,16 +159,6 @@
     onClose();
   }
 </script>
-
-<!-- highlight.js theme (GitHub Dark) injected inline for dark mode -->
-<svelte:head>
-  {#if visible}
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css"
-    />
-  {/if}
-</svelte:head>
 
 {#if visible}
   <!-- svelte-ignore a11y_click_events_have_key_events -->

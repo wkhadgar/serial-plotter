@@ -78,7 +78,7 @@
   }
 
   // Calcula o layout do grid baseado no número de sensores
-  const gridCols = $derived(() => {
+  const gridCols = $derived.by(() => {
     const count = sensorVariables.length;
     if (count <= 1) return 'grid-cols-1';
     if (count <= 2) return 'grid-cols-1 lg:grid-cols-2';
@@ -87,7 +87,7 @@
   });
 
   // Filtra sensores para exibição baseado no modo
-  const visibleSensors = $derived(() => {
+  const visibleSensors = $derived.by(() => {
     if (viewMode === 'single' && focusedIndex >= 0 && focusedIndex < sensorVariables.length) {
       return [sensorVariables[focusedIndex]];
     }
@@ -108,11 +108,11 @@
 </script>
 
 <div 
-  class="w-full h-full overflow-y-auto p-2 {viewMode === 'single' ? '' : 'grid gap-2 ' + gridCols()}"
+  class="w-full h-full overflow-y-auto p-2 {viewMode === 'single' ? '' : 'grid gap-2 ' + gridCols}"
   class:flex={viewMode === 'single'}
   class:items-stretch={viewMode === 'single'}
 >
-  {#each visibleSensors() as { variable, originalIndex }, displayIdx (variable.id)}
+  {#each visibleSensors as { variable, originalIndex }, displayIdx (variable.id)}
     <div class={viewMode === 'single' ? 'w-full h-full' : 'min-h-[300px]'} data-sensor-index={displayIdx}>
       <VariableCard
         title={variable.name}

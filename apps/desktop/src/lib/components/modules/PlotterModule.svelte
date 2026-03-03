@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy, untrack } from 'svelte';
+  import { untrack } from 'svelte';
   import { appStore } from '$lib/stores/data.svelte';
   import { getPlantData, getPlantStats, getVariableStats } from '$lib/stores/plantData';
   import { exportPlantDataCSV, exportPlantDataJSON } from '$lib/services/export';
@@ -19,7 +19,7 @@
   import { openPlant } from '$lib/services/plantBackend';
   import { openFileDialog, readFileAsJSON, FILE_FILTERS } from '$lib/services/fileDialog';
 
-  let { plants, activePlantId, theme, showControllerPanel = $bindable(false) } = $props();
+  let { plants, activePlantId, theme, active = true, showControllerPanel = $bindable(false) } = $props();
 
   let chartStates: Record<string, ChartStateType> = $state({});
 
@@ -302,7 +302,6 @@
   }
 
   let _displayTick = $state(0);
-  let _displayTimer: ReturnType<typeof setInterval>;
 
   function handleContextMenu(e: MouseEvent) {
     e.preventDefault();
@@ -387,14 +386,18 @@
     }
   }
 
-  onMount(() => {
-    _displayTimer = setInterval(() => _displayTick++, 33);
-    window.addEventListener('keydown', handleKeyDown);
+  // Timer e keyboard controlados pelo prop active
+  // Quando o módulo está oculto (display:none), timer e listeners são desativados
+  $effect(() => {
+    if (!active) return;
+    const timer = setInterval(() => _displayTick++, 33);
+    return () => clearInterval(timer);
   });
-  
-  onDestroy(() => {
-    clearInterval(_displayTimer);
-    window.removeEventListener('keydown', handleKeyDown);
+
+  $effect(() => {
+    if (!active) return;
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   });
 
   const currentStats = $derived.by(() => {

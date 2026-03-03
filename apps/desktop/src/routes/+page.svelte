@@ -34,27 +34,21 @@
     />
 
     <main class="flex-1 flex flex-col min-w-0 relative">
-      {#if appStore.state.activeModule === 'plotter'}
+      <div class="flex-1 flex flex-col min-w-0" style:display={appStore.state.activeModule === 'plotter' ? 'flex' : 'none'}>
         <PlotterModule
           plants={appStore.state.plants || []}
           activePlantId={appStore.state.activePlantId || 'p1'}
           theme={appStore.state.theme || 'dark'}
+          active={appStore.state.activeModule === 'plotter'}
           bind:showControllerPanel
         />
-      {:else if appStore.state.activeModule === 'analyzer'}
-        <AnalyzerModule theme={appStore.state.theme || 'dark'} />
-      {:else}
-        <div class="flex-1 flex items-center justify-center text-slate-400 dark:text-zinc-600 bg-slate-50 dark:bg-zinc-950">
-          <div class="text-center">
-            <svg width="48" height="48" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="opacity-20 mb-4 mx-auto">
-              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-            </svg>
-            <p class="text-lg font-bold text-slate-500 dark:text-zinc-400">
-              Módulo não implementado
-            </p>
-          </div>
-        </div>
-      {/if}
+      </div>
+      <div class="flex-1 flex flex-col min-w-0" style:display={appStore.state.activeModule === 'analyzer' ? 'flex' : 'none'}>
+        <AnalyzerModule
+          theme={appStore.state.theme || 'dark'}
+          active={appStore.state.activeModule === 'analyzer'}
+        />
+      </div>
 
       <GlobalSettingsModal showGlobalSettings={appStore.state.showGlobalSettings || false} />
     </main>
