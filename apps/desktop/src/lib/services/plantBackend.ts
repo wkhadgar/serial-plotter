@@ -1,7 +1,39 @@
+import { invoke } from '@tauri-apps/api/core';
 import type { Plant, PlantVariable } from '$lib/types/plant';
 import type { DriverConfig } from '$lib/types/driver';
 import type { Controller } from '$lib/types/controller';
 import { generateId } from '$lib/utils/format';
+
+const mockDelay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+export interface CreatePlantBackendRequest {
+  name: string;
+  variables: Array<{
+    name: string;
+    type: 'sensor' | 'atuador';
+    unit: string;
+    setpoint: number;
+    pv_min: number;
+    pv_max: number;
+    linked_sensor_ids?: string[];
+  }>;
+  driver_id?: string | null;
+  controller_ids?: string[] | null;
+}
+
+export interface CreatePlantBackendResponse {
+  id: string;
+  name: string;
+  connected: boolean;
+  paused: boolean;
+  variables: PlantVariable[];
+  stats: {
+    dt: number;
+    uptime: number;
+  };
+  driver_id?: string | null;
+  controller_ids?: string[] | null;
+}
 
 export interface CreatePlantRequest {
   name: string;
@@ -36,39 +68,55 @@ export interface SaveDriverResponse {
   error?: string;
 }
 
-function mockDelay(ms: number = 500): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 export async function createPlant(request: CreatePlantRequest): Promise<CreatePlantResponse> {
-  await mockDelay(800);
-  if (!request.name.trim()) {
-    return { success: false, error: 'Nome da planta é obrigatório' };
+  try {
+    if (!request.name.trim()) {
+      return { success: false, error: 'Nome da planta é obrigatório' };
+    }
+
+    if (request.variables.length === 0) {
+      return { success: false, error: 'Pelo menos uma variável deve ser definida' };
+    }
+
+    const backendRequest: CreatePlantBackendRequest = {
+      name: request.name,
+      variables: request.variables.map(v => ({
+        name: v.name,
+        type: v.type,
+        unit: v.unit,
+        setpoint: v.setpoint,
+        pv_min: v.pvMin,
+        pv_max: v.pvMax,
+        linked_sensor_ids: v.linkedSensorIds,
+      })),
+      driver_id: request.driverId || null,
+      controller_ids: null,
+    };
+
+    const backendResponse = await invoke<CreatePlantBackendResponse>(
+      'create_plant',
+      { request: backendRequest }
+    );
+
+    const plant: Plant = {
+      id: backendResponse.id,
+      name: backendResponse.name,
+      connected: backendResponse.connected,
+      paused: backendResponse.paused,
+      variables: backendResponse.variables,
+      stats: {
+        dt: backendResponse.stats.dt,
+        uptime: backendResponse.stats.uptime,
+      },
+      controllers: request.controllers || [], // Controladores padrão/vazios por enquanto
+    };
+
+    return { success: true, plant };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido ao criar planta';
+    console.error('Erro ao criar planta:', error);
+    return { success: false, error: errorMessage };
   }
-
-  if (!request.driverId) {
-    return { success: false, error: 'Driver de comunicação é obrigatório' };
-  }
-
-  if (request.variables.length === 0) {
-    return { success: false, error: 'Pelo menos uma variável deve ser definida' };
-  }
-
-  if (Math.random() < 0.1) {
-    return { success: false, error: 'Falha ao conectar com o driver de comunicação' };
-  }
-
-  const plant: Plant = {
-    id: generateId(),
-    name: request.name,
-    connected: false,
-    paused: false,
-    variables: request.variables,
-    stats: { errorAvg: 0, stability: 100, uptime: 0 },
-    controllers: request.controllers,
-  };
-
-  return { success: true, plant };
 }
 
 export async function openPlant(request: OpenPlantRequest): Promise<OpenPlantResponse> {
@@ -94,10 +142,8 @@ export async function openPlant(request: OpenPlantRequest): Promise<OpenPlantRes
       setpoint: 50,
       pvMin: 0,
       pvMax: 100,
-      mvMin: 0,
-      mvMax: 100,
     }],
-    stats: { errorAvg: 0, stability: 100, uptime: 0 },
+    stats: { dt: 0, uptime: 0 },
     controllers: [],
   };
 
@@ -115,6 +161,8 @@ export async function saveDriver(request: SaveDriverRequest): Promise<SaveDriver
     ...request.driver,
     id: generateId(),
   };
+
+  console.log('Novo driver criado:', driver);
 
   return { success: true, driver };
 }

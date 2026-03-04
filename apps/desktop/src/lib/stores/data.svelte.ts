@@ -27,8 +27,6 @@ class AppStore {
             setpoint: 50,
             pvMin: 0,
             pvMax: 100,
-            mvMin: 0,
-            mvMax: 100,
           },
           {
             id: 'var_1',
@@ -38,8 +36,6 @@ class AppStore {
             setpoint: 2.5,
             pvMin: 0,
             pvMax: 10,
-            mvMin: 0,
-            mvMax: 100,
           },
           {
             id: 'var_2',
@@ -49,8 +45,6 @@ class AppStore {
             setpoint: 0,
             pvMin: 0,
             pvMax: 100,
-            mvMin: 0,
-            mvMax: 100,
             linkedSensorIds: ['var_0'],
           },
           {
@@ -61,12 +55,10 @@ class AppStore {
             setpoint: 0,
             pvMin: 0,
             pvMax: 100,
-            mvMin: 0,
-            mvMax: 100,
             linkedSensorIds: ['var_1'],
           }
         ],
-        stats: { errorAvg: 0, stability: 100, uptime: 0 },
+        stats: { dt: 0, uptime: 0 },
         controllers: [
           {
             id: 'c1',
@@ -96,8 +88,6 @@ class AppStore {
             setpoint: 60,
             pvMin: 0,
             pvMax: 150,
-            mvMin: 0,
-            mvMax: 100,
           },
           {
             id: 'var_1',
@@ -107,12 +97,10 @@ class AppStore {
             setpoint: 0,
             pvMin: 0,
             pvMax: 100,
-            mvMin: 0,
-            mvMax: 100,
             linkedSensorIds: ['var_0'],
           }
         ],
-        stats: { errorAvg: 0, stability: 100, uptime: 0 },
+        stats: { dt: 0, uptime: 0 },
         controllers: [
           {
             id: 'c2',
@@ -166,7 +154,7 @@ class AppStore {
   addPlant(plant: Omit<Plant, 'stats'>) {
     this.state.plants.push({
       ...plant,
-      stats: { errorAvg: 0, stability: 100, uptime: 0 }
+      stats: { dt: 0, uptime: 0 }
     });
   }
 

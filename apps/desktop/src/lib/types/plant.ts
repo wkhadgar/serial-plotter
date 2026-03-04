@@ -28,8 +28,6 @@ export interface PlantVariable {
   setpoint: number;
   pvMin: number;
   pvMax: number;
-  mvMin: number;
-  mvMax: number;
   linkedSensorIds?: string[];
 }
 
@@ -60,9 +58,8 @@ export function extractVariableData(
 }
 
 export interface PlantStats {
-  errorAvg: number;
-  stability: number;
-  uptime: number;
+  dt: number;    // Delta time / amostragem
+  uptime: number;  // Segundos desde que iniciou
 }
 
 export interface Plant {
@@ -84,8 +81,6 @@ export function createDefaultVariable(index: number, name?: string, type: Variab
     setpoint: type === 'sensor' ? 50 : 0,
     pvMin: 0,
     pvMax: 100,
-    mvMin: 0,
-    mvMax: 100,
     ...(type === 'atuador' ? { linkedSensorIds: [] } : {}),
   };
 }

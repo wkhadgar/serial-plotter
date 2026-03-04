@@ -155,6 +155,7 @@ export async function registerPlugin(plugin: PluginDefinition): Promise<Register
     _pluginRegistry[idx] = plugin;
   } else {
     _pluginRegistry.push(plugin);
+    console.log('Novo driver criado:', plugin);
   }
 
   return { success: true, plugin };

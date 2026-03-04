@@ -5,8 +5,7 @@ const _stats = new Map<string, PlantStats>();
 const _variableStats = new Map<string, VariableStats>();
 
 const DEFAULT_STATS: Readonly<PlantStats> = Object.freeze({
-  errorAvg: 0,
-  stability: 100,
+  dt: 0,
   uptime: 0,
 });
 

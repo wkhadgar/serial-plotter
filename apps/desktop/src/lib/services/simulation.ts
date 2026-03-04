@@ -88,8 +88,7 @@ function simulatePlant(plant: Plant): void {
 
   const prev = getPlantStats(plant.id);
   setPlantStats(plant.id, {
-    errorAvg: prev.errorAvg,
-    stability: prev.stability,
+    dt: DT,
     uptime: prev.uptime + 1,
   });
 }
