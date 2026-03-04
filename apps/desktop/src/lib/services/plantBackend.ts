@@ -1,12 +1,3 @@
-/**
- * ============================================================================
- * PLANT BACKEND SERVICE (MOCK)
- * ============================================================================
- * 
- * Serviço mock para operações de criação/abertura de plantas.
- * Este será substituído por chamadas reais ao backend Tauri.
- */
-
 import type { Plant, PlantVariable } from '$lib/types/plant';
 import type { DriverConfig } from '$lib/types/driver';
 import type { Controller } from '$lib/types/controller';
@@ -45,20 +36,12 @@ export interface SaveDriverResponse {
   error?: string;
 }
 
-/**
- * Mock: Simula delay de rede
- */
 function mockDelay(ms: number = 500): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/**
- * Mock: Cria uma nova planta
- */
 export async function createPlant(request: CreatePlantRequest): Promise<CreatePlantResponse> {
   await mockDelay(800);
-
-  // Simula validação
   if (!request.name.trim()) {
     return { success: false, error: 'Nome da planta é obrigatório' };
   }
@@ -71,7 +54,6 @@ export async function createPlant(request: CreatePlantRequest): Promise<CreatePl
     return { success: false, error: 'Pelo menos uma variável deve ser definida' };
   }
 
-  // Simula chance de falha (10%)
   if (Math.random() < 0.1) {
     return { success: false, error: 'Falha ao conectar com o driver de comunicação' };
   }
@@ -89,23 +71,16 @@ export async function createPlant(request: CreatePlantRequest): Promise<CreatePl
   return { success: true, plant };
 }
 
-/**
- * Mock: Abre uma planta de arquivo
- */
 export async function openPlant(request: OpenPlantRequest): Promise<OpenPlantResponse> {
   await mockDelay(600);
-
-  // Simula validação de arquivo
   if (!request.filePath.endsWith('.plant') && !request.filePath.endsWith('.json')) {
     return { success: false, error: 'Formato de arquivo não suportado. Use .plant ou .json' };
   }
 
-  // Simula chance de falha (15%)
   if (Math.random() < 0.15) {
     return { success: false, error: 'Arquivo corrompido ou inválido' };
   }
 
-  // Simula planta carregada
   const plant: Plant = {
     id: generateId(),
     name: request.filePath.split('/').pop()?.replace(/\.(plant|json)$/, '') || 'Planta Importada',
@@ -129,9 +104,6 @@ export async function openPlant(request: OpenPlantRequest): Promise<OpenPlantRes
   return { success: true, plant };
 }
 
-/**
- * Mock: Salva um novo driver
- */
 export async function saveDriver(request: SaveDriverRequest): Promise<SaveDriverResponse> {
   await mockDelay(400);
 
@@ -147,9 +119,6 @@ export async function saveDriver(request: SaveDriverRequest): Promise<SaveDriver
   return { success: true, driver };
 }
 
-/**
- * Mock: Lista drivers salvos
- */
 export async function listDrivers(): Promise<DriverConfig[]> {
   await mockDelay(200);
 
@@ -193,9 +162,6 @@ export async function listDrivers(): Promise<DriverConfig[]> {
   ];
 }
 
-/**
- * Mock: Lista controladores pré-definidos/templates
- */
 export async function listControllerTemplates(): Promise<Controller[]> {
   await mockDelay(150);
 

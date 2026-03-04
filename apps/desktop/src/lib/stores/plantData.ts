@@ -33,17 +33,11 @@ export function setPlantStats(plantId: string, stats: PlantStats): void {
   _stats.set(plantId, stats);
 }
 
-/**
- * Retorna estatísticas de uma variável específica
- */
 export function getVariableStats(plantId: string, varIndex: number): VariableStats {
   const key = `${plantId}_var_${varIndex}`;
   return _variableStats.get(key) ?? { ...DEFAULT_VAR_STATS };
 }
 
-/**
- * Define estatísticas de uma variável específica
- */
 export function setVariableStats(plantId: string, varIndex: number, stats: VariableStats): void {
   const key = `${plantId}_var_${varIndex}`;
   _variableStats.set(key, stats);
@@ -52,7 +46,6 @@ export function setVariableStats(plantId: string, varIndex: number, stats: Varia
 export function clearPlant(plantId: string): void {
   _data.set(plantId, []);
   _stats.set(plantId, { ...DEFAULT_STATS });
-  // Limpa stats de variáveis (até 10 por segurança)
   for (let i = 0; i < 10; i++) {
     _variableStats.delete(`${plantId}_var_${i}`);
   }

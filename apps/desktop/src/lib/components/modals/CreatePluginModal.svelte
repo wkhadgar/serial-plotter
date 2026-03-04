@@ -1,19 +1,4 @@
 <script lang="ts">
-  /**
-   * ============================================================================
-   * CREATE PLUGIN MODAL - Modal de Criação de Plugin
-   * ============================================================================
-   *
-   * Modal modular para criar um novo plugin (driver ou controlador).
-   * Campos:
-   * - Nome/ID
-   * - Tipo (driver | controller)
-   * - Runtime (python | rust-native)
-   * - Código fonte (file picker)
-   * - Schema de configuração (campos dinâmicos com valor padrão)
-   *
-   * Reutilizável em qualquer contexto (criação de planta, gestão de plugins, etc.)
-   */
   import { X, Plus, Trash2, Code, FileCode, AlertCircle, Pencil } from 'lucide-svelte';
   import type {
     PluginKind,
@@ -42,7 +27,6 @@
 
   interface Props {
     visible: boolean;
-    /** Filtra o tipo (se quiser forçar "driver" ou "controller") */
     forceKind?: PluginKind;
     onClose: () => void;
     onPluginCreated: (plugin: PluginDefinition) => void;
@@ -55,15 +39,12 @@
     onPluginCreated,
   }: Props = $props();
 
-  // ─── Form State ─────────────────────────────────────────────────────────────
-
-  // Internal type for form state (tracks whether default is enabled)
   interface FormField {
     name: string;
     type: SchemaFieldType;
     hasDefault: boolean;
-    defaultValue: string; // stored as string, parsed on submit
-    defaultBool: boolean; // separate state for bool toggles
+    defaultValue: string;
+    defaultBool: boolean;
   }
 
   let pluginName = $state('');
@@ -75,24 +56,17 @@
   let formFields = $state<FormField[]>([]);
   let dependencies = $state<PluginDependency[]>([]);
 
-  // ─── UI State ───────────────────────────────────────────────────────────────
-
   let isLoading = $state(false);
   let error = $state<string | null>(null);
   let fieldErrors = $state<Record<number, string>>({});
   let showCodeEditor = $state(false);
 
-  // ─── Derivados ──────────────────────────────────────────────────────────────
-
   const runtimeExtension = $derived(runtime === 'python' ? '.py' : '.dll / .so');
   const schemaValid = $derived(formFields.every((f, i) => !fieldErrors[i]));
 
-  // ─── Sync forceKind ─────────────────────────────────────────────────────────
   $effect(() => {
     if (forceKind) kind = forceKind;
   });
-
-  // ─── Schema Management ─────────────────────────────────────────────────────
 
   function addSchemaField() {
     formFields = [
@@ -147,7 +121,6 @@
     formFields = formFields.map((f, i) => (i === index ? { ...f, defaultBool: value } : f));
   }
 
-  /** Converte FormField[] para PluginSchemaField[] */
   function buildSchema(): PluginSchemaField[] {
     const userFields: PluginSchemaField[] = formFields.map((f) => {
       const field: PluginSchemaField = { name: f.name, type: f.type };
@@ -162,14 +135,11 @@
       }
       return field;
     });
-    // Auto-inject num_sensors e num_actuators no início (para drivers)
     if (kind === 'driver') {
       return [...AUTO_SCHEMA_FIELDS, ...userFields];
     }
     return userFields;
   }
-
-  // ─── Source File ────────────────────────────────────────────────────────────
 
   async function handlePickSourceFile() {
     const ext = runtime === 'python' ? ['py'] : ['dll', 'so'];
@@ -179,12 +149,11 @@
     });
     if (result) {
       sourceFileName = result.name;
-      sourceCode = ''; // clear inline code when picking a file
+      sourceCode = '';
     }
   }
 
   function handleOpenCodeEditor() {
-    // Se não tem código ainda e é um driver, preenche com template
     if (!sourceCode && kind === 'driver' && runtime === 'python') {
       sourceCode = generateDriverTemplate(pluginName);
     }
@@ -196,8 +165,6 @@
     sourceCode = result.code;
     showCodeEditor = false;
   }
-
-  // ─── Dependencies (Python) ───────────────────────────────────────────────────────
 
   function addDependency() {
     dependencies = [...dependencies, { name: '', version: '' }];
@@ -215,12 +182,9 @@
     dependencies = dependencies.map((d, i) => (i === index ? { ...d, version: value } : d));
   }
 
-  // ─── Submit ─────────────────────────────────────────────────────────────────
-
   async function handleSubmit() {
     error = null;
 
-    // Validações
     if (!pluginName.trim()) {
       error = 'Nome do plugin é obrigatório';
       return;
@@ -231,7 +195,6 @@
       return;
     }
 
-    // Valida código-fonte Python de driver
     if (sourceCode && kind === 'driver' && runtime === 'python') {
       const expectedClass = toDriverClassName(pluginName);
       const codeValidation = await validateDriverSourceCode(sourceCode, expectedClass);
@@ -241,7 +204,6 @@
       }
     }
 
-    // Valida dependências
     if (runtime === 'python') {
       for (let i = 0; i < dependencies.length; i++) {
         if (!dependencies[i].name.trim()) {
@@ -251,7 +213,6 @@
       }
     }
 
-    // Valida schema fields
     for (let i = 0; i < formFields.length; i++) {
       if (!formFields[i].name.trim()) {
         error = `Campo de schema #${i + 1} precisa de um nome`;
@@ -335,7 +296,6 @@
       class="bg-white dark:bg-[#0c0c0e] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-white/10"
       onclick={(e) => e.stopPropagation()}
     >
-      <!-- Header -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-white/5 shrink-0">
         <div>
           <h2 class="text-lg font-bold text-slate-800 dark:text-white">Criar Novo Plugin</h2>
@@ -351,7 +311,6 @@
         </button>
       </div>
 
-      <!-- Content -->
       <div class="flex-1 overflow-y-auto p-6 space-y-5">
         {#if error}
           <div class="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400 text-sm flex items-center gap-2">
@@ -360,7 +319,6 @@
           </div>
         {/if}
 
-        <!-- Nome e Descrição -->
         <div class="grid grid-cols-1 gap-4">
           <label class="block">
             <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Nome do Plugin *</span>
@@ -382,7 +340,6 @@
           </label>
         </div>
 
-        <!-- Tipo e Runtime -->
         <div class="grid grid-cols-2 gap-4">
           <label class="block">
             <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Tipo *</span>
@@ -409,7 +366,6 @@
           </label>
         </div>
 
-        <!-- Código Fonte -->
         <div>
           <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Código Fonte * ({runtimeExtension})</span>
           <div class="grid grid-cols-2 gap-2">
@@ -444,7 +400,6 @@
           </div>
         </div>
 
-        <!-- Dependências Python -->
         {#if runtime === 'python'}
           <div>
             <div class="flex items-center justify-between mb-2">
@@ -489,7 +444,6 @@
           </div>
         {/if}
 
-        <!-- Schema de Configuração -->
         <div>
           <div class="flex items-center justify-between mb-2">
             <div>
@@ -504,10 +458,8 @@
           <div class="space-y-2">
             {#each formFields as field, i (i)}
               <div class="p-3 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] space-y-2">
-                <!-- Linha 1: Nome + Tipo + Remover -->
                 <div class="flex items-start gap-2">
                   <div class="flex-1 grid grid-cols-[1fr_120px] gap-2 items-start">
-                    <!-- Nome -->
                     <div>
                       <input
                         type="text"
@@ -520,7 +472,6 @@
                         <p class="text-[10px] text-red-500 mt-0.5">{fieldErrors[i]}</p>
                       {/if}
                     </div>
-                    <!-- Tipo -->
                     <select
                       value={field.type}
                       onchange={(e) => updateFieldType(i, (e.target as HTMLSelectElement).value as SchemaFieldType)}
@@ -538,7 +489,6 @@
                     <Trash2 size={14} />
                   </button>
                 </div>
-                <!-- Linha 2: Valor padrão -->
                 <div class="flex items-center gap-2">
                   <label class="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
                     <input
@@ -598,7 +548,6 @@
         </div>
       </div>
 
-      <!-- Footer -->
       <div class="flex items-center justify-between px-6 py-4 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] shrink-0">
         <button
           onclick={handleClose}
@@ -623,7 +572,6 @@
     </div>
   </div>
 
-  <!-- Code Editor Modal -->
   <CodeEditorModal
     bind:visible={showCodeEditor}
     initialCode={sourceCode}

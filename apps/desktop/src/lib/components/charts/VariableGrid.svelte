@@ -1,20 +1,4 @@
 <script lang="ts">
-  /**
-   * ============================================================================
-   * VARIABLE GRID - Grid de Gráficos para Múltiplas Variáveis
-   * ============================================================================
-   * 
-   * Renderiza um grid responsivo de VariableCards para SENSORES.
-   * Atuadores são plotados no gráfico inferior do sensor ao qual estão vinculados.
-   * 
-   * Suporta dois modos de visualização:
-   * - 'grid': Todas as variáveis em um layout de grid
-   * - 'single': Uma variável individual em tela cheia
-   * 
-   * Navigate com:
-   * - Space: Cicla entre variáveis (grid → var0 → var1 → ... → grid)
-   * - H: Volta para a visão de grid
-   */
   import VariableCard from './VariableCard.svelte';
   import type { PlantVariable, PlantDataPoint, VariableStats } from '$lib/types/plant';
   import type { ChartConfig, ChartStateType, ViewMode } from '$lib/types/chart';
@@ -29,7 +13,7 @@
     viewMode: ViewMode;
     focusedIndex: number;
     lineStyles?: Record<string, { color: string; visible: boolean; label?: string }>;
-    variableStats?: VariableStats[];  // Stats por cada variável (mesmo índice)
+    variableStats?: VariableStats[];
     onRangeChange?: (xMin: number, xMax: number) => void;
   }
 
@@ -46,19 +30,16 @@
     onRangeChange,
   }: Props = $props();
 
-  // Filtra apenas sensores para exibição (atuadores são plotados nos sensores)
   const sensorVariables = $derived(
     variables
       .map((v, idx) => ({ variable: v, originalIndex: idx }))
       .filter(({ variable }) => variable.type === 'sensor')
   );
 
-  // Mapa de variáveis por ID para busca rápida
   const variablesById = $derived(
     new Map(variables.map((v, idx) => [v.id, { variable: v, index: idx }]))
   );
 
-  // Encontra atuadores vinculados a um sensor
   function getLinkedActuators(sensorId: string) {
     const actuators: { id: string; name: string; dataKey: string; color: string }[] = [];
     const actuatorColors = ['#10b981', '#06b6d4', '#8b5cf6', '#f97316', '#ec4899', '#14b8a6'];
@@ -68,7 +49,7 @@
         actuators.push({
           id: v.id,
           name: v.name,
-          dataKey: getVariableKeys(idx).pv, // Atuador usa PV como seu valor
+          dataKey: getVariableKeys(idx).pv,
           color: actuatorColors[actuators.length % actuatorColors.length],
         });
       }
@@ -77,7 +58,6 @@
     return actuators;
   }
 
-  // Calcula o layout do grid baseado no número de sensores
   const gridCols = $derived.by(() => {
     const count = sensorVariables.length;
     if (count <= 1) return 'grid-cols-1';
@@ -86,7 +66,6 @@
     return 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3';
   });
 
-  // Filtra sensores para exibição baseado no modo
   const visibleSensors = $derived.by(() => {
     if (viewMode === 'single' && focusedIndex >= 0 && focusedIndex < sensorVariables.length) {
       return [sensorVariables[focusedIndex]];
@@ -94,12 +73,11 @@
     return sensorVariables;
   });
 
-  // Cores padrão para cada variável (cicla se houver mais de 4)
   const variableColors = [
-    { pv: '#3b82f6', sp: '#f59e0b' }, // Blue/Amber
-    { pv: '#8b5cf6', sp: '#ec4899' }, // Violet/Pink
-    { pv: '#f97316', sp: '#84cc16' }, // Orange/Lime
-    { pv: '#14b8a6', sp: '#f43f5e' }, // Teal/Rose
+    { pv: '#3b82f6', sp: '#f59e0b' },
+    { pv: '#8b5cf6', sp: '#ec4899' },
+    { pv: '#f97316', sp: '#84cc16' },
+    { pv: '#14b8a6', sp: '#f43f5e' },
   ];
 
   function getColorSet(index: number) {
@@ -135,7 +113,6 @@
 </div>
 
 {#if viewMode === 'single' && sensorVariables.length > 1}
-  <!-- Indicator do modo single -->
   <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2">
     <span class="text-xs text-white/80 font-medium">
       {sensorVariables[focusedIndex]?.variable.name ?? 'Sensor'} ({focusedIndex + 1}/{sensorVariables.length})

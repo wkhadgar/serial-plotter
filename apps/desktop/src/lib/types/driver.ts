@@ -1,12 +1,3 @@
-/**
- * ============================================================================
- * TIPOS DE DRIVER - Drivers de Comunicação
- * ============================================================================
- * 
- * Drivers são configurações de comunicação com dispositivos físicos.
- * Exemplos: Modbus RTU, Modbus TCP, OPC-UA, Serial Raw, etc.
- */
-
 export type DriverType = 'modbus-rtu' | 'modbus-tcp' | 'opc-ua' | 'serial-raw' | 'mqtt';
 
 export interface DriverConfig {
@@ -14,13 +5,12 @@ export interface DriverConfig {
   name: string;
   type: DriverType;
   description?: string;
-  // Configurações específicas por tipo
   settings: ModbusRtuSettings | ModbusTcpSettings | OpcUaSettings | SerialRawSettings | MqttSettings;
 }
 
 export interface ModbusRtuSettings {
-  port: string;           // COM1, /dev/ttyUSB0
-  baudRate: number;       // 9600, 19200, 38400, 57600, 115200
+  port: string;
+  baudRate: number;
   dataBits: 7 | 8;
   parity: 'none' | 'even' | 'odd';
   stopBits: 1 | 2;

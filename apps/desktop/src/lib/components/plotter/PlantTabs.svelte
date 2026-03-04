@@ -19,7 +19,6 @@
     onRemove: (id: string) => void;
   } = $props();
 
-  // Menu state
   let menuVisible = $state(false);
   let menuX = $state(0);
   let menuY = $state(0);

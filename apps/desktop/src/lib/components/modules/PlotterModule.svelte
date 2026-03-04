@@ -23,15 +23,12 @@
 
   let chartStates: Record<string, ChartStateType> = $state({});
 
-  // Inicializa chartStates para novas plantas
-  // Conta apenas sensores para navegação (atuadores são plotados nos sensores)
   $effect(() => {
     for (const plant of plants) {
       const sensorCount = plant.variables.filter((v: any) => v.type === 'sensor').length;
       if (!(plant.id in chartStates)) {
         chartStates[plant.id] = defaultChartState(sensorCount);
       } else if (chartStates[plant.id].variableCount !== sensorCount) {
-        // Atualiza se o número de sensores mudou
         chartStates[plant.id].variableCount = sensorCount;
       }
     }
@@ -76,7 +73,6 @@
     return sensorVariables[safeIndex];
   });
 
-  // Sensor selecionado pelo clique direito (para o menu contextual)
   const contextSensor = $derived.by(() => {
     if (sensorVariables.length === 0) return null;
     const safeIndex = Math.max(0, Math.min(contextSensorIndex, sensorVariables.length - 1));
@@ -86,7 +82,6 @@
   $effect(() => {
     if (!activePlant) return;
 
-    // untrack para evitar dependência circular (lê seriesStyles sem rastrear)
     const current = untrack(() => seriesStyles);
     const next: Record<string, SeriesStyle> = {};
     let actuatorColorIndex = 0;
@@ -196,7 +191,6 @@
   async function handleOpenFile() {
     openPlantLoading = true;
     try {
-      // Abre seletor de arquivo usando serviço modular
       const result = await openFileDialog({
         title: 'Abrir Planta',
         filters: FILE_FILTERS.plant,
@@ -207,7 +201,6 @@
         return;
       }
 
-      // Lê e processa o arquivo
       const plantResult = await openPlant({ filePath: result.name });
       if (plantResult.success && plantResult.plant) {
         appStore.addPlant(plantResult.plant);
@@ -307,7 +300,6 @@
     e.preventDefault();
     if (!graphContainerRef) return;
 
-    // Detecta qual card de sensor foi clicado via data-sensor-index
     let target = e.target as HTMLElement | null;
     while (target && target !== graphContainerRef) {
       const idx = target.dataset?.sensorIndex;
@@ -367,9 +359,7 @@
     appStore.updateVariableSetpoint(activePlant.id, varIndex, value);
   }
 
-  // Keyboard navigation para modos de visualização
   function handleKeyDown(event: KeyboardEvent) {
-    // Ignora se estiver em um input
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
       return;
     }
@@ -386,8 +376,6 @@
     }
   }
 
-  // Timer e keyboard controlados pelo prop active
-  // Quando o módulo está oculto (display:none), timer e listeners são desativados
   $effect(() => {
     if (!active) return;
     const timer = setInterval(() => _displayTick++, 33);
@@ -406,7 +394,6 @@
   });
   const plantData = $derived(getPlantData(activePlantId));
   
-  // Stats por variável (atualiza com displayTick)
   const variableStatsArray = $derived.by(() => {
     _displayTick;
     if (!activePlant) return [];

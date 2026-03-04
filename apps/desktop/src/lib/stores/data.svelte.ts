@@ -232,9 +232,6 @@ class AppStore {
     }
   }
 
-  /**
-   * Atualiza o setpoint de uma variável específica
-   */
   updateVariableSetpoint(plantId: string, variableIndex: number, setpoint: number) {
     const plant = this.state.plants.find(p => p.id === plantId);
     if (plant && plant.variables[variableIndex]) {
@@ -242,9 +239,6 @@ class AppStore {
     }
   }
 
-  /**
-   * Adiciona uma nova variável à planta
-   */
   addVariable(plantId: string, variable?: Partial<PlantVariable>) {
     const plant = this.state.plants.find(p => p.id === plantId);
     if (plant) {
@@ -257,9 +251,6 @@ class AppStore {
     }
   }
 
-  /**
-   * Remove uma variável da planta
-   */
   removeVariable(plantId: string, variableIndex: number) {
     const plant = this.state.plants.find(p => p.id === plantId);
     if (plant && plant.variables.length > 1) {

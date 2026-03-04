@@ -21,7 +21,6 @@
     seriesStyles?: Record<string, SeriesStyle>;
   } = $props();
 
-  // Convert backend data to chart format
   const sensorData = $derived(
     processedData.sensorData.map(point => ({
       time: point.time,
@@ -47,7 +46,6 @@
     }))
   );
 
-  // Use ChartPresets para criar configurações facilmente
   let chartsBase = $derived(
     ChartPresets.analyzer(
       sensorData,
@@ -58,7 +56,6 @@
     )
   );
 
-  // Aplica overrides de visibilidade/cor do seriesStyles
   const charts = $derived.by(() => {
     function applySS(series: typeof chartsBase.sensor.series) {
       return series.map(s => {
@@ -73,7 +70,6 @@
     };
   });
 
-  // Criar configs derivadas que combinam a base com o chartState
   const sensorConfig = $derived({
     ...charts.sensor.config,
     xMode: chartState.xMode,
@@ -92,9 +88,7 @@
 </script>
 
 <div class="h-full flex flex-col bg-white dark:bg-zinc-900 border-r border-b border-slate-200 dark:border-white/5">
-  <!-- Charts -->
   <div class="flex-1 flex flex-col min-h-0">
-    <!-- Sensor + Setpoint chart -->
     <div class="flex-[3] min-h-0 bg-slate-50 dark:bg-[#09090b] border-b border-slate-200 dark:border-white/5">
       <PlotlyChart
         series={charts.sensor.series}
@@ -104,7 +98,6 @@
       />
     </div>
 
-    <!-- Actuators chart -->
     <div class="flex-[2] min-h-0 bg-slate-50 dark:bg-[#09090b]">
       <PlotlyChart
         series={charts.actuator.series}

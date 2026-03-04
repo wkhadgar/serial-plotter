@@ -1,29 +1,11 @@
 <script lang="ts">
-  /**
-   * ============================================================================
-   * CODE EDITOR MODAL - Editor de Código com Syntax Highlighting
-   * ============================================================================
-   *
-   * Modal global e reutilizável para edição de código.
-   * Suporta:
-   * - Syntax highlighting para Python e Rust (highlight.js)
-   * - Seletor de linguagem
-   * - Campo de nome do arquivo
-   * - Edição em textarea sincronizada com preview highlight
-   * - Atalho Tab para indentação
-   *
-   * Projetado para ser usado em qualquer contexto da aplicação.
-   */
   import { X, Check, FileCode } from 'lucide-svelte';
   import { untrack, onDestroy } from 'svelte';
   import hljs from 'highlight.js/lib/core';
   import python from 'highlight.js/lib/languages/python';
   import 'highlight.js/styles/github-dark.css';
 
-  // Registra linguagem
   hljs.registerLanguage('python', python);
-
-  // ─── Types ──────────────────────────────────────────────────────────────────
 
   export type CodeLanguage = 'python';
 
@@ -41,15 +23,10 @@
     python: '.py',
   };
 
-  // ─── Props ──────────────────────────────────────────────────────────────────
-
   interface Props {
     visible: boolean;
-    /** Código inicial */
     initialCode?: string;
-    /** Nome do arquivo inicial */
     initialFileName?: string;
-    /** Título do modal */
     title?: string;
     onClose: () => void;
     onSave: (result: CodeEditorResult) => void;
@@ -64,8 +41,6 @@
     onSave,
   }: Props = $props();
 
-  // ─── State ──────────────────────────────────────────────────────────────────
-
   let code = $state('');
   const language: CodeLanguage = 'python';
   let fileName = $state('');
@@ -74,15 +49,12 @@
   let preEl = $state<HTMLPreElement | null>(null);
   let lineNumEl = $state<HTMLDivElement | null>(null);
 
-  // Derived line metrics — avoids splitting on every render
   const lineCount = $derived((code.match(/\n/g)?.length ?? 0) + 1);
   const lineNumbersHtml = $derived(
     Array.from({ length: lineCount }, (_, i) =>
       `<div class="text-[11px] leading-[1.65] text-zinc-600 font-mono">${i + 1}</div>`
     ).join('')
   );
-
-  // ─── Init on visible ───────────────────────────────────────────────────────
 
   $effect(() => {
     if (visible) {
@@ -93,16 +65,14 @@
     }
   });
 
-  // ─── Highlight ──────────────────────────────────────────────────────────────
-
   function updateHighlight() {
     if (!code) {
-      highlightedHtml = '\n'; // preserve min height
+      highlightedHtml = '\n';
       return;
     }
     try {
       const result = hljs.highlight(code, { language });
-      highlightedHtml = result.value + '\n'; // trailing newline for scroll parity
+      highlightedHtml = result.value + '\n';
     } catch {
       highlightedHtml = escapeHtml(code) + '\n';
     }
@@ -112,11 +82,10 @@
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // Debounce highlight with rAF — avoids blocking the main thread during rapid typing
   let _hlRaf: number | null = null;
 
   $effect(() => {
-    code; // track dependency
+    code;
     if (_hlRaf) cancelAnimationFrame(_hlRaf);
     _hlRaf = requestAnimationFrame(updateHighlight);
   });
@@ -124,8 +93,6 @@
   onDestroy(() => {
     if (_hlRaf) cancelAnimationFrame(_hlRaf);
   });
-
-  // ─── Sync scroll ───────────────────────────────────────────────────────────
 
   function handleScroll() {
     if (textareaEl && preEl) {
@@ -137,8 +104,6 @@
     }
   }
 
-  // ─── Tab key ───────────────────────────────────────────────────────────────
-
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Tab') {
       e.preventDefault();
@@ -147,14 +112,11 @@
       const end = textarea.selectionEnd;
       const indent = '    ';
       code = code.slice(0, start) + indent + code.slice(end);
-      // Restore cursor after Svelte re-renders
       requestAnimationFrame(() => {
         textarea.selectionStart = textarea.selectionEnd = start + indent.length;
       });
     }
   }
-
-  // ─── Actions ────────────────────────────────────────────────────────────────
 
   function handleSave() {
     let finalName = fileName.trim();
@@ -183,7 +145,6 @@
       class="bg-white dark:bg-[#0c0c0e] rounded-2xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-white/10"
       onclick={(e) => e.stopPropagation()}
     >
-      <!-- Header -->
       <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200 dark:border-white/5 shrink-0">
         <div class="flex items-center gap-3">
           <FileCode size={18} class="text-blue-500" />
@@ -197,9 +158,7 @@
         </button>
       </div>
 
-      <!-- Toolbar -->
       <div class="flex items-center gap-3 px-5 py-2.5 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] shrink-0">
-        <!-- Nome do arquivo -->
         <div class="flex-1">
           <input
             type="text"
@@ -208,17 +167,13 @@
             class="w-full h-8 px-3 rounded-md border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/50"
           />
         </div>
-        <!-- Linguagem (badge) -->
         <span class="h-8 px-3 flex items-center rounded-md border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm text-slate-500 dark:text-zinc-400 select-none">
           Python
         </span>
       </div>
 
-      <!-- Editor area -->
       <div class="flex-1 relative overflow-hidden bg-[#0d1117] min-h-0">
-        <!-- Line numbers + code container -->
         <div class="absolute inset-0 flex">
-          <!-- Line numbers -->
           <div
             bind:this={lineNumEl}
             class="shrink-0 w-12 bg-[#0d1117] border-r border-white/5 overflow-hidden select-none"
@@ -228,15 +183,12 @@
               {@html lineNumbersHtml}
             </div>
           </div>
-          <!-- Highlight + textarea overlay -->
           <div class="flex-1 relative min-w-0 overflow-hidden">
-            <!-- Highlighted code (background) -->
             <pre
               bind:this={preEl}
               class="absolute inset-0 pt-4 pb-4 pl-4 pr-4 overflow-auto text-[13px] leading-[1.65] font-mono text-white whitespace-pre pointer-events-none m-0 bg-transparent"
               aria-hidden="true"
             >{@html highlightedHtml}</pre>
-            <!-- Textarea (foreground, transparent text) -->
             <textarea
               bind:this={textareaEl}
               bind:value={code}
@@ -251,7 +203,6 @@
         </div>
       </div>
 
-      <!-- Footer -->
       <div class="flex items-center justify-between px-5 py-3 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] shrink-0">
         <div class="text-xs text-slate-400 dark:text-zinc-500">
           {lineCount} linhas · {code.length} caracteres · {CODE_LANGUAGE_LABELS[language]}

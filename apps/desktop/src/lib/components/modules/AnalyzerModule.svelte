@@ -1,19 +1,4 @@
 <script lang="ts">
-  /**
-   * ============================================================================
-   * ANALYZER MODULE - Análise de Dados Históricos
-   * ============================================================================
-   * 
-   * Módulo para análise de dados CSV com todas as funcionalidades do PlotterModule:
-   * - Zoom por seleção, scroll e double-click para reset
-   * - Pan com Shift+drag ou middle-click
-   * - Menu de contexto (botão direito)
-   * - Multi-abas com estado persistente
-   * - Drag-and-drop de arquivos CSV
-   * - Grid/Single view com navegação por teclado (Space/H)
-   * 
-   * Estado persistido via analyzerStore (singleton reativo)
-   */
   import { untrack } from 'svelte';
   import { Upload, Sliders } from 'lucide-svelte';
   import { processJSONFile } from '$lib/services/analyzerBackend';
@@ -32,7 +17,6 @@
   const SETPOINT_COLOR = '#f59e0b';
   const ACTUATOR_PALETTE = ['#10b981', '#06b6d4', '#8b5cf6', '#f97316', '#ec4899', '#14b8a6'];
 
-  // Estado local (não persistido)
   let fileInput: HTMLInputElement;
   let isProcessing = $state(false);
   let dragOverlay = $state(false);
@@ -41,16 +25,13 @@
   let contextVarIndex = $state(0);
   let seriesStyles = $state<Record<string, SeriesStyle>>({});
 
-  // Modal state
   let showErrorModal = $state(false);
   let errorMessage = $state('');
 
-  // Gera chave de série para o seriesStyles global
   function sKey(varIndex: number, seriesKey: string) {
     return `${varIndex}_${seriesKey}`;
   }
 
-  // Inicializa/atualiza seriesStyles quando variáveis mudam
   $effect(() => {
     const tab = analyzerStore.activeTab;
     if (!tab || tab.processedVariables.length === 0) return;
@@ -82,7 +63,6 @@
     seriesStyles = next;
   });
 
-  // Variável apontada pelo clique direito
   const contextVariable = $derived.by(() => {
     const vars = analyzerStore.selectedVariables;
     if (vars.length === 0) return null;
@@ -90,7 +70,6 @@
     return vars[safe];
   });
 
-  // Controles de série para o menu contextual da variável clicada
   const contextSeriesControls = $derived.by(() => {
     if (!contextVariable) return [];
     const vi = contextVariable.variable.index;
@@ -141,7 +120,6 @@
     seriesStyles = { ...seriesStyles, [key]: { ...cur, color } };
   }
 
-  /** Extrai seriesStyles relevantes para uma variável (mapa local: seriesKey → style) */
   function getVarSeriesStyles(varIndex: number, pv: import('$lib/types/analyzer').ProcessedVariableData): Record<string, SeriesStyle> {
     const result: Record<string, SeriesStyle> = {};
     result['sensor'] = seriesStyles[sKey(varIndex, 'sensor')] ?? { color: SENSOR_COLOR, visible: true, label: 'Sensor' };
@@ -152,7 +130,6 @@
     return result;
   }
 
-  // Handlers
   function handleAddTab() {
     analyzerStore.createEmptyTab();
   }
@@ -183,7 +160,6 @@
 
       const fileName = response.plantName || file.name.replace(/\.[^/.]+$/, '');
       
-      // Carrega os dados na aba ativa (renomeia de "Unnamed" para o nome do arquivo)
       analyzerStore.loadFileToActiveTab(fileName, response.variables);
 
     } catch (error) {
@@ -207,7 +183,6 @@
     e.preventDefault();
     if (!graphContainerRef) return;
 
-    // Detecta qual card de variável foi clicado via data-var-index
     let target = e.target as HTMLElement | null;
     while (target && target !== graphContainerRef) {
       const idx = target.dataset?.varIndex;
@@ -266,9 +241,7 @@
     }
   }
 
-  // Keyboard navigation para modos de visualização
   function handleKeyDown(event: KeyboardEvent) {
-    // Ignora se estiver em um input
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
       return;
     }
@@ -282,7 +255,6 @@
     }
   }
 
-  // Keyboard handler controlado pelo prop active
   $effect(() => {
     if (!active) return;
     window.addEventListener('keydown', handleKeyDown);
@@ -291,7 +263,6 @@
 </script>
 
 <div class="flex flex-col h-full w-full bg-white dark:bg-[#09090b] text-slate-900 dark:text-white">
-  <!-- Tabs - sempre visível -->
   <AnalyzerTabs
     tabs={analyzerStore.tabs}
     activeTabId={analyzerStore.activeTabId}
@@ -300,7 +271,6 @@
     onRemove={handleRemoveTab}
   />
 
-  <!-- Main content -->
   <div class="flex-1 flex overflow-hidden bg-slate-50 dark:bg-[#09090b] relative">
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -314,7 +284,6 @@
       role="application"
       aria-label="Área de gráficos"
     >
-      <!-- Drag overlay -->
       {#if dragOverlay}
         <div class="absolute inset-0 bg-blue-500/20 border-2 border-dashed border-blue-500 flex items-center justify-center z-40 pointer-events-none">
           <div class="text-center">
@@ -324,7 +293,6 @@
         </div>
       {/if}
 
-      <!-- Context Menu -->
       <ChartContextMenu
         bind:visible={contextMenu.visible}
         x={contextMenu.x}
@@ -337,7 +305,6 @@
         onClose={closeContextMenu}
       />
 
-      <!-- Toolbar -->
       <div class="h-12 flex items-center justify-between px-4 border-b border-slate-200 dark:border-white/5 bg-white dark:bg-[#0c0c0e] shrink-0">
         <div class="flex items-center gap-2">
           {#if analyzerStore.activeTab}
@@ -380,7 +347,6 @@
         class="hidden"
       />
 
-      <!-- Charts area -->
       <div class="flex-1 overflow-auto p-3">
         {#if isProcessing}
           <div class="h-full flex items-center justify-center">
@@ -395,7 +361,6 @@
             </div>
           </div>
         {:else if analyzerStore.isActiveTabEmpty}
-          <!-- Aba vazia - mostrar área de drop -->
           <div class="h-full flex items-center justify-center">
             <div class="text-center">
               <Upload size={64} class="mx-auto mb-4 text-slate-300 dark:text-zinc-700" />
@@ -434,7 +399,6 @@
           <div class="h-full relative {isSingleView ? 'flex items-stretch' : 'grid gap-3'}" style={isSingleView ? '' : 'grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); grid-auto-rows: 1fr;'}>
             {#each visibleVariables.filter(Boolean) as processedVar, vi (processedVar.variable.index)}
               <div class="bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm flex flex-col {isSingleView ? 'w-full h-full' : ''}" data-var-index={vi}>
-                <!-- Variable header with legend -->
                 <div class="px-3 py-2 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-zinc-900/50 flex items-center justify-between shrink-0">
                   <h3 class="text-sm font-bold text-slate-700 dark:text-zinc-300">
                     {processedVar.variable.sensorName}
@@ -457,7 +421,6 @@
                     {/each}
                   </div>
                 </div>
-                <!-- Charts -->
                 <div class="flex-1 min-h-0">
                   <VariableChart
                     processedData={processedVar}
@@ -470,7 +433,6 @@
               </div>
             {/each}
             
-            <!-- Indicator para modo single view -->
             {#if isSingleView && analyzerStore.selectedVariables.length > 1}
               <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-20">
                 <span class="text-xs text-white/80 font-medium">
@@ -486,7 +448,6 @@
       </div>
     </div>
 
-    <!-- Variable selector panel -->
     {#if analyzerStore.activeTab?.processedVariables && analyzerStore.activeTab.processedVariables.length > 0}
       <VariableSelectorPanel
         visible={analyzerStore.showVariablePanel}
@@ -501,7 +462,6 @@
   </div>
 </div>
 
-<!-- Error Modal -->
 <GenericModal
   visible={showErrorModal}
   type="error"

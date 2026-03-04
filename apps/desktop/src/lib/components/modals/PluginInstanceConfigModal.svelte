@@ -1,19 +1,4 @@
 <script lang="ts">
-  /**
-   * ============================================================================
-   * PLUGIN INSTANCE CONFIG MODAL - Configuração de Instância de Plugin
-   * ============================================================================
-   *
-   * Modal modular para configurar uma instância de plugin para uma planta.
-   * Renderiza cada campo do schema com o tipo correto:
-   * - bool   → toggle switch (on/off)
-   * - int    → input numérico (inteiro)
-   * - float  → input numérico (decimal)
-   * - string → input de texto
-   * - list   → array builder com add/remove itens
-   *
-   * Reutilizável em qualquer contexto.
-   */
   import { X, Plus, Trash2, Settings, AlertCircle, Check } from 'lucide-svelte';
   import type { PluginDefinition, PluginInstance, SchemaFieldValue } from '$lib/types/plugin';
   import { SCHEMA_FIELD_TYPE_LABELS, getDefaultValueForType, isFieldRequired } from '$lib/types/plugin';
@@ -22,9 +7,7 @@
   interface Props {
     visible: boolean;
     plugin: PluginDefinition | null;
-    /** Valores pré-existentes (para edição) */
     existingConfig?: Record<string, SchemaFieldValue>;
-    /** Nome customizado para a instância (opcional) */
     instanceLabel?: string;
     onClose: () => void;
     onConfigured: (instance: PluginInstance) => void;
@@ -39,14 +22,10 @@
     onConfigured,
   }: Props = $props();
 
-  // ─── Config State ─────────────────────────────────────────────────────────
-
   let config = $state<Record<string, SchemaFieldValue>>({});
   let listInputs = $state<Record<string, string>>({});
   let isLoading = $state(false);
   let error = $state<string | null>(null);
-
-  // ─── Init config when plugin changes ──────────────────────────────────────
 
   $effect(() => {
     if (plugin && visible) {
@@ -64,13 +43,9 @@
     }
   });
 
-  // ─── Derived ──────────────────────────────────────────────────────────────
-
   const pluginLabel = $derived(
     instanceLabel || plugin?.name || 'Plugin'
   );
-
-  // ─── Value Handlers ───────────────────────────────────────────────────────
 
   function setBool(fieldName: string, value: boolean) {
     config = { ...config, [fieldName]: value };
@@ -105,13 +80,10 @@
     }
   }
 
-  // ─── Submit ─────────────────────────────────────────────────────────────
-
   async function handleSubmit() {
     if (!plugin) return;
     error = null;
 
-    // Verificar campos obrigatórios (sem defaultValue = obrigatório)
     for (const field of plugin.schema) {
       if (isFieldRequired(field)) {
         const value = config[field.name];
@@ -167,7 +139,6 @@
       class="bg-white dark:bg-[#0c0c0e] rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-white/10"
       onclick={(e) => e.stopPropagation()}
     >
-      <!-- Header -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-white/5 shrink-0">
         <div>
           <h2 class="text-lg font-bold text-slate-800 dark:text-white">Configurar {pluginLabel}</h2>
@@ -183,7 +154,6 @@
         </button>
       </div>
 
-      <!-- Content -->
       <div class="flex-1 overflow-y-auto p-6 space-y-4">
         {#if error}
           <div class="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400 text-sm flex items-center gap-2">
@@ -217,7 +187,6 @@
                 <p class="text-xs text-slate-400 dark:text-zinc-500">{field.description}</p>
               {/if}
 
-              <!-- ───── Bool: toggle switch ───── -->
               {#if field.type === 'bool'}
                 <button
                   onclick={() => setBool(field.name, !config[field.name])}
@@ -235,7 +204,6 @@
                   </span>
                 </button>
 
-              <!-- ───── Int: numeric input ───── -->
               {:else if field.type === 'int'}
                 <input
                   type="number"
@@ -245,7 +213,6 @@
                   class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 />
 
-              <!-- ───── Float: numeric input (decimal) ───── -->
               {:else if field.type === 'float'}
                 <input
                   type="number"
@@ -255,7 +222,6 @@
                   class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 />
 
-              <!-- ───── String: text input ───── -->
               {:else if field.type === 'string'}
                 <input
                   type="text"
@@ -265,10 +231,8 @@
                   class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 />
 
-              <!-- ───── List: array builder ───── -->
               {:else if field.type === 'list'}
                 <div class="space-y-2">
-                  <!-- Itens existentes -->
                   {#if Array.isArray(config[field.name]) && (config[field.name] as SchemaFieldValue[]).length > 0}
                     <div class="space-y-1">
                       {#each (config[field.name] as SchemaFieldValue[]) as item, idx}
@@ -284,7 +248,6 @@
                       {/each}
                     </div>
                   {/if}
-                  <!-- Input para novo item -->
                   <div class="flex items-center gap-2">
                     <input
                       type="text"
@@ -307,7 +270,6 @@
         {/if}
       </div>
 
-      <!-- Footer -->
       <div class="flex items-center justify-between px-6 py-4 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] shrink-0">
         <button
           onclick={handleClose}

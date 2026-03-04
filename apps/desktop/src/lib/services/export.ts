@@ -8,7 +8,6 @@ import type {
 } from '$lib/types/plantExport';
 import { EXPORT_FORMAT_VERSION } from '$lib/types/plantExport';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function sanitizeName(name: string): string {
   return name.replace(/\s+/g, '_');
@@ -32,26 +31,17 @@ function classifyVariables(variables: PlantVariable[]) {
   return { sensors, actuators };
 }
 
-// ─── CSV Export ─────────────────────────────────────────────────────────────
 
-/**
- * Exporta dados para CSV com colunas nomeadas por variável.
- *
- * Formato: seconds, sensor_Temperatura, setpoint_Temperatura, sensor_Pressao, ..., atuador_Valvula_V-101, ...
- */
 export function exportPlantDataCSV(plant: Plant, data: PlantDataPoint[]): boolean {
   if (data.length === 0) return false;
 
   const { sensors, actuators } = classifyVariables(plant.variables);
   const varIndex = (v: PlantVariable) => parseInt(v.id.replace('var_', ''), 10);
 
-  // Constrói headers e extratores de valor
   const columns: { header: string; getValue: (pt: PlantDataPoint) => number }[] = [];
 
-  // Coluna de tempo
   columns.push({ header: 'seconds', getValue: (pt) => pt.time });
 
-  // Colunas de sensores (PV + SP)
   for (const s of sensors) {
     const idx = varIndex(s);
     const name = sanitizeName(s.name);
@@ -59,7 +49,6 @@ export function exportPlantDataCSV(plant: Plant, data: PlantDataPoint[]): boolea
     columns.push({ header: `setpoint_${name}`, getValue: (pt) => pt[`var_${idx}_sp`] ?? 0 });
   }
 
-  // Colunas de atuadores (PV = abertura/potência)
   for (const a of actuators) {
     const idx = varIndex(a);
     const name = sanitizeName(a.name);
@@ -79,18 +68,12 @@ export function exportPlantDataCSV(plant: Plant, data: PlantDataPoint[]): boolea
   return true;
 }
 
-// ─── JSON Export ────────────────────────────────────────────────────────────
 
-/**
- * Monta o objeto PlantExportJSON a partir dos dados em memória.
- * Pode ser usado tanto para download quanto para passar ao backend.
- */
 export function buildPlantExportJSON(plant: Plant, data: PlantDataPoint[]): PlantExportJSON {
   const { sensors, actuators } = classifyVariables(plant.variables);
   const varIndex = (v: PlantVariable) => parseInt(v.id.replace('var_', ''), 10);
 
   const exportSensors: ExportSensor[] = sensors.map((s) => {
-    // Acha atuadores vinculados a esse sensor
     const linked = actuators.filter((a) => a.linkedSensorIds?.includes(s.id));
     return {
       id: s.id,
@@ -154,9 +137,6 @@ export function buildPlantExportJSON(plant: Plant, data: PlantDataPoint[]): Plan
   };
 }
 
-/**
- * Exporta dados para JSON estruturado e dispara download.
- */
 export function exportPlantDataJSON(plant: Plant, data: PlantDataPoint[]): boolean {
   if (data.length === 0) return false;
 

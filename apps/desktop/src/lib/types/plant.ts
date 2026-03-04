@@ -1,36 +1,18 @@
 import type { Controller } from './controller';
 
-/**
- * ============================================================================
- * TIPOS DE PLANTA - Estrutura Multi-Variável
- * ============================================================================
- * 
- * Uma planta pode ter múltiplas variáveis de controle.
- * Cada variável tem seu próprio PV, SP e MV.
- */
-
-/**
- * Ponto de dados de uma variável individual
- */
 export interface VariableDataPoint {
   time: number;
-  pv: number;   // Process Variable (valor lido do sensor)
-  sp: number;   // Setpoint (valor desejado)
-  mv: number;   // Manipulated Variable (saída do controlador)
+  pv: number;
+  sp: number;
+  mv: number;
 }
 
-/**
- * Estatísticas de uma variável
- */
 export interface VariableStats {
-  errorAvg: number;     // Erro médio absoluto (|SP - PV|)
-  stability: number;    // Estabilidade (0-100%) baseada no ripple/ruído
-  ripple: number;       // Variação ponto-a-ponto do PV (ruído/oscilação)
+  errorAvg: number;
+  stability: number;
+  ripple: number;
 }
 
-/**
- * Tipo de variável: sensor (medição) ou atuador (ação)
- */
 export type VariableType = 'sensor' | 'atuador';
 
 export const VARIABLE_TYPE_LABELS: Record<VariableType, string> = {
@@ -38,34 +20,24 @@ export const VARIABLE_TYPE_LABELS: Record<VariableType, string> = {
   atuador: 'Atuador',
 };
 
-/**
- * Definição de uma variável de controle
- */
 export interface PlantVariable {
   id: string;
-  name: string;           // Nome da variável (ex: "Temperatura", "Pressão")
-  type: VariableType;     // Tipo: sensor (medição) ou atuador (ação)
-  unit: string;           // Unidade (ex: "°C", "bar", "%")
-  setpoint: number;       // Setpoint atual (só para sensores)
-  pvMin: number;          // Range mínimo do PV (para escala do gráfico)
-  pvMax: number;          // Range máximo do PV
-  mvMin: number;          // Range mínimo do MV
-  mvMax: number;          // Range máximo do MV
-  linkedSensorIds?: string[];  // IDs dos sensores vinculados (só para atuadores)
+  name: string;
+  type: VariableType;
+  unit: string;
+  setpoint: number;
+  pvMin: number;
+  pvMax: number;
+  mvMin: number;
+  mvMax: number;
+  linkedSensorIds?: string[];
 }
 
-/**
- * Ponto de dados da planta completa (todas as variáveis)
- * Estrutura: { time, var_0_pv, var_0_sp, var_0_mv, var_1_pv, ... }
- */
 export interface PlantDataPoint {
   time: number;
-  [key: string]: number;  // var_{index}_{pv|sp|mv}
+  [key: string]: number;
 }
 
-/**
- * Utilitários para acessar dados de variáveis
- */
 export function getVariableKeys(varIndex: number) {
   return {
     pv: `var_${varIndex}_pv`,
@@ -98,14 +70,11 @@ export interface Plant {
   name: string;
   connected: boolean;
   paused: boolean;
-  variables: PlantVariable[];  // Array de variáveis (pode ser 1 ou mais)
+  variables: PlantVariable[];
   stats: PlantStats;
   controllers: Controller[];
 }
 
-/**
- * Cria uma variável padrão
- */
 export function createDefaultVariable(index: number, name?: string, type: VariableType = 'sensor'): PlantVariable {
   return {
     id: `var_${index}`,

@@ -23,10 +23,8 @@
     onUpdateSetpoint: (varIndex: number, value: number) => void;
   } = $props();
 
-  // Estado para expandir/colapsar seção de setpoints
   let setpointsExpanded = $state(true);
 
-  // Filtra apenas sensores para setpoints
   const sensorVariables = $derived(
     plant?.variables
       .map((v, idx) => ({ variable: v, index: idx }))
@@ -43,7 +41,6 @@
   </div>
   <div class="flex-1 overflow-y-auto p-5 space-y-6 min-w-[320px]">
     {#if plant}
-      <!-- Setpoints por variável (apenas sensores) -->
       <div class="bg-slate-50 dark:bg-[#121215] rounded-xl border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden">
         <button 
           onclick={() => setpointsExpanded = !setpointsExpanded}

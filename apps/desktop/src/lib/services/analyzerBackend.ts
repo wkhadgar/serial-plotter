@@ -9,21 +9,6 @@ interface BackendResponse {
   plantName?: string;
 }
 
-/**
- * ============================================================================
- * ANALYZER BACKEND SERVICE
- * ============================================================================
- *
- * Lê um arquivo JSON no formato PlantExportJSON, valida a estrutura,
- * e converte para ProcessedVariableData[] pronto para plotagem.
- *
- * Arquitetura preparada para integração com backend Rust via Tauri IPC:
- * basta substituir a leitura do arquivo por `invoke('analyze_json', { json })`.
- */
-
-/**
- * Calcula range com padding de 10%
- */
 function calcRange(values: number[]): { min: number; max: number } {
   if (values.length === 0) return { min: 0, max: 100 };
   const min = Math.min(...values);
@@ -32,27 +17,20 @@ function calcRange(values: number[]): { min: number; max: number } {
   return { min: Math.floor(min - pad), max: Math.ceil(max + pad) };
 }
 
-/**
- * Converte o JSON exportado em ProcessedVariableData[] para o Analyzer.
- * Cada sensor gera uma entrada com seu setpoint e atuadores vinculados.
- */
 function convertJSONToProcessedVariables(json: PlantExportJSON): ProcessedVariableData[] {
   const result: ProcessedVariableData[] = [];
 
   json.sensors.forEach((sensor: ExportSensor, index: number) => {
-    // Dados do sensor ao longo do tempo
     const sensorData = json.data.map((sample) => ({
       time: sample.time,
       value: sample.sensors[sensor.id] ?? 0,
     }));
 
-    // Dados do setpoint
     const setpointData = json.data.map((sample) => ({
       time: sample.time,
       value: sample.setpoints[sensor.setpointId] ?? 0,
     }));
 
-    // Dados dos atuadores vinculados
     const linkedActuators = json.actuators.filter((a) =>
       sensor.actuatorIds.includes(a.id)
     );
@@ -72,7 +50,6 @@ function convertJSONToProcessedVariables(json: PlantExportJSON): ProcessedVariab
       unit: a.unit,
     }));
 
-    // Calcula ranges
     const allSensorValues = sensorData.map((d) => d.value);
     const allSetpointValues = setpointData.map((d) => d.value);
     const allActuatorValues = actuatorsData.flatMap((a) => a.data.map((d) => d.value));
@@ -101,10 +78,6 @@ function convertJSONToProcessedVariables(json: PlantExportJSON): ProcessedVariab
   return result;
 }
 
-/**
- * Processa um arquivo JSON exportado pelo Plotter.
- * Lê o arquivo, valida e converte para dados de análise.
- */
 export async function processJSONFile(file: File): Promise<BackendResponse> {
   try {
     const text = await file.text();
@@ -136,13 +109,3 @@ export async function processJSONFile(file: File): Promise<BackendResponse> {
     };
   }
 }
-
-/**
- * Future Tauri command (commented out for reference)
- *
- * import { invoke } from '@tauri-apps/api/core';
- *
- * export async function processJSONFile(filePath: string): Promise<BackendResponse> {
- *   return await invoke('analyze_json_file', { filePath });
- * }
- */

@@ -1,15 +1,4 @@
 <script lang="ts">
-  /**
-   * ============================================================================
-   * CREATE PLANT MODAL - Modal de Criação de Nova Planta
-   * ============================================================================
-   * 
-   * Modal completo para criar uma nova planta com:
-   * - Nome da planta
-   * - Seletor de driver de comunicação (com busca e criação)
-   * - Lista de variáveis
-   * - Seletor de controladores
-   */
   import { X, Search, Plus, Trash2, ChevronDown, ChevronUp, Check, Settings, Cpu, Activity, Gauge, Zap, Link, Upload, Code } from 'lucide-svelte';
   import { onMount } from 'svelte';
   import type { PlantVariable, VariableType } from '$lib/types/plant';
@@ -36,24 +25,20 @@
     onPlantCreated,
   }: Props = $props();
 
-  // Form state
   let plantName = $state('');
   let driverInstance = $state<PluginInstance | null>(null);
   let variables = $state<PlantVariable[]>([createDefaultVariable(0, 'Variável 1')]);
   let selectedControllers = $state<Controller[]>([]);
 
-  // UI state
   let isLoading = $state(false);
   let error = $state<string | null>(null);
   let currentStep = $state<'info' | 'driver' | 'variables' | 'controllers'>('info');
   
-  // Data from backend
   let availablePlugins = $state<PluginDefinition[]>([]);
   let controllerTemplates = $state<Controller[]>([]);
   let driverSearch = $state('');
   let controllerSearch = $state('');
   
-  // Child modal state
   let showCreatePlugin = $state(false);
   let showInstanceConfig = $state(false);
   let pluginToConfig = $state<PluginDefinition | null>(null);
@@ -73,18 +58,14 @@
     )
   );
 
-  // Lista de sensores para vincular atuadores
   const sensorVariables = $derived(
     variables.filter(v => v.type === 'sensor')
   );
 
   onMount(async () => {
-    // Carrega dados do backend
     availablePlugins = await listPlugins('driver');
     controllerTemplates = await listControllerTemplates();
   });
-
-  // ─── Plugin Import Flow ────────────────────────────────────────────────
 
   async function handleImportPlugin() {
     importError = null;
@@ -103,7 +84,6 @@
         return;
       }
 
-      // Registra e abre configuração
       const reg = await registerPlugin(validation.plugin);
       if (!reg.success || !reg.plugin) {
         importError = reg.error || 'Erro ao registrar plugin';
@@ -119,7 +99,6 @@
   }
 
   function handlePluginCreated(plugin: PluginDefinition) {
-    // Atualiza lista e abre config
     availablePlugins = [...availablePlugins, plugin];
     pluginToConfig = plugin;
     showInstanceConfig = true;
@@ -132,7 +111,6 @@
 
   function handleInstanceConfigured(instance: PluginInstance) {
     driverInstance = instance;
-    // Avança para variáveis
     currentStep = 'variables';
   }
 
@@ -149,11 +127,9 @@
   function updateVariable(index: number, field: keyof PlantVariable, value: any) {
     variables = variables.map((v, i) => {
       if (i !== index) return v;
-      // Se mudar de sensor para atuador, inicializa linkedSensorIds
       if (field === 'type' && value === 'atuador') {
         return { ...v, [field]: value, linkedSensorIds: [] };
       }
-      // Se mudar de atuador para sensor, remove linkedSensorIds
       if (field === 'type' && value === 'sensor') {
         const { linkedSensorIds, ...rest } = v;
         return { ...rest, [field]: value };
@@ -174,7 +150,6 @@
   }
 
   function addController(template: Controller) {
-    // Cria uma cópia do template com novo ID
     const newController: Controller = {
       ...template,
       id: generateId(),
@@ -263,7 +238,6 @@
       class="bg-white dark:bg-[#0c0c0e] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-white/10"
       onclick={(e) => e.stopPropagation()}
     >
-      <!-- Header -->
       <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-white/5 shrink-0">
         <div>
           <h2 class="text-lg font-bold text-slate-800 dark:text-white">Criar Nova Planta</h2>
@@ -277,7 +251,6 @@
         </button>
       </div>
 
-      <!-- Tabs de navegação -->
       <div class="flex border-b border-slate-200 dark:border-white/5 px-6 shrink-0">
         <button 
           onclick={() => currentStep = 'info'}
@@ -308,7 +281,6 @@
         </button>
       </div>
 
-      <!-- Content -->
       <div class="flex-1 overflow-y-auto p-6">
         {#if error}
           <div class="mb-4 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400 text-sm">
@@ -317,7 +289,6 @@
         {/if}
 
         {#if currentStep === 'info'}
-          <!-- Informações Básicas -->
           <div class="space-y-4">
             <label class="block">
               <span class="block text-sm font-medium text-slate-700 dark:text-zinc-300 mb-2">
@@ -361,7 +332,6 @@
           </div>
 
         {:else if currentStep === 'driver'}
-          <!-- Seletor de Driver (Plugin System) -->
           <div class="space-y-4">
             {#if importError}
               <div class="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400 text-sm">
@@ -389,7 +359,6 @@
               </div>
             {/if}
 
-            <!-- Barra de pesquisa -->
             <div class="relative">
               <Search size={18} class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -400,7 +369,6 @@
               />
             </div>
 
-            <!-- Lista de plugins -->
             <div class="space-y-2">
               {#each filteredPlugins as plugin (plugin.id)}
                 <button
@@ -437,7 +405,6 @@
               {/if}
             </div>
 
-            <!-- Ações: Importar / Criar -->
             <div class="grid grid-cols-2 gap-3">
               <button
                 onclick={handleImportPlugin}
@@ -457,7 +424,6 @@
           </div>
 
         {:else if currentStep === 'variables'}
-          <!-- Lista de Variáveis -->
           <div class="space-y-4">
             {#each variables as variable, idx (variable.id)}
               <div class="p-5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b]">
@@ -470,7 +436,6 @@
                     {/if}
                   </div>
                   <div class="flex-1 space-y-4">
-                    <!-- Linha 1: Tipo e Nome -->
                     <div class="grid grid-cols-[120px_1fr] gap-3">
                       <label class="block">
                         <span class="text-[10px] text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Tipo</span>
@@ -495,7 +460,6 @@
                         />
                       </label>
                     </div>
-                    <!-- Linha 2: Unidade, Setpoint (só sensor), PV Min, PV Max -->
                     <div class={`grid gap-3 ${variable.type === 'sensor' ? 'grid-cols-4' : 'grid-cols-3'}`}>
                       <label class="block">
                         <span class="text-[10px] text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Unidade</span>
@@ -537,7 +501,6 @@
                         />
                       </label>
                     </div>
-                    <!-- Seletor de sensores vinculados (só para atuadores) -->
                     {#if variable.type === 'atuador'}
                       <div class="pt-3 border-t border-slate-100 dark:border-white/5">
                         <div class="flex items-center gap-2 mb-2">
@@ -591,9 +554,7 @@
           </div>
 
         {:else if currentStep === 'controllers'}
-          <!-- Controladores -->
           <div class="space-y-4">
-            <!-- Controladores adicionados -->
             {#if selectedControllers.length > 0}
               <div class="space-y-2">
                 <h4 class="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wide">Controladores Adicionados</h4>
@@ -617,7 +578,6 @@
               </div>
             {/if}
 
-            <!-- Templates disponíveis -->
             <div>
               <h4 class="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wide mb-2">Templates Disponíveis</h4>
               
@@ -650,7 +610,6 @@
         {/if}
       </div>
 
-      <!-- Footer -->
       <div class="flex items-center justify-between px-6 py-4 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] shrink-0">
         <button
           onclick={handleClose}
@@ -674,7 +633,6 @@
     </div>
   </div>
 
-  <!-- Child Modals -->
   <CreatePluginModal
     bind:visible={showCreatePlugin}
     forceKind="driver"

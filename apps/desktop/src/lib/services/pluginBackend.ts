@@ -1,18 +1,3 @@
-/**
- * ============================================================================
- * PLUGIN BACKEND SERVICE (MOCK)
- * ============================================================================
- *
- * Serviço mock para operações com plugins.
- * Preparado para integração com backend Rust via Tauri IPC.
- *
- * Funções:
- * - listPlugins: lista plugins disponíveis (registrados/importados)
- * - validatePluginFile: valida JSON de plugin importado
- * - registerPlugin: registra um plugin no sistema  
- * - validatePluginInstance: valida uma config de instância
- */
-
 import type {
   PluginDefinition,
   PluginFileJSON,
@@ -21,7 +6,6 @@ import type {
 import { validatePluginJSON, getDefaultValueForType, isFieldRequired, AUTO_SCHEMA_FIELDS, DRIVER_REQUIRED_METHODS } from '$lib/types/plugin';
 import { generateId } from '$lib/utils/format';
 
-// ─── Response Types ─────────────────────────────────────────────────────────
 
 export interface ValidatePluginResponse {
   success: boolean;
@@ -34,8 +18,6 @@ export interface RegisterPluginResponse {
   plugin?: PluginDefinition;
   error?: string;
 }
-
-// ─── In-Memory Plugin Registry (mock) ───────────────────────────────────────
 
 const _pluginRegistry: PluginDefinition[] = [
   {
@@ -107,36 +89,23 @@ const _pluginRegistry: PluginDefinition[] = [
   },
 ];
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function mockDelay(ms: number = 300): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// ─── Public API ─────────────────────────────────────────────────────────────
 
-/**
- * Lista todos os plugins registrados.
- * Filtrável por kind.
- */
 export async function listPlugins(kind?: 'driver' | 'controller'): Promise<PluginDefinition[]> {
   await mockDelay(150);
   if (kind) return _pluginRegistry.filter((p) => p.kind === kind);
   return [..._pluginRegistry];
 }
 
-/**
- * Busca um plugin pelo ID.
- */
 export async function getPlugin(pluginId: string): Promise<PluginDefinition | null> {
   await mockDelay(50);
   return _pluginRegistry.find((p) => p.id === pluginId) ?? null;
 }
 
-/**
- * Valida um arquivo JSON de plugin.
- * Em produção, chamaria o backend Rust para validar o código-fonte também.
- */
 export async function validatePluginFile(json: unknown): Promise<ValidatePluginResponse> {
   await mockDelay(500);
 
@@ -147,7 +116,6 @@ export async function validatePluginFile(json: unknown): Promise<ValidatePluginR
 
   const fileJson = json as PluginFileJSON;
 
-  // Normaliza schema (garante defaultValue quando presente)
   const schema = fileJson.schema.map((field) => ({
     ...field,
     ...(field.defaultValue !== undefined
@@ -155,7 +123,6 @@ export async function validatePluginFile(json: unknown): Promise<ValidatePluginR
       : {}),
   }));
 
-  // Auto-injeta num_sensors/num_actuators para drivers
   const finalSchema = fileJson.kind === 'driver'
     ? [...AUTO_SCHEMA_FIELDS, ...schema.filter(f => f.name !== 'num_sensors' && f.name !== 'num_actuators')]
     : schema;
@@ -176,19 +143,13 @@ export async function validatePluginFile(json: unknown): Promise<ValidatePluginR
   return { success: true, plugin };
 }
 
-/**
- * Registra um plugin no sistema (cria ou importa).
- * Retorna o plugin com ID atribuído.
- */
 export async function registerPlugin(plugin: PluginDefinition): Promise<RegisterPluginResponse> {
   await mockDelay(400);
 
-  // Verifica nome duplicado
   if (_pluginRegistry.some((p) => p.name === plugin.name && p.id !== plugin.id)) {
     return { success: false, error: `Já existe um plugin com o nome "${plugin.name}"` };
   }
 
-  // Se já existe (mesmo ID), atualiza
   const idx = _pluginRegistry.findIndex((p) => p.id === plugin.id);
   if (idx >= 0) {
     _pluginRegistry[idx] = plugin;
@@ -199,10 +160,6 @@ export async function registerPlugin(plugin: PluginDefinition): Promise<Register
   return { success: true, plugin };
 }
 
-/**
- * Valida os valores de configuração de uma instância.
- * Em produção, chamaria o backend para validação mais profunda.
- */
 export async function validatePluginInstanceConfig(
   pluginId: string,
   config: Record<string, unknown>
@@ -212,7 +169,6 @@ export async function validatePluginInstanceConfig(
   const plugin = _pluginRegistry.find((p) => p.id === pluginId);
   if (!plugin) return { success: false, error: 'Plugin não encontrado' };
 
-  // Valida campos obrigatórios (sem defaultValue = obrigatório)
   for (const field of plugin.schema) {
     if (isFieldRequired(field)) {
       const val = config[field.name];
@@ -225,20 +181,11 @@ export async function validatePluginInstanceConfig(
   return { success: true };
 }
 
-// ─── Validação de Código-Fonte ──────────────────────────────────────────────
-
 export interface ValidateDriverCodeResponse {
   success: boolean;
   errors?: string[];
 }
 
-/**
- * Valida o código-fonte Python de um driver.
- * Verifica se contém uma classe que herda de MCUDriver
- * e se implementa todos os métodos obrigatórios.
- *
- * Mock — em produção o backend Rust faz AST parsing real.
- */
 export async function validateDriverSourceCode(
   code: string,
   expectedClassName?: string
@@ -247,7 +194,6 @@ export async function validateDriverSourceCode(
 
   const errors: string[] = [];
 
-  // Verifica herança de MCUDriver
   const classPattern = /class\s+(\w+)\s*\(\s*MCUDriver\s*\)/;
   const classMatch = code.match(classPattern);
 
@@ -262,9 +208,7 @@ export async function validateDriverSourceCode(
     errors.push(`Nome da classe esperado: "${expectedClassName}", encontrado: "${foundClass}"`);
   }
 
-  // Verifica métodos obrigatórios
   for (const method of DRIVER_REQUIRED_METHODS) {
-    // Procura def method( dentro do código
     const methodPattern = new RegExp(`def\\s+${method}\\s*\\(`);
     if (!methodPattern.test(code)) {
       errors.push(`Método obrigatório ausente: ${method}()`);
@@ -277,19 +221,3 @@ export async function validateDriverSourceCode(
 
   return { success: true };
 }
-
-/**
- * Future Tauri commands:
- *
- * export async function listPlugins(kind?: string): Promise<PluginDefinition[]> {
- *   return await invoke('list_plugins', { kind });
- * }
- *
- * export async function validatePluginFile(filePath: string): Promise<ValidatePluginResponse> {
- *   return await invoke('validate_plugin_file', { filePath });
- * }
- *
- * export async function registerPlugin(plugin: PluginDefinition): Promise<RegisterPluginResponse> {
- *   return await invoke('register_plugin', { plugin });
- * }
- */

@@ -1,13 +1,3 @@
-/**
- * ============================================================================
- * FILE DIALOG SERVICE - Serviço de Seleção de Arquivos
- * ============================================================================
- * 
- * Serviço modular e reutilizável para seleção de arquivos.
- * Usa HTML5 File API para compatibilidade com web e Tauri.
- * Não depende de plugins externos do Tauri.
- */
-
 export interface FileFilter {
   name: string;
   extensions: readonly string[] | string[];
@@ -26,17 +16,12 @@ export interface FileResult {
   extension: string;
 }
 
-/**
- * Abre um seletor de arquivos e retorna o arquivo selecionado.
- * Usa input type="file" do HTML5 para máxima compatibilidade.
- */
 export function openFileDialog(options: OpenFileOptions = {}): Promise<FileResult | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.style.display = 'none';
     
-    // Configura filtros de extensão
     if (options.filters && options.filters.length > 0) {
       const accept = options.filters
         .flatMap(f => f.extensions.map(ext => `.${ext}`))
@@ -44,10 +29,8 @@ export function openFileDialog(options: OpenFileOptions = {}): Promise<FileResul
       input.accept = accept;
     }
     
-    // Múltiplos arquivos
     input.multiple = options.multiple ?? false;
-    
-    // Handler de mudança
+
     input.onchange = () => {
       const file = input.files?.[0];
       if (file) {
@@ -55,7 +38,7 @@ export function openFileDialog(options: OpenFileOptions = {}): Promise<FileResul
         resolve({
           file,
           name: file.name,
-          path: file.name, // Em web, não temos acesso ao path real
+          path: file.name,
           extension,
         });
       } else {
@@ -64,13 +47,11 @@ export function openFileDialog(options: OpenFileOptions = {}): Promise<FileResul
       document.body.removeChild(input);
     };
     
-    // Handler de cancelamento
     input.oncancel = () => {
       resolve(null);
       document.body.removeChild(input);
     };
     
-    // Fallback para fechar se o usuário clicar fora
     const handleFocus = () => {
       setTimeout(() => {
         if (!input.files?.length) {
@@ -87,9 +68,6 @@ export function openFileDialog(options: OpenFileOptions = {}): Promise<FileResul
   });
 }
 
-/**
- * Abre seletor para múltiplos arquivos.
- */
 export function openFilesDialog(options: OpenFileOptions = {}): Promise<FileResult[]> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
@@ -130,9 +108,6 @@ export function openFilesDialog(options: OpenFileOptions = {}): Promise<FileResu
   });
 }
 
-/**
- * Lê o conteúdo de um arquivo como texto.
- */
 export function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -142,9 +117,6 @@ export function readFileAsText(file: File): Promise<string> {
   });
 }
 
-/**
- * Lê o conteúdo de um arquivo como JSON.
- */
 export async function readFileAsJSON<T = unknown>(file: File): Promise<T> {
   const text = await readFileAsText(file);
   return JSON.parse(text) as T;

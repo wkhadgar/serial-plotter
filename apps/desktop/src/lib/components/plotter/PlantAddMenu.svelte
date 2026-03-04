@@ -1,14 +1,4 @@
 <script lang="ts">
-  /**
-   * ============================================================================
-   * PLANT ADD MENU - Menu de Opções para Adicionar Planta
-   * ============================================================================
-   * 
-   * Menu dropdown que aparece ao clicar no botão + das tabs de plantas.
-   * Oferece opções de:
-   * - Abrir planta de arquivo
-   * - Criar nova planta
-   */
   import { FolderOpen, FilePlus } from 'lucide-svelte';
 
   interface Props {

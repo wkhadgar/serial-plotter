@@ -341,8 +341,6 @@
         if (w > 10 && h > 10) {
           if (chart) {
             chart.setSize({ width: w, height: h });
-            // Reset prevLen to force data refresh on next rAF tick
-            // (handles visibility change after display:none)
             prevLen = -1;
           } else {
             initChart();

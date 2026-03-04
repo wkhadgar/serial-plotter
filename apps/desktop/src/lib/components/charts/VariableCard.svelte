@@ -1,23 +1,8 @@
 <script lang="ts">
-  /**
-   * ============================================================================
-   * VARIABLE CARD - Card de Gráfico para Uma Variável
-   * ============================================================================
-   * 
-   * Renderiza os gráficos de uma variável individual:
-   * - Gráfico superior: PV (linha) + SP (degrau tracejado)
-   * - Gráfico inferior: Atuadores vinculados (múltiplas linhas)
-   * - Header com stats (erro médio e estabilidade)
-   * 
-   * Usado tanto no PlotterModule quanto no AnalyzerModule.
-   */
   import PlotlyChart from './PlotlyChart.svelte';
   import type { ChartDataPoint, ChartConfig, ChartSeries } from '$lib/types/chart';
   import type { VariableStats } from '$lib/types/plant';
 
-  /**
-   * Descrição de um atuador vinculado ao sensor
-   */
   interface LinkedActuator {
     id: string;
     name: string;
@@ -32,7 +17,7 @@
     mvData: ChartDataPoint[];
     pvKey: string;
     spKey: string;
-    actuators?: LinkedActuator[];  // Lista de atuadores vinculados
+    actuators?: LinkedActuator[];
     pvConfig: ChartConfig;
     mvConfig: ChartConfig;
     theme: 'dark' | 'light';
@@ -90,7 +75,6 @@
     },
   ]);
 
-  // Cores para atuadores (cicla se tiver mais que 6)
   const actuatorColors = ['#10b981', '#06b6d4', '#8b5cf6', '#f97316', '#ec4899', '#14b8a6'];
 
   const mvSeries = $derived<ChartSeries[]>(
@@ -110,7 +94,6 @@
 </script>
 
 <div class="flex flex-col h-full bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm">
-  <!-- Header com título, stats e legenda -->
   <div class="px-3 py-2 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-zinc-900/50 flex items-center justify-between shrink-0">
     <div class="flex items-center gap-3">
       <h3 class="text-sm font-bold text-slate-700 dark:text-zinc-300">
@@ -156,9 +139,7 @@
     {/if}
   </div>
 
-  <!-- Gráficos -->
   <div class="flex-1 flex flex-col min-h-0">
-    <!-- PV + SP (2/3 da altura se tem atuadores, 100% se não) -->
     <div class={actuators.length > 0 ? 'flex-[2] min-h-0' : 'flex-1 min-h-0'}>
       <PlotlyChart
         series={pvSpSeries}
@@ -167,7 +148,6 @@
         {onRangeChange}
       />
     </div>
-    <!-- Atuadores (1/3 da altura, só se tiver atuadores vinculados) -->
     {#if actuators.length > 0}
       <div class="flex-1 min-h-0 border-t border-slate-100 dark:border-white/5">
         <PlotlyChart
