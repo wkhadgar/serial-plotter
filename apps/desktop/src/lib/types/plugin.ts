@@ -1,13 +1,40 @@
-export type PluginKind = 'driver' | 'controller';
+export type BuiltInPluginKind = 'driver' | 'controller';
+export type PluginKind = BuiltInPluginKind | (string & {});
 
 export type PluginRuntime = 'python' | 'rust-native';
 
 export type SchemaFieldType = 'bool' | 'int' | 'float' | 'string' | 'list';
 
-export const PLUGIN_KIND_LABELS: Record<PluginKind, string> = {
+export const BUILTIN_PLUGIN_KINDS: BuiltInPluginKind[] = ['driver', 'controller'];
+
+export const PLUGIN_KIND_LABELS: Record<BuiltInPluginKind, string> = {
   driver: 'Driver',
   controller: 'Controlador',
 };
+
+export function isBuiltInPluginKind(kind: string): kind is BuiltInPluginKind {
+  return BUILTIN_PLUGIN_KINDS.includes(kind as BuiltInPluginKind);
+}
+
+export function getPluginKindLabel(kind: PluginKind): string {
+  if (isBuiltInPluginKind(kind)) {
+    return PLUGIN_KIND_LABELS[kind];
+  }
+
+  return kind
+    .split(/[_-\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+export function normalizePluginKind(kind: string): PluginKind {
+  return kind
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_-]/g, '') as PluginKind;
+}
 
 export const PLUGIN_RUNTIME_LABELS: Record<PluginRuntime, string> = {
   python: 'Python',
@@ -28,6 +55,10 @@ export const AUTO_SCHEMA_FIELDS: PluginSchemaField[] = [
 ];
 
 export const RESERVED_FIELD_NAMES = AUTO_SCHEMA_FIELDS.map(f => f.name);
+
+export function isAutoSchemaField(fieldName: string): boolean {
+  return RESERVED_FIELD_NAMES.includes(fieldName);
+}
 
 export interface PluginSchemaField {
   name: string;
@@ -59,6 +90,7 @@ export interface PluginDefinition {
   description?: string;
   version?: string;
   author?: string;
+  source?: 'backend' | 'workspace';
 }
 
 export interface PluginInstance {
@@ -155,8 +187,8 @@ export function validatePluginJSON(obj: unknown): string | null {
     return 'Campo "name" é obrigatório e deve ser uma string';
   }
 
-  if (json.kind !== 'driver' && json.kind !== 'controller') {
-    return 'Campo "kind" deve ser "driver" ou "controller"';
+  if (typeof json.kind !== 'string' || !normalizePluginKind(json.kind).trim()) {
+    return 'Campo "kind" deve ser uma string não vazia';
   }
 
   if (json.runtime !== 'python' && json.runtime !== 'rust-native') {

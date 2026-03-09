@@ -1,7 +1,7 @@
 <script lang="ts">
   import { appStore } from '$lib/stores/data.svelte';
   import SidebarBtn from './SidebarBtn.svelte';
-  import { TrendingUp, BarChart3, Sun, Moon, Settings as SettingsIcon } from 'lucide-svelte';
+  import { TrendingUp, BarChart3, Puzzle, Sun, Moon, Settings as SettingsIcon } from 'lucide-svelte';
   import { MODULE_TABS } from '$lib/types/ui';
 
   let { theme, sidebarCollapsed, activeModule } = $props();
@@ -20,7 +20,7 @@
 </script>
 
 <aside
-  class={`${sidebarCollapsed ? 'w-16' : 'w-64'} bg-white dark:bg-zinc-900 border-r border-slate-200 dark:border-white/5 flex flex-col transition-all duration-300 z-50 shadow-sm print:hidden`}
+  class={`${sidebarCollapsed ? 'w-16' : 'w-64'} border-r border-slate-200 bg-white/90 backdrop-blur dark:border-white/5 dark:bg-zinc-900/90 flex flex-col transition-all duration-300 z-50 shadow-sm print:hidden`}
 >
   <button
     onclick={toggleSidebar}
@@ -39,7 +39,7 @@
     {/if}
   </button>
 
-  <nav class="flex-1 py-2 px-3 space-y-1">
+  <nav class="flex-1 py-3 px-2 space-y-1">
     <SidebarBtn
       icon={TrendingUp}
       label={MODULE_TABS.plotter.label}
@@ -54,9 +54,16 @@
       collapsed={sidebarCollapsed}
       onclick={() => appStore.setActiveModule('analyzer')}
     />
+    <SidebarBtn
+      icon={Puzzle}
+      label={MODULE_TABS.plugins.label}
+      active={activeModule === 'plugins'}
+      collapsed={sidebarCollapsed}
+      onclick={() => appStore.setActiveModule('plugins')}
+    />
   </nav>
 
-  <div class="p-3 space-y-2 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02]">
+  <div class="p-2 space-y-1 border-t border-slate-200 dark:border-white/5 bg-slate-50/80 dark:bg-white/[0.02]">
     <SidebarBtn
       icon={theme === 'dark' ? Sun : Moon}
       label={theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}
@@ -71,4 +78,3 @@
     />
   </div>
 </aside>
-

@@ -8,115 +8,11 @@ class AppStore {
   state = $state<AppState>({
     theme: 'dark',
     activeModule: 'plotter',
-    activePlantId: 'p1',
+    activePlantId: null,
     sidebarCollapsed: true,
     showGlobalSettings: false,
     showControllerPanel: false,
-    plants: [
-      {
-        id: 'p1',
-        name: 'Tanque Misturador T-200',
-        connected: false,
-        paused: false,
-        variables: [
-          {
-            id: 'var_0',
-            name: 'Temperatura',
-            type: 'sensor',
-            unit: '°C',
-            setpoint: 50,
-            pvMin: 0,
-            pvMax: 100,
-          },
-          {
-            id: 'var_1',
-            name: 'Pressão',
-            type: 'sensor',
-            unit: 'bar',
-            setpoint: 2.5,
-            pvMin: 0,
-            pvMax: 10,
-          },
-          {
-            id: 'var_2',
-            name: 'Válvula V-101',
-            type: 'atuador',
-            unit: '%',
-            setpoint: 0,
-            pvMin: 0,
-            pvMax: 100,
-            linkedSensorIds: ['var_0'],
-          },
-          {
-            id: 'var_3',
-            name: 'Bomba B-201',
-            type: 'atuador',
-            unit: '%',
-            setpoint: 0,
-            pvMin: 0,
-            pvMax: 100,
-            linkedSensorIds: ['var_1'],
-          }
-        ],
-        stats: { dt: 0, uptime: 0 },
-        controllers: [
-          {
-            id: 'c1',
-            name: 'PID Temperatura',
-            type: 'PID',
-            active: true,
-            params: {
-              kp: { type: 'number', value: 1.5, label: 'Kp (Prop)' },
-              ki: { type: 'number', value: 0.02, label: 'Ki (Int)' },
-              kd: { type: 'number', value: 0.5, label: 'Kd (Deriv)' },
-              manualMode: { type: 'boolean', value: false, label: 'Modo Manual' }
-            }
-          }
-        ]
-      },
-      {
-        id: 'p2',
-        name: 'Sistema Termico T-302',
-        connected: false,
-        paused: false,
-        variables: [
-          {
-            id: 'var_0',
-            name: 'Temperatura',
-            type: 'sensor',
-            unit: '°C',
-            setpoint: 60,
-            pvMin: 0,
-            pvMax: 150,
-          },
-          {
-            id: 'var_1',
-            name: 'Resistência R-01',
-            type: 'atuador',
-            unit: '%',
-            setpoint: 0,
-            pvMin: 0,
-            pvMax: 100,
-            linkedSensorIds: ['var_0'],
-          }
-        ],
-        stats: { dt: 0, uptime: 0 },
-        controllers: [
-          {
-            id: 'c2',
-            name: 'PID Termico',
-            type: 'PID',
-            active: true,
-            params: {
-              kp: { type: 'number', value: 1.2, label: 'Kp (Prop)' },
-              ki: { type: 'number', value: 0.01, label: 'Ki (Int)' },
-              kd: { type: 'number', value: 0.2, label: 'Kd (Deriv)' },
-              manualMode: { type: 'boolean', value: false, label: 'Modo Manual' }
-            }
-          }
-        ]
-      }
-    ]
+    plants: []
   });
 
   setTheme(theme: 'dark' | 'light') {
@@ -151,11 +47,27 @@ class AppStore {
     this.state.showControllerPanel = show;
   }
 
-  addPlant(plant: Omit<Plant, 'stats'>) {
-    this.state.plants.push({
-      ...plant,
-      stats: { dt: 0, uptime: 0 }
-    });
+  setPlants(plants: Plant[]) {
+    this.state.plants = plants;
+    if (!plants.some((plant) => plant.id === this.state.activePlantId)) {
+      this.state.activePlantId = plants[0]?.id ?? null;
+    }
+  }
+
+  addPlant(plant: Plant) {
+    this.state.plants = [plant, ...this.state.plants.filter((entry) => entry.id !== plant.id)];
+    if (!this.state.activePlantId) {
+      this.state.activePlantId = plant.id;
+    }
+  }
+
+  upsertPlant(plant: Plant) {
+    const index = this.state.plants.findIndex((entry) => entry.id === plant.id);
+    if (index >= 0) {
+      this.state.plants[index] = plant;
+    } else {
+      this.state.plants.unshift(plant);
+    }
   }
 
   removePlant(plantId: string) {
@@ -163,7 +75,7 @@ class AppStore {
     if (idx > -1) {
       this.state.plants.splice(idx, 1);
       if (this.state.activePlantId === plantId) {
-        this.state.activePlantId = this.state.plants[0]?.id || 'p1';
+        this.state.activePlantId = this.state.plants[0]?.id ?? null;
       }
     }
   }
@@ -248,4 +160,3 @@ class AppStore {
 }
 
 export const appStore = new AppStore();
-

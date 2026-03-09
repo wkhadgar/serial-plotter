@@ -1,4 +1,5 @@
 import type { Controller } from './controller';
+import type { PluginInstance } from './plugin';
 
 export interface VariableDataPoint {
   time: number;
@@ -70,6 +71,9 @@ export interface Plant {
   variables: PlantVariable[];
   stats: PlantStats;
   controllers: Controller[];
+  driver?: PluginInstance | null;
+  driverId?: string | null;
+  source?: 'backend' | 'workspace';
 }
 
 export function createDefaultVariable(index: number, name?: string, type: VariableType = 'sensor'): PlantVariable {
@@ -86,4 +90,3 @@ export function createDefaultVariable(index: number, name?: string, type: Variab
 }
 
 export type { Controller } from './controller';
-

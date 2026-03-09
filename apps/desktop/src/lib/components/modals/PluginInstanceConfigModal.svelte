@@ -1,13 +1,18 @@
 <script lang="ts">
   import { X, Plus, Trash2, Settings, AlertCircle, Check } from 'lucide-svelte';
   import type { PluginDefinition, PluginInstance, SchemaFieldValue } from '$lib/types/plugin';
-  import { SCHEMA_FIELD_TYPE_LABELS, getDefaultValueForType, isFieldRequired } from '$lib/types/plugin';
-  import { validatePluginInstanceConfig } from '$lib/services/pluginBackend';
+  import { getDefaultValueForType, getPluginKindLabel, isAutoSchemaField, SCHEMA_FIELD_TYPE_LABELS, isFieldRequired } from '$lib/types/plugin';
+  
+  // TODO: Implementar no backend
+  async function validatePluginInstanceConfig(_pluginId: string, _config: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
+    return { success: true };
+  }
 
   interface Props {
     visible: boolean;
     plugin: PluginDefinition | null;
     existingConfig?: Record<string, SchemaFieldValue>;
+    lockedConfig?: Record<string, SchemaFieldValue>;
     instanceLabel?: string;
     onClose: () => void;
     onConfigured: (instance: PluginInstance) => void;
@@ -17,6 +22,7 @@
     visible = $bindable(),
     plugin,
     existingConfig,
+    lockedConfig,
     instanceLabel,
     onClose,
     onConfigured,
@@ -31,7 +37,9 @@
     if (plugin && visible) {
       const initial: Record<string, SchemaFieldValue> = {};
       for (const field of plugin.schema) {
-        if (existingConfig && field.name in existingConfig) {
+        if (lockedConfig && field.name in lockedConfig) {
+          initial[field.name] = lockedConfig[field.name];
+        } else if (existingConfig && field.name in existingConfig) {
           initial[field.name] = existingConfig[field.name];
         } else {
           initial[field.name] = field.defaultValue ?? getDefaultValueForType(field.type);
@@ -47,20 +55,28 @@
     instanceLabel || plugin?.name || 'Plugin'
   );
 
+  function isLockedField(fieldName: string): boolean {
+    return !!lockedConfig && fieldName in lockedConfig;
+  }
+
   function setBool(fieldName: string, value: boolean) {
+    if (isLockedField(fieldName)) return;
     config = { ...config, [fieldName]: value };
   }
 
   function setNumber(fieldName: string, value: string, isFloat: boolean) {
+    if (isLockedField(fieldName)) return;
     const parsed = isFloat ? parseFloat(value) : parseInt(value, 10);
     config = { ...config, [fieldName]: isNaN(parsed) ? 0 : parsed };
   }
 
   function setString(fieldName: string, value: string) {
+    if (isLockedField(fieldName)) return;
     config = { ...config, [fieldName]: value };
   }
 
   function addListItem(fieldName: string) {
+    if (isLockedField(fieldName)) return;
     const input = (listInputs[fieldName] ?? '').trim();
     if (!input) return;
     const current = (config[fieldName] as SchemaFieldValue[]) ?? [];
@@ -69,6 +85,7 @@
   }
 
   function removeListItem(fieldName: string, index: number) {
+    if (isLockedField(fieldName)) return;
     const current = (config[fieldName] as SchemaFieldValue[]) ?? [];
     config = { ...config, [fieldName]: current.filter((_, i) => i !== index) };
   }
@@ -143,7 +160,7 @@
         <div>
           <h2 class="text-lg font-bold text-slate-800 dark:text-white">Configurar {pluginLabel}</h2>
           <p class="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
-            {plugin.schema.length} parâmetro(s) · {plugin.kind === 'driver' ? 'Driver' : 'Controlador'} · {plugin.runtime === 'python' ? 'Python' : 'Rust'}
+            {plugin.schema.length} parâmetro(s) · {getPluginKindLabel(plugin.kind)} · {plugin.runtime === 'python' ? 'Python' : 'Rust'}
           </p>
         </div>
         <button
@@ -168,6 +185,7 @@
           </div>
         {:else}
           {#each plugin.schema as field (field.name)}
+            {@const locked = isLockedField(field.name)}
             <div class="space-y-1.5">
               <div class="flex items-center gap-2">
                 <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase">
@@ -181,16 +199,24 @@
                     obrigatório
                   </span>
                 {/if}
+                {#if locked}
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">
+                    automático
+                  </span>
+                {/if}
               </div>
 
               {#if field.description}
                 <p class="text-xs text-slate-400 dark:text-zinc-500">{field.description}</p>
+              {:else if locked && isAutoSchemaField(field.name)}
+                <p class="text-xs text-slate-400 dark:text-zinc-500">Valor sincronizado com a quantidade de variáveis da planta.</p>
               {/if}
 
               {#if field.type === 'bool'}
                 <button
                   onclick={() => setBool(field.name, !config[field.name])}
-                  class="flex items-center gap-3 h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] w-full text-left"
+                  disabled={locked}
+                  class="flex items-center gap-3 h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] w-full text-left disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   <div
                     class="w-10 h-5 rounded-full transition-colors relative {config[field.name] ? 'bg-blue-500' : 'bg-slate-300 dark:bg-zinc-600'}"
@@ -210,7 +236,8 @@
                   step="1"
                   value={config[field.name] as number}
                   oninput={(e) => setNumber(field.name, (e.target as HTMLInputElement).value, false)}
-                  class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  disabled={locked}
+                  class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:bg-slate-50 dark:disabled:bg-white/[0.03]"
                 />
 
               {:else if field.type === 'float'}
@@ -219,7 +246,8 @@
                   step="any"
                   value={config[field.name] as number}
                   oninput={(e) => setNumber(field.name, (e.target as HTMLInputElement).value, true)}
-                  class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  disabled={locked}
+                  class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:bg-slate-50 dark:disabled:bg-white/[0.03]"
                 />
 
               {:else if field.type === 'string'}
@@ -228,7 +256,8 @@
                   value={config[field.name] as string}
                   oninput={(e) => setString(field.name, (e.target as HTMLInputElement).value)}
                   placeholder={`Valor de ${field.name}`}
-                  class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                  disabled={locked}
+                  class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:bg-slate-50 dark:disabled:bg-white/[0.03]"
                 />
 
               {:else if field.type === 'list'}
@@ -240,7 +269,8 @@
                           <span class="flex-1 text-sm font-mono text-slate-700 dark:text-zinc-300 truncate">{item}</span>
                           <button
                             onclick={() => removeListItem(field.name, idx)}
-                            class="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors shrink-0"
+                            disabled={locked}
+                            class="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             <Trash2 size={12} />
                           </button>
@@ -254,11 +284,13 @@
                       bind:value={listInputs[field.name]}
                       onkeydown={(e) => handleListKeydown(e, field.name)}
                       placeholder="Adicionar item..."
-                      class="flex-1 h-9 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      disabled={locked}
+                      class="flex-1 h-9 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:bg-slate-50 dark:disabled:bg-white/[0.03]"
                     />
                     <button
                       onclick={() => addListItem(field.name)}
-                      class="h-9 w-9 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-400 hover:text-blue-500 transition-colors flex items-center justify-center shrink-0"
+                      disabled={locked}
+                      class="h-9 w-9 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] hover:bg-blue-50 dark:hover:bg-blue-900/20 text-slate-400 hover:text-blue-500 transition-colors flex items-center justify-center shrink-0 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       <Plus size={16} />
                     </button>

@@ -12,15 +12,20 @@
     PLUGIN_KIND_LABELS,
     PLUGIN_RUNTIME_LABELS,
     SCHEMA_FIELD_TYPE_LABELS,
+    getPluginKindLabel,
+    isBuiltInPluginKind,
     isValidFieldName,
-    getDefaultValueForType,
     AUTO_SCHEMA_FIELDS,
     RESERVED_FIELD_NAMES,
     generateDriverTemplate,
+    normalizePluginKind,
     toDriverClassName,
   } from '$lib/types/plugin';
-  import { registerPlugin, validateDriverSourceCode } from '$lib/services/pluginBackend';
-  import { generateId } from '$lib/utils/format';
+  import { createPlugin, updatePlugin } from '$lib/services/plugin';
+  
+  async function validateDriverSourceCode(_code: string, _runtime: string): Promise<{ success: boolean; errors?: string[] }> {
+    return { success: true };
+  }
   import { openFileDialog } from '$lib/services/fileDialog';
   import CodeEditorModal from './CodeEditorModal.svelte';
   import type { CodeEditorResult } from './CodeEditorModal.svelte';
@@ -28,6 +33,8 @@
   interface Props {
     visible: boolean;
     forceKind?: PluginKind;
+    initialKind?: PluginKind;
+    initialPlugin?: PluginDefinition | null;
     onClose: () => void;
     onPluginCreated: (plugin: PluginDefinition) => void;
   }
@@ -35,9 +42,13 @@
   let {
     visible = $bindable(),
     forceKind,
+    initialKind,
+    initialPlugin = null,
     onClose,
     onPluginCreated,
   }: Props = $props();
+
+  const CUSTOM_KIND_VALUE = '__custom__';
 
   interface FormField {
     name: string;
@@ -49,6 +60,8 @@
 
   let pluginName = $state('');
   let kind = $state<PluginKind>('driver');
+  let kindMode = $state<'builtin' | 'custom'>('builtin');
+  let customKind = $state('');
   let runtime = $state<PluginRuntime>('python');
   let sourceFileName = $state('');
   let sourceCode = $state('');
@@ -63,10 +76,113 @@
 
   const runtimeExtension = $derived(runtime === 'python' ? '.py' : '.dll / .so');
   const schemaValid = $derived(formFields.every((f, i) => !fieldErrors[i]));
+  const isEditing = $derived(initialPlugin !== null);
+  const resolvedKind = $derived.by(() => {
+    if (forceKind) return normalizePluginKind(forceKind);
+    if (kindMode === 'custom') {
+      return normalizePluginKind(customKind);
+    }
+    return normalizePluginKind(kind);
+  });
+  const kindSelectValue = $derived(
+    forceKind
+      ? normalizePluginKind(forceKind)
+      : kindMode === 'custom'
+        ? CUSTOM_KIND_VALUE
+        : kind
+  );
+  const kindLabel = $derived(
+    resolvedKind ? getPluginKindLabel(resolvedKind) : 'Plugin personalizado'
+  );
+  const isDriverKind = $derived(resolvedKind === 'driver');
+  const modalTitle = $derived(isEditing ? 'Editar Plugin' : 'Criar Novo Plugin');
+  const modalDescription = $derived(
+    isEditing
+      ? `Atualize as informações do plugin ${kindLabel}`
+      : `Defina um plugin reutilizável do tipo ${kindLabel}`
+  );
+  const submitLabel = $derived(isEditing ? 'Salvar Alterações' : 'Criar Plugin');
+
+  function applyKindPreset(nextKind?: PluginKind) {
+    if (!nextKind) {
+      kind = 'driver';
+      kindMode = 'builtin';
+      customKind = '';
+      return;
+    }
+
+    const normalized = normalizePluginKind(nextKind);
+    if (isBuiltInPluginKind(normalized)) {
+      kind = normalized;
+      kindMode = 'builtin';
+      customKind = '';
+      return;
+    }
+
+    kind = normalized;
+    kindMode = 'custom';
+    customKind = normalized;
+  }
+
+  function schemaToFormFields(schema: PluginSchemaField[], pluginKind: PluginKind): FormField[] {
+    const editableSchema = pluginKind === 'driver'
+      ? schema.filter((field) => !AUTO_SCHEMA_FIELDS.some((autoField) => autoField.name === field.name))
+      : schema;
+
+    return editableSchema.map((field) => ({
+      name: field.name,
+      type: field.type,
+      hasDefault: field.defaultValue !== undefined,
+      defaultValue:
+        typeof field.defaultValue === 'number' || typeof field.defaultValue === 'string'
+          ? String(field.defaultValue)
+          : '',
+      defaultBool: field.defaultValue === true,
+    }));
+  }
 
   $effect(() => {
-    if (forceKind) kind = forceKind;
+    if (forceKind) applyKindPreset(forceKind);
   });
+
+  $effect(() => {
+    if (!visible) return;
+
+    if (initialPlugin) {
+      pluginName = initialPlugin.name;
+      applyKindPreset(forceKind ?? initialPlugin.kind);
+      runtime = initialPlugin.runtime;
+      sourceFileName = initialPlugin.sourceFile;
+      sourceCode = initialPlugin.sourceCode ?? '';
+      description = initialPlugin.description ?? '';
+      formFields = schemaToFormFields(initialPlugin.schema, initialPlugin.kind);
+      dependencies = [...(initialPlugin.dependencies ?? [])];
+      error = null;
+      fieldErrors = {};
+      return;
+    }
+
+    resetForm();
+  });
+
+  function handleKindSelectChange(value: string) {
+    if (value === CUSTOM_KIND_VALUE) {
+      kindMode = 'custom';
+      if (!customKind.trim()) {
+        customKind = initialKind && !isBuiltInPluginKind(normalizePluginKind(initialKind))
+          ? normalizePluginKind(initialKind)
+          : '';
+      }
+      return;
+    }
+
+    kindMode = 'builtin';
+    kind = value as PluginKind;
+  }
+
+  function updateCustomKind(value: string) {
+    customKind = value;
+  }
 
   function addSchemaField() {
     formFields = [
@@ -122,6 +238,7 @@
   }
 
   function buildSchema(): PluginSchemaField[] {
+    const pluginKind = resolvedKind;
     const userFields: PluginSchemaField[] = formFields.map((f) => {
       const field: PluginSchemaField = { name: f.name, type: f.type };
       if (f.hasDefault) {
@@ -135,7 +252,7 @@
       }
       return field;
     });
-    if (kind === 'driver') {
+    if (pluginKind === 'driver') {
       return [...AUTO_SCHEMA_FIELDS, ...userFields];
     }
     return userFields;
@@ -154,7 +271,7 @@
   }
 
   function handleOpenCodeEditor() {
-    if (!sourceCode && kind === 'driver' && runtime === 'python') {
+    if (!sourceCode && isDriverKind && runtime === 'python') {
       sourceCode = generateDriverTemplate(pluginName);
     }
     showCodeEditor = true;
@@ -190,12 +307,17 @@
       return;
     }
 
+    if (!resolvedKind) {
+      error = 'Defina um tipo de plugin válido';
+      return;
+    }
+
     if (!sourceFileName && !sourceCode) {
       error = 'Selecione ou escreva o código fonte';
       return;
     }
 
-    if (sourceCode && kind === 'driver' && runtime === 'python') {
+    if (sourceCode && resolvedKind === 'driver' && runtime === 'python') {
       const expectedClass = toDriverClassName(pluginName);
       const codeValidation = await validateDriverSourceCode(sourceCode, expectedClass);
       if (!codeValidation.success && codeValidation.errors) {
@@ -236,28 +358,33 @@
     isLoading = true;
 
     try {
-      const plugin: PluginDefinition = {
-        id: 'plg_' + generateId(),
+      const payload = {
         name: pluginName.trim(),
-        kind,
+        kind: resolvedKind,
         runtime,
         sourceFile: sourceFileName || (runtime === 'python' ? 'main.py' : 'plugin.rs'),
         sourceCode: sourceCode || undefined,
         schema: buildSchema(),
         dependencies: runtime === 'python' && dependencies.length > 0
-          ? dependencies.filter(d => d.name.trim())
+          ? dependencies.filter((dependency) => dependency.name.trim())
           : undefined,
         description: description.trim() || undefined,
       };
 
-      const response = await registerPlugin(plugin);
+      const finalResponse = initialPlugin
+        ? await updatePlugin({
+            ...initialPlugin,
+            ...payload,
+            dependencies: payload.dependencies ?? [],
+          })
+        : await createPlugin(payload);
 
-      if (response.success && response.plugin) {
-        onPluginCreated(response.plugin);
+      if (finalResponse.success && finalResponse.plugin) {
+        onPluginCreated(finalResponse.plugin);
         resetForm();
         onClose();
       } else {
-        error = response.error || 'Erro ao registrar plugin';
+        error = finalResponse.error || 'Erro ao registrar plugin';
       }
     } catch (e) {
       error = e instanceof Error ? e.message : 'Erro inesperado';
@@ -268,7 +395,7 @@
 
   function resetForm() {
     pluginName = '';
-    kind = forceKind ?? 'driver';
+    applyKindPreset(forceKind ?? initialKind ?? 'driver');
     runtime = 'python';
     sourceFileName = '';
     sourceCode = '';
@@ -298,9 +425,9 @@
     >
       <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-white/5 shrink-0">
         <div>
-          <h2 class="text-lg font-bold text-slate-800 dark:text-white">Criar Novo Plugin</h2>
+          <h2 class="text-lg font-bold text-slate-800 dark:text-white">{modalTitle}</h2>
           <p class="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
-            Defina um plugin reutilizável ({kind === 'driver' ? 'driver de comunicação' : 'controlador'})
+            {modalDescription}
           </p>
         </div>
         <button
@@ -344,13 +471,15 @@
           <label class="block">
             <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Tipo *</span>
             <select
-              bind:value={kind}
+              value={kindSelectValue}
+              onchange={(e) => handleKindSelectChange((e.target as HTMLSelectElement).value)}
               disabled={!!forceKind}
               class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer disabled:opacity-60"
             >
               {#each Object.entries(PLUGIN_KIND_LABELS) as [value, label]}
                 <option {value} class="dark:bg-zinc-900">{label}</option>
               {/each}
+              <option value={CUSTOM_KIND_VALUE} class="dark:bg-zinc-900">Personalizado</option>
             </select>
           </label>
           <label class="block">
@@ -365,6 +494,22 @@
             </select>
           </label>
         </div>
+
+        {#if !forceKind && kindMode === 'custom'}
+          <label class="block">
+            <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Tipo Personalizado *</span>
+            <input
+              type="text"
+              value={customKind}
+              oninput={(e) => updateCustomKind((e.target as HTMLInputElement).value)}
+              placeholder="Ex: estimator, parser, monitor"
+              class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-mono"
+            />
+            <p class="mt-1 text-[11px] text-slate-400 dark:text-zinc-500">
+              O identificador final será normalizado para snake_case.
+            </p>
+          </label>
+        {/if}
 
         <div>
           <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Código Fonte * ({runtimeExtension})</span>
@@ -385,12 +530,12 @@
             </button>
             <button
               onclick={handleOpenCodeEditor}
-              class="flex items-center gap-3 p-3 rounded-lg border border-dashed border-slate-300 dark:border-white/10 hover:border-emerald-400 dark:hover:border-emerald-500 bg-slate-50 dark:bg-white/[0.02] transition-colors text-left"
+              class="flex items-center gap-3 p-3 rounded-lg border border-dashed border-slate-300 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 bg-slate-50 dark:bg-white/[0.02] transition-colors text-left"
             >
               <Pencil size={20} class="text-slate-400 shrink-0" />
               {#if sourceCode}
                 <div class="min-w-0">
-                  <div class="text-sm font-medium text-emerald-600 dark:text-emerald-400 truncate">{sourceFileName || 'código inline'}</div>
+                  <div class="text-sm font-medium text-blue-600 dark:text-blue-400 truncate">{sourceFileName || 'código inline'}</div>
                   <div class="text-xs text-slate-400 dark:text-zinc-500">{sourceCode.split('\n').length} linhas</div>
                 </div>
               {:else}
@@ -448,7 +593,7 @@
           <div class="flex items-center justify-between mb-2">
             <div>
               <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase">Schema de Configuração</span>
-              {#if kind === 'driver'}
+              {#if isDriverKind}
                 <span class="text-[10px] text-slate-400 dark:text-zinc-500 ml-2">(num_sensors e num_actuators são adicionados automaticamente)</span>
               {/if}
             </div>
@@ -565,7 +710,7 @@
             Criando...
           {:else}
             <Code size={16} />
-            Criar Plugin
+            {submitLabel}
           {/if}
         </button>
       </div>

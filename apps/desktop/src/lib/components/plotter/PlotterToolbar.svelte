@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Power, Play, Pause, Home, Download, Camera, Timer, Sliders, ChevronDown } from 'lucide-svelte';
-  import type { Plant } from '$lib/types/plant';
+  import { Power, Play, Pause, Home, Download, Camera, Timer, Sliders, ChevronDown, Pencil } from 'lucide-svelte';
+  import type { Plant, PlantStats } from '$lib/types/plant';
 
   let {
     plant,
@@ -9,6 +9,7 @@
     showControllerPanel = $bindable(false),
     onToggleConnect,
     onTogglePause,
+    onEditPlant,
     onResetZoom,
     onExportCSV,
     onExportJSON,
@@ -16,11 +17,12 @@
     formatTime
   }: {
     plant: Plant | undefined;
-    currentStats: { errorAvg: number; stability: number; uptime: number };
+    currentStats: PlantStats;
     dt: number;
     showControllerPanel: boolean;
     onToggleConnect: () => void;
     onTogglePause: () => void;
+    onEditPlant: () => void;
     onResetZoom: () => void;
     onExportCSV: () => void;
     onExportJSON: () => void;
@@ -77,6 +79,9 @@
     </button>
     <button onclick={onResetZoom} class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors" title="Home (Ver Tudo)">
       <Home size={20} />
+    </button>
+    <button onclick={onEditPlant} class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors" title="Editar planta">
+      <Pencil size={18} />
     </button>
     <div class="relative export-dropdown">
       <button

@@ -68,47 +68,7 @@ export function openFileDialog(options: OpenFileOptions = {}): Promise<FileResul
   });
 }
 
-export function openFilesDialog(options: OpenFileOptions = {}): Promise<FileResult[]> {
-  return new Promise((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.style.display = 'none';
-    input.multiple = true;
-    
-    if (options.filters && options.filters.length > 0) {
-      const accept = options.filters
-        .flatMap(f => f.extensions.map(ext => `.${ext}`))
-        .join(',');
-      input.accept = accept;
-    }
-    
-    input.onchange = () => {
-      const files = input.files;
-      if (files && files.length > 0) {
-        const results: FileResult[] = Array.from(files).map(file => ({
-          file,
-          name: file.name,
-          path: file.name,
-          extension: file.name.split('.').pop()?.toLowerCase() ?? '',
-        }));
-        resolve(results);
-      } else {
-        resolve([]);
-      }
-      document.body.removeChild(input);
-    };
-    
-    input.oncancel = () => {
-      resolve([]);
-      document.body.removeChild(input);
-    };
-    
-    document.body.appendChild(input);
-    input.click();
-  });
-}
-
-export function readFileAsText(file: File): Promise<string> {
+function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);

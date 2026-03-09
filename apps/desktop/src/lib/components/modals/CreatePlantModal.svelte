@@ -1,28 +1,34 @@
 <script lang="ts">
-  import { X, Search, Plus, Trash2, ChevronDown, ChevronUp, Check, Settings, Cpu, Activity, Gauge, Zap, Link, Upload, Code } from 'lucide-svelte';
+  import { X, Search, Plus, Trash2, Check, Settings, Cpu, Gauge, Zap, Link, Upload, Code, ArrowLeft, ArrowRight } from 'lucide-svelte';
   import { onMount } from 'svelte';
-  import type { PlantVariable, VariableType } from '$lib/types/plant';
+  import type { Plant, PlantVariable, VariableType } from '$lib/types/plant';
   import type { Controller } from '$lib/types/controller';
-  import type { PluginDefinition, PluginInstance } from '$lib/types/plugin';
-  import { PLUGIN_KIND_LABELS, PLUGIN_RUNTIME_LABELS } from '$lib/types/plugin';
+  import type { PluginDefinition, PluginInstance, SchemaFieldValue } from '$lib/types/plugin';
+  import { PLUGIN_RUNTIME_LABELS } from '$lib/types/plugin';
   import { createDefaultVariable, VARIABLE_TYPE_LABELS } from '$lib/types/plant';
-  import { listControllerTemplates, createPlant, type CreatePlantRequest } from '$lib/services/plantBackend';
-  import { listPlugins, validatePluginFile, registerPlugin } from '$lib/services/pluginBackend';
+  import { createPlant, updatePlant, type CreatePlantRequest, type UpdatePlantRequest } from '$lib/services/plant';
+  import { listPluginsByType, validatePluginFile, registerPlugin } from '$lib/services/plugin';
   import { openFileDialog, readFileAsJSON, FILE_FILTERS } from '$lib/services/fileDialog';
   import { generateId } from '$lib/utils/format';
   import CreatePluginModal from './CreatePluginModal.svelte';
   import PluginInstanceConfigModal from './PluginInstanceConfigModal.svelte';
 
+  async function listControllerTemplates(): Promise<Controller[]> {
+    return [];
+  }
+
   interface Props {
     visible: boolean;
+    initialPlant?: Plant | null;
     onClose: () => void;
-    onPlantCreated: (plant: any) => void;
+    onPlantSaved: (plant: Plant) => void;
   }
 
   let {
     visible = $bindable(),
+    initialPlant = null,
     onClose,
-    onPlantCreated,
+    onPlantSaved,
   }: Props = $props();
 
   let plantName = $state('');
@@ -33,38 +39,200 @@
   let isLoading = $state(false);
   let error = $state<string | null>(null);
   let currentStep = $state<'info' | 'driver' | 'variables' | 'controllers'>('info');
-  
+
   let availablePlugins = $state<PluginDefinition[]>([]);
   let controllerTemplates = $state<Controller[]>([]);
   let driverSearch = $state('');
   let controllerSearch = $state('');
-  
+
   let showCreatePlugin = $state(false);
   let showInstanceConfig = $state(false);
   let pluginToConfig = $state<PluginDefinition | null>(null);
   let importError = $state<string | null>(null);
+  let hydratedFormKey = $state<string | null>(null);
 
+  function cloneVariable(variable: PlantVariable): PlantVariable {
+    return {
+      ...variable,
+      linkedSensorIds: variable.linkedSensorIds ? [...variable.linkedSensorIds] : undefined,
+    };
+  }
+
+  function cloneController(controller: Controller): Controller {
+    return {
+      ...controller,
+      params: Object.fromEntries(
+        Object.entries(controller.params ?? {}).map(([key, param]) => [key, { ...param }])
+      ),
+    };
+  }
+
+  function cloneDriver(instance: PluginInstance): PluginInstance {
+    return {
+      ...instance,
+      config: { ...instance.config },
+    };
+  }
+
+  function normalizeVariables(nextVariables: PlantVariable[]): PlantVariable[] {
+    const sensorIdMap = new Map<string, string>();
+
+    const normalized = nextVariables.map((variable, index) => {
+      const nextId = `var_${index}`;
+      if (variable.type === 'sensor') {
+        sensorIdMap.set(variable.id, nextId);
+      }
+
+      return {
+        ...variable,
+        id: nextId,
+        linkedSensorIds: variable.type === 'atuador' ? [...(variable.linkedSensorIds ?? [])] : undefined,
+      };
+    });
+
+    return normalized.map((variable) => {
+      if (variable.type !== 'atuador') {
+        return variable;
+      }
+
+      const linkedSensorIds = Array.from(
+        new Set(
+          (variable.linkedSensorIds ?? [])
+            .map((sensorId) => sensorIdMap.get(sensorId))
+            .filter((sensorId): sensorId is string => !!sensorId)
+        )
+      );
+
+      return {
+        ...variable,
+        linkedSensorIds,
+      };
+    });
+  }
+
+  function buildDriverAutoConfig(currentVariables: PlantVariable[]): Record<string, SchemaFieldValue> {
+    return {
+      num_sensors: currentVariables.filter((variable) => variable.type === 'sensor').length,
+      num_actuators: currentVariables.filter((variable) => variable.type === 'atuador').length,
+    };
+  }
+
+  function syncDriverWithVariables(instance: PluginInstance, currentVariables: PlantVariable[]): PluginInstance {
+    return {
+      ...instance,
+      config: {
+        ...instance.config,
+        ...buildDriverAutoConfig(currentVariables),
+      },
+    };
+  }
+
+  function createDriverPlaceholder(driverId: string, currentVariables: PlantVariable[]): PluginInstance {
+    const plugin = availablePlugins.find((entry) => entry.id === driverId);
+    return {
+      pluginId: driverId,
+      pluginName: plugin?.name ?? driverId,
+      pluginKind: plugin?.kind ?? 'driver',
+      config: buildDriverAutoConfig(currentVariables),
+    };
+  }
+
+  function hydrateForm(plant: Plant | null) {
+    const nextVariables = normalizeVariables(
+      (plant?.variables ?? [createDefaultVariable(0, 'Variável 1')]).map(cloneVariable)
+    );
+
+    plantName = plant?.name ?? '';
+    variables = nextVariables;
+    selectedControllers = (plant?.controllers ?? []).map(cloneController);
+    driverInstance = plant?.driver
+      ? syncDriverWithVariables(cloneDriver(plant.driver), nextVariables)
+      : plant?.driverId
+        ? createDriverPlaceholder(plant.driverId, nextVariables)
+        : null;
+    currentStep = 'info';
+    error = null;
+    importError = null;
+    pluginToConfig = null;
+    showCreatePlugin = false;
+    showInstanceConfig = false;
+    driverSearch = '';
+    controllerSearch = '';
+  }
+
+  const isEditing = $derived(!!initialPlant);
+  const driverAutoConfig = $derived(buildDriverAutoConfig(variables));
+  const sensorCount = $derived(Number(driverAutoConfig.num_sensors ?? 0));
+  const actuatorCount = $derived(Number(driverAutoConfig.num_actuators ?? 0));
   const filteredPlugins = $derived(
-    availablePlugins.filter(d => 
-      d.name.toLowerCase().includes(driverSearch.toLowerCase()) ||
-      PLUGIN_RUNTIME_LABELS[d.runtime].toLowerCase().includes(driverSearch.toLowerCase())
+    availablePlugins.filter((definition) =>
+      definition.name.toLowerCase().includes(driverSearch.toLowerCase()) ||
+      PLUGIN_RUNTIME_LABELS[definition.runtime].toLowerCase().includes(driverSearch.toLowerCase())
     )
   );
-
   const filteredTemplates = $derived(
-    controllerTemplates.filter(c => 
-      c.name.toLowerCase().includes(controllerSearch.toLowerCase()) ||
-      c.type.toLowerCase().includes(controllerSearch.toLowerCase())
+    controllerTemplates.filter((controller) =>
+      controller.name.toLowerCase().includes(controllerSearch.toLowerCase()) ||
+      controller.type.toLowerCase().includes(controllerSearch.toLowerCase())
     )
   );
-
   const sensorVariables = $derived(
-    variables.filter(v => v.type === 'sensor')
+    variables.filter((variable) => variable.type === 'sensor')
   );
+  const modalTitle = $derived(isEditing ? 'Editar Planta' : 'Criar Nova Planta');
+  const modalDescription = $derived(
+    isEditing
+      ? 'Atualize os parâmetros da planta selecionada'
+      : 'Configure os parâmetros da nova unidade de controle'
+  );
+  const submitLabel = $derived(isEditing ? 'Salvar Alterações' : 'Criar Planta');
+  const formKey = $derived(visible ? initialPlant?.id ?? '__new__' : null);
+  const stepOrder = ['info', 'driver', 'variables', 'controllers'] as const;
+  const currentStepIndex = $derived(stepOrder.indexOf(currentStep));
+  const isFirstStep = $derived(currentStepIndex <= 0);
+  const isLastStep = $derived(currentStepIndex >= stepOrder.length - 1);
 
-  onMount(async () => {
-    availablePlugins = await listPlugins('driver');
+  async function loadPlugins() {
+    availablePlugins = await listPluginsByType('driver');
     controllerTemplates = await listControllerTemplates();
+  }
+
+  onMount(loadPlugins);
+
+  $effect(() => {
+    if (visible) {
+      loadPlugins();
+    }
+  });
+
+  $effect(() => {
+    if (!visible) {
+      hydratedFormKey = null;
+      return;
+    }
+
+    if (!formKey || hydratedFormKey === formKey) return;
+    hydrateForm(initialPlant);
+    hydratedFormKey = formKey;
+  });
+
+  $effect(() => {
+    const currentDriver = driverInstance;
+    if (!currentDriver) return;
+
+    const plugin = availablePlugins.find((entry) => entry.id === currentDriver.pluginId);
+    const nextDriver = syncDriverWithVariables(
+      {
+        ...currentDriver,
+        pluginName: plugin?.name ?? currentDriver.pluginName,
+        pluginKind: plugin?.kind ?? currentDriver.pluginKind,
+      },
+      variables
+    );
+
+    if (JSON.stringify(nextDriver) !== JSON.stringify(currentDriver)) {
+      driverInstance = nextDriver;
+    }
   });
 
   async function handleImportPlugin() {
@@ -84,22 +252,22 @@
         return;
       }
 
-      const reg = await registerPlugin(validation.plugin);
-      if (!reg.success || !reg.plugin) {
-        importError = reg.error || 'Erro ao registrar plugin';
+      const registration = await registerPlugin(validation.plugin);
+      if (!registration.success || !registration.plugin) {
+        importError = registration.error || 'Erro ao registrar plugin';
         return;
       }
 
-      availablePlugins = await listPlugins('driver');
-      pluginToConfig = reg.plugin;
+      await loadPlugins();
+      pluginToConfig = registration.plugin;
       showInstanceConfig = true;
-    } catch (e) {
-      importError = e instanceof Error ? e.message : 'Erro ao importar arquivo';
+    } catch (exception) {
+      importError = exception instanceof Error ? exception.message : 'Erro ao importar arquivo';
     }
   }
 
   function handlePluginCreated(plugin: PluginDefinition) {
-    availablePlugins = [...availablePlugins, plugin];
+    availablePlugins = [plugin, ...availablePlugins.filter((entry) => entry.id !== plugin.id)];
     pluginToConfig = plugin;
     showInstanceConfig = true;
   }
@@ -110,62 +278,149 @@
   }
 
   function handleInstanceConfigured(instance: PluginInstance) {
-    driverInstance = instance;
+    driverInstance = syncDriverWithVariables(instance, variables);
     currentStep = 'variables';
+  }
+
+  function setVariables(nextVariables: PlantVariable[]) {
+    variables = normalizeVariables(nextVariables);
   }
 
   function addVariable() {
     const nextIndex = variables.length;
-    variables = [...variables, createDefaultVariable(nextIndex, `Variável ${nextIndex + 1}`)];
+    setVariables([...variables, createDefaultVariable(nextIndex, `Variável ${nextIndex + 1}`)]);
   }
 
   function removeVariable(index: number) {
     if (variables.length <= 1) return;
-    variables = variables.filter((_, i) => i !== index);
+    setVariables(variables.filter((_, currentIndex) => currentIndex !== index));
   }
 
-  function updateVariable(index: number, field: keyof PlantVariable, value: any) {
-    variables = variables.map((v, i) => {
-      if (i !== index) return v;
+  function updateVariable(index: number, field: keyof PlantVariable, value: PlantVariable[keyof PlantVariable]) {
+    const nextVariables: PlantVariable[] = variables.map((variable, currentIndex): PlantVariable => {
+      if (currentIndex !== index) return variable;
+
       if (field === 'type' && value === 'atuador') {
-        return { ...v, [field]: value, linkedSensorIds: [] };
+        return {
+          ...variable,
+          type: value as VariableType,
+          setpoint: variable.setpoint,
+          linkedSensorIds: [],
+        };
       }
+
       if (field === 'type' && value === 'sensor') {
-        const { linkedSensorIds, ...rest } = v;
-        return { ...rest, [field]: value };
+        const { linkedSensorIds, ...rest } = variable;
+        return {
+          ...rest,
+          type: value as VariableType,
+        };
       }
-      return { ...v, [field]: value };
+
+      return {
+        ...variable,
+        [field]: value,
+      } as PlantVariable;
     });
+
+    setVariables(nextVariables);
   }
 
-  function toggleLinkedSensor(actuatorIdx: number, sensorId: string) {
-    variables = variables.map((v, i) => {
-      if (i !== actuatorIdx) return v;
-      const linked = v.linkedSensorIds ?? [];
-      const newLinked = linked.includes(sensorId)
-        ? linked.filter(id => id !== sensorId)
-        : [...linked, sensorId];
-      return { ...v, linkedSensorIds: newLinked };
-    });
+  function toggleLinkedSensor(actuatorIndex: number, sensorId: string) {
+    setVariables(
+      variables.map((variable, currentIndex) => {
+        if (currentIndex !== actuatorIndex) return variable;
+
+        const linkedSensorIds = variable.linkedSensorIds ?? [];
+        const nextLinkedSensorIds = linkedSensorIds.includes(sensorId)
+          ? linkedSensorIds.filter((linkedId) => linkedId !== sensorId)
+          : [...linkedSensorIds, sensorId];
+
+        return {
+          ...variable,
+          linkedSensorIds: nextLinkedSensorIds,
+        };
+      })
+    );
   }
 
   function addController(template: Controller) {
-    const newController: Controller = {
-      ...template,
+    const controller: Controller = {
+      ...cloneController(template),
       id: generateId(),
       name: `${template.name} ${selectedControllers.length + 1}`,
       active: true,
     };
-    selectedControllers = [...selectedControllers, newController];
+    selectedControllers = [...selectedControllers, controller];
   }
 
   function removeController(id: string) {
-    selectedControllers = selectedControllers.filter(c => c.id !== id);
+    selectedControllers = selectedControllers.filter((controller) => controller.id !== id);
+  }
+
+  function validateVariables(): string | null {
+    for (const variable of variables) {
+      if (!variable.name.trim()) {
+        return 'Todas as variáveis precisam ter nome';
+      }
+
+      if (variable.pvMin >= variable.pvMax) {
+        return `A variável "${variable.name}" precisa ter mínimo menor que máximo`;
+      }
+
+      if (variable.setpoint < variable.pvMin || variable.setpoint > variable.pvMax) {
+        return `O setpoint de "${variable.name}" deve estar entre o mínimo e o máximo`;
+      }
+    }
+
+    return null;
+  }
+
+  function validateCurrentStep(): string | null {
+    if (currentStep === 'info') {
+      return plantName.trim() ? null : 'Nome da planta é obrigatório';
+    }
+
+    if (currentStep === 'driver') {
+      return driverInstance ? null : 'Configure um driver de comunicação';
+    }
+
+    if (currentStep === 'variables') {
+      if (variables.length === 0) return 'Adicione pelo menos uma variável';
+      return validateVariables();
+    }
+
+    return null;
+  }
+
+  function goToStep(step: typeof stepOrder[number]) {
+    currentStep = step;
+    error = null;
+  }
+
+  function handlePreviousStep() {
+    if (isFirstStep) return;
+    goToStep(stepOrder[currentStepIndex - 1]);
+  }
+
+  function handleNextStep() {
+    const stepError = validateCurrentStep();
+    if (stepError) {
+      error = stepError;
+      return;
+    }
+
+    if (isLastStep) {
+      handleSubmit();
+      return;
+    }
+
+    goToStep(stepOrder[currentStepIndex + 1]);
   }
 
   async function handleSubmit() {
     error = null;
-    
+
     if (!plantName.trim()) {
       error = 'Nome da planta é obrigatório';
       currentStep = 'info';
@@ -184,45 +439,47 @@
       return;
     }
 
+    const variableError = validateVariables();
+    if (variableError) {
+      error = variableError;
+      currentStep = 'variables';
+      return;
+    }
+
     isLoading = true;
 
     try {
-      const request: CreatePlantRequest = {
+      const payload: CreatePlantRequest = {
         name: plantName.trim(),
-        driverId: driverInstance.pluginId,
+        driver: driverInstance,
         variables,
         controllers: selectedControllers,
       };
 
-      const response = await createPlant(request);
+      const response = initialPlant
+        ? await updatePlant({
+            id: initialPlant.id,
+            source: initialPlant.source,
+            ...payload,
+          } as UpdatePlantRequest)
+        : await createPlant(payload);
 
       if (response.success && response.plant) {
-        onPlantCreated(response.plant);
-        resetForm();
-        onClose();
+        onPlantSaved(response.plant);
+        handleClose();
       } else {
-        error = response.error || 'Erro desconhecido ao criar planta';
+        error = response.error || 'Erro desconhecido ao salvar planta';
       }
-    } catch (e) {
-      error = e instanceof Error ? e.message : 'Erro ao criar planta';
+    } catch (exception) {
+      error = exception instanceof Error ? exception.message : 'Erro ao salvar planta';
     } finally {
       isLoading = false;
     }
   }
 
-  function resetForm() {
-    plantName = '';
-    driverInstance = null;
-    variables = [createDefaultVariable(0, 'Variável 1')];
-    selectedControllers = [];
-    currentStep = 'info';
-    error = null;
-    importError = null;
-    pluginToConfig = null;
-  }
-
   function handleClose() {
-    resetForm();
+    hydrateForm(null);
+    hydratedFormKey = null;
     onClose();
   }
 </script>
@@ -230,20 +487,20 @@
 {#if visible}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div 
+  <div
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
     onclick={handleClose}
   >
-    <div 
+    <div
       class="bg-white dark:bg-[#0c0c0e] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-white/10"
-      onclick={(e) => e.stopPropagation()}
+      onclick={(event) => event.stopPropagation()}
     >
       <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-white/5 shrink-0">
         <div>
-          <h2 class="text-lg font-bold text-slate-800 dark:text-white">Criar Nova Planta</h2>
-          <p class="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">Configure os parâmetros da nova unidade de controle</p>
+          <h2 class="text-lg font-bold text-slate-800 dark:text-white">{modalTitle}</h2>
+          <p class="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">{modalDescription}</p>
         </div>
-        <button 
+        <button
           onclick={handleClose}
           class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-400 transition-colors"
         >
@@ -252,14 +509,14 @@
       </div>
 
       <div class="flex border-b border-slate-200 dark:border-white/5 px-6 shrink-0">
-        <button 
-          onclick={() => currentStep = 'info'}
+        <button
+          onclick={() => goToStep('info')}
           class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'info' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
         >
           Informações
         </button>
-        <button 
-          onclick={() => currentStep = 'driver'}
+        <button
+          onclick={() => goToStep('driver')}
           class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'driver' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
         >
           Driver
@@ -267,18 +524,37 @@
             <span class="ml-1.5 w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
           {/if}
         </button>
-        <button 
-          onclick={() => currentStep = 'variables'}
+        <button
+          onclick={() => goToStep('variables')}
           class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'variables' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
         >
           Variáveis ({variables.length})
         </button>
-        <button 
-          onclick={() => currentStep = 'controllers'}
+        <button
+          onclick={() => goToStep('controllers')}
           class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'controllers' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
         >
           Controladores ({selectedControllers.length})
         </button>
+      </div>
+
+      <div class="px-6 py-3 border-b border-slate-200 dark:border-white/5 bg-slate-50/80 dark:bg-white/[0.02] shrink-0">
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="rounded-full bg-blue-100 px-2.5 py-1 font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+            Etapa {currentStepIndex + 1} de {stepOrder.length}
+          </span>
+          <span class="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300">
+            {sensorCount} sensor(es)
+          </span>
+          <span class="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300">
+            {actuatorCount} atuador(es)
+          </span>
+          {#if driverInstance}
+            <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+              Driver pronto
+            </span>
+          {/if}
+        </div>
       </div>
 
       <div class="flex-1 overflow-y-auto p-6">
@@ -310,9 +586,11 @@
                   </div>
                   <div class="flex-1">
                     <div class="font-medium text-slate-800 dark:text-white">{driverInstance.pluginName}</div>
-                    <div class="text-xs text-slate-500 dark:text-zinc-400">Configurado · {Object.keys(driverInstance.config).length} parâmetro(s)</div>
+                    <div class="text-xs text-slate-500 dark:text-zinc-400">
+                      Configurado · {sensorCount} sensor(es) · {actuatorCount} atuador(es)
+                    </div>
                   </div>
-                  <button 
+                  <button
                     onclick={() => currentStep = 'driver'}
                     class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
                   >
@@ -339,6 +617,10 @@
               </div>
             {/if}
 
+            <div class="rounded-xl border border-blue-200 dark:border-blue-900/40 bg-blue-50/80 dark:bg-blue-900/10 px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
+              O driver recebe <strong class="font-semibold">num_sensors</strong> e <strong class="font-semibold">num_actuators</strong> automaticamente a partir das variáveis da planta. Esses campos ficam bloqueados na configuração e são atualizados em tempo real.
+            </div>
+
             {#if driverInstance}
               <div class="p-4 rounded-xl border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20">
                 <div class="flex items-center gap-3">
@@ -347,7 +629,9 @@
                   </div>
                   <div class="flex-1 min-w-0">
                     <div class="font-medium text-slate-800 dark:text-white">{driverInstance.pluginName}</div>
-                    <div class="text-xs text-emerald-600 dark:text-emerald-400">{Object.keys(driverInstance.config).length} parâmetro(s) configurados</div>
+                    <div class="text-xs text-emerald-600 dark:text-emerald-400">
+                      {sensorCount} sensor(es) · {actuatorCount} atuador(es)
+                    </div>
                   </div>
                   <button
                     onclick={() => { driverInstance = null; }}
@@ -373,8 +657,8 @@
               {#each filteredPlugins as plugin (plugin.id)}
                 <button
                   onclick={() => handleSelectPlugin(plugin)}
-                  class="w-full p-4 rounded-xl border text-left transition-all {driverInstance?.pluginId === plugin.id 
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                  class="w-full p-4 rounded-xl border text-left transition-all {driverInstance?.pluginId === plugin.id
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                     : 'border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20 bg-white dark:bg-[#18181b]'}"
                 >
                   <div class="flex items-center gap-3">
@@ -425,7 +709,21 @@
 
         {:else if currentStep === 'variables'}
           <div class="space-y-4">
-            {#each variables as variable, idx (variable.id)}
+            <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-white/[0.03]">
+              <div>
+                <div class="text-sm font-medium text-slate-700 dark:text-zinc-200">Variáveis da planta</div>
+                <div class="text-xs text-slate-500 dark:text-zinc-400">Cada alteração atualiza automaticamente a configuração reservada do driver.</div>
+              </div>
+              <button
+                onclick={addVariable}
+                class="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                <Plus size={16} />
+                Adicionar variável
+              </button>
+            </div>
+
+            {#each variables as variable, index (variable.id)}
               <div class="p-5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b]">
                 <div class="flex items-start gap-4">
                   <div class={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${variable.type === 'sensor' ? 'bg-cyan-100 dark:bg-cyan-900/30' : 'bg-orange-100 dark:bg-orange-900/30'}`}>
@@ -441,7 +739,7 @@
                         <span class="text-[10px] text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Tipo</span>
                         <select
                           value={variable.type}
-                          onchange={(e) => updateVariable(idx, 'type', (e.target as HTMLSelectElement).value as VariableType)}
+                          onchange={(event) => updateVariable(index, 'type', (event.target as HTMLSelectElement).value as VariableType)}
                           class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-zinc-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer"
                         >
                           {#each Object.entries(VARIABLE_TYPE_LABELS) as [value, label]}
@@ -454,7 +752,7 @@
                         <input
                           type="text"
                           value={variable.name}
-                          oninput={(e) => updateVariable(idx, 'name', (e.target as HTMLInputElement).value)}
+                          oninput={(event) => updateVariable(index, 'name', (event.target as HTMLInputElement).value)}
                           placeholder="Nome da variável"
                           class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                         />
@@ -466,7 +764,7 @@
                         <input
                           type="text"
                           value={variable.unit}
-                          oninput={(e) => updateVariable(idx, 'unit', (e.target as HTMLInputElement).value)}
+                          oninput={(event) => updateVariable(index, 'unit', (event.target as HTMLInputElement).value)}
                           placeholder="%"
                           class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                         />
@@ -477,7 +775,7 @@
                           <input
                             type="number"
                             value={variable.setpoint}
-                            oninput={(e) => updateVariable(idx, 'setpoint', Number((e.target as HTMLInputElement).value))}
+                            oninput={(event) => updateVariable(index, 'setpoint', Number((event.target as HTMLInputElement).value))}
                             class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                           />
                         </label>
@@ -487,7 +785,7 @@
                         <input
                           type="number"
                           value={variable.pvMin}
-                          oninput={(e) => updateVariable(idx, 'pvMin', Number((e.target as HTMLInputElement).value))}
+                          oninput={(event) => updateVariable(index, 'pvMin', Number((event.target as HTMLInputElement).value))}
                           class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                         />
                       </label>
@@ -496,7 +794,7 @@
                         <input
                           type="number"
                           value={variable.pvMax}
-                          oninput={(e) => updateVariable(idx, 'pvMax', Number((e.target as HTMLInputElement).value))}
+                          oninput={(event) => updateVariable(index, 'pvMax', Number((event.target as HTMLInputElement).value))}
                           class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                         />
                       </label>
@@ -514,7 +812,7 @@
                             {#each sensorVariables as sensor (sensor.id)}
                               <button
                                 type="button"
-                                onclick={() => toggleLinkedSensor(idx, sensor.id)}
+                                onclick={() => toggleLinkedSensor(index, sensor.id)}
                                 class={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
                                   (variable.linkedSensorIds ?? []).includes(sensor.id)
                                     ? 'bg-cyan-100 dark:bg-cyan-900/30 border-cyan-300 dark:border-cyan-700 text-cyan-700 dark:text-cyan-300'
@@ -534,7 +832,7 @@
                   </div>
                   {#if variables.length > 1}
                     <button
-                      onclick={() => removeVariable(idx)}
+                      onclick={() => removeVariable(index)}
                       class="p-2.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-600 transition-colors shrink-0 mt-6"
                     >
                       <Trash2 size={18} />
@@ -549,7 +847,7 @@
               class="w-full p-3 rounded-xl border-2 border-dashed border-slate-200 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 transition-colors text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 flex items-center justify-center gap-2"
             >
               <Plus size={18} />
-              <span class="text-sm font-medium">Adicionar Variável</span>
+              <span class="text-sm font-medium">Adicionar outra variável</span>
             </button>
           </div>
 
@@ -580,7 +878,7 @@
 
             <div>
               <h4 class="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wide mb-2">Templates Disponíveis</h4>
-              
+
               <div class="relative mb-3">
                 <Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -611,22 +909,37 @@
       </div>
 
       <div class="flex items-center justify-between px-6 py-4 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] shrink-0">
+        <div class="flex items-center gap-2">
+          <button
+            onclick={handleClose}
+            class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors"
+          >
+            Cancelar
+          </button>
+          {#if !isFirstStep}
+            <button
+              onclick={handlePreviousStep}
+              class="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors flex items-center gap-2"
+            >
+              <ArrowLeft size={16} />
+              Voltar
+            </button>
+          {/if}
+        </div>
         <button
-          onclick={handleClose}
-          class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors"
-        >
-          Cancelar
-        </button>
-        <button
-          onclick={handleSubmit}
+          onclick={handleNextStep}
           disabled={isLoading}
           class="px-6 py-2 rounded-lg text-sm font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white transition-colors flex items-center gap-2"
         >
           {#if isLoading}
             <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-            Criando...
+            Salvando...
+          {:else if isLastStep}
+            <Check size={16} />
+            {submitLabel}
           {:else}
-            Criar Planta
+            Continuar
+            <ArrowRight size={16} />
           {/if}
         </button>
       </div>
@@ -634,16 +947,19 @@
   </div>
 
   <CreatePluginModal
-    bind:visible={showCreatePlugin}
+    visible={showCreatePlugin}
     forceKind="driver"
-    onClose={() => { showCreatePlugin = false; }}
+    onClose={() => showCreatePlugin = false}
     onPluginCreated={handlePluginCreated}
   />
 
   <PluginInstanceConfigModal
-    bind:visible={showInstanceConfig}
+    visible={showInstanceConfig}
     plugin={pluginToConfig}
-    onClose={() => { showInstanceConfig = false; }}
+    existingConfig={driverInstance?.pluginId === pluginToConfig?.id ? (driverInstance?.config ?? driverAutoConfig) : driverAutoConfig}
+    lockedConfig={pluginToConfig?.kind === 'driver' ? driverAutoConfig : undefined}
+    instanceLabel={pluginToConfig?.name}
+    onClose={() => { showInstanceConfig = false; pluginToConfig = null; }}
     onConfigured={handleInstanceConfigured}
   />
 {/if}

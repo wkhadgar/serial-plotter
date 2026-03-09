@@ -20,6 +20,7 @@
   let fileInput: HTMLInputElement;
   let isProcessing = $state(false);
   let dragOverlay = $state(false);
+  let dragDepth = $state(0);
   let graphContainerRef: HTMLDivElement;
   let contextMenu = $state({ visible: false, x: 0, y: 0 });
   let contextVarIndex = $state(0);
@@ -142,11 +143,7 @@
     analyzerStore.selectTab(tabId);
   }
 
-  async function handleFileUpload(event: Event) {
-    const target = event.target as HTMLInputElement;
-    const file = target.files?.[0];
-    if (!file) return;
-
+  async function processAnalyzerFile(file: File) {
     isProcessing = true;
 
     try {
@@ -167,8 +164,15 @@
       showErrorModal = true;
     } finally {
       isProcessing = false;
-      target.value = '';
     }
+  }
+
+  async function handleFileUpload(event: Event) {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0];
+    if (!file) return;
+    await processAnalyzerFile(file);
+    target.value = '';
   }
 
   function handleRangeChange(xMin: number, xMax: number) {
@@ -207,37 +211,50 @@
     contextMenu.visible = false;
   }
 
-  function handleDragOver(e: DragEvent) {
+  function hasDraggedFiles(event: DragEvent): boolean {
+    const types = Array.from(event.dataTransfer?.types ?? []);
+    const itemKinds = Array.from(event.dataTransfer?.items ?? []).map((item) => item.kind);
+    return types.includes('Files') || itemKinds.includes('file') || (event.dataTransfer?.files?.length ?? 0) > 0;
+  }
+
+  function handleDragEnter(e: DragEvent) {
+    if (!active || !hasDraggedFiles(e)) return;
     e.preventDefault();
-    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    dragDepth += 1;
+    dragOverlay = true;
+  }
+
+  function handleDragOver(e: DragEvent) {
+    if (!active || !hasDraggedFiles(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
     dragOverlay = true;
   }
 
   function handleDragLeave(e: DragEvent) {
+    if (!active || !hasDraggedFiles(e)) return;
     e.preventDefault();
-    e.stopPropagation();
-    dragOverlay = false;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) {
+      dragOverlay = false;
+    }
   }
 
-  function handleDrop(e: DragEvent) {
+  async function handleDrop(e: DragEvent) {
+    if (!active || !hasDraggedFiles(e)) return;
     e.preventDefault();
-    e.stopPropagation();
+    dragDepth = 0;
     dragOverlay = false;
 
-    const files = e.dataTransfer?.files;
-    if (files && files.length > 0) {
-      const file = files[0];
-      if (file.type === 'application/json' || file.name.endsWith('.json')) {
-        const inputEvent = new Event('change', { bubbles: true });
-        Object.defineProperty(fileInput, 'files', {
-          value: files,
-          configurable: true,
-        });
-        fileInput.dispatchEvent(inputEvent);
-      } else {
-        errorMessage = 'Por favor, envie um arquivo JSON válido (exportado pelo Plotter)';
-        showErrorModal = true;
-      }
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+
+    if (file.type === 'application/json' || file.name.endsWith('.json')) {
+      await processAnalyzerFile(file);
+    } else {
+      errorMessage = 'Por favor, envie um arquivo JSON válido (exportado pelo Plotter)';
+      showErrorModal = true;
     }
   }
 
@@ -262,7 +279,17 @@
   });
 </script>
 
-<div class="flex flex-col h-full w-full bg-white dark:bg-[#09090b] text-slate-900 dark:text-white">
+<svelte:window
+  ondragenter={handleDragEnter}
+  ondragover={handleDragOver}
+  ondragleave={handleDragLeave}
+  ondrop={handleDrop}
+/>
+
+<div
+  class="flex flex-col h-full w-full bg-white dark:bg-[#09090b] text-slate-900 dark:text-white"
+  role="presentation"
+>
   <AnalyzerTabs
     tabs={analyzerStore.tabs}
     activeTabId={analyzerStore.activeTabId}
@@ -276,9 +303,6 @@
     <div
       bind:this={graphContainerRef}
       class="flex-1 flex flex-col min-w-0 relative cursor-crosshair"
-      ondragover={handleDragOver}
-      ondragleave={handleDragLeave}
-      ondrop={handleDrop}
       oncontextmenu={handleContextMenu}
       ondblclick={resetZoom}
       role="application"
@@ -305,37 +329,39 @@
         onClose={closeContextMenu}
       />
 
-      <div class="h-12 flex items-center justify-between px-4 border-b border-slate-200 dark:border-white/5 bg-white dark:bg-[#0c0c0e] shrink-0">
-        <div class="flex items-center gap-2">
+      <div class="h-14 shrink-0 border-b border-slate-200 bg-white/90 px-5 backdrop-blur dark:border-white/5 dark:bg-[#0c0c0e]/90">
+        <div class="flex h-full items-center justify-between gap-3">
+          <div class="flex min-w-0 items-center gap-2">
           {#if analyzerStore.activeTab}
-            <span class="text-sm font-medium text-slate-600 dark:text-zinc-400">
+            <span class="truncate text-sm font-medium text-slate-700 dark:text-zinc-300">
               {analyzerStore.activeTab.name}
             </span>
             {#if analyzerStore.activeTab.processedVariables.length > 0}
-              <span class="text-xs text-slate-400 dark:text-zinc-500">
-                · {analyzerStore.activeTab.processedVariables.length} variáveis
+              <span class="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
+                {analyzerStore.activeTab.processedVariables.length} variáveis
               </span>
             {/if}
           {/if}
-        </div>
-        <div class="flex items-center gap-2">
-          <button
-            onclick={() => fileInput?.click()}
-            disabled={isProcessing}
-            class="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed text-white rounded-lg text-xs font-medium transition-colors"
-          >
-            <Upload size={14} />
-            {isProcessing ? 'Processando...' : 'Carregar JSON'}
-          </button>
-          {#if analyzerStore.activeTab?.processedVariables && analyzerStore.activeTab.processedVariables.length > 0}
+          </div>
+          <div class="flex items-center gap-2">
             <button
-              onclick={() => analyzerStore.toggleVariablePanel()}
-              class={`p-1.5 rounded-lg border transition-all ${analyzerStore.showVariablePanel ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-[#18181b] text-slate-500 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'}`}
-              title={analyzerStore.showVariablePanel ? 'Ocultar Variáveis' : 'Mostrar Variáveis'}
+              onclick={() => fileInput?.click()}
+              disabled={isProcessing}
+              class="flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
             >
-              <Sliders size={16} />
+              <Upload size={14} />
+              {isProcessing ? 'Processando...' : 'Carregar JSON'}
             </button>
-          {/if}
+            {#if analyzerStore.activeTab?.processedVariables && analyzerStore.activeTab.processedVariables.length > 0}
+              <button
+                onclick={() => analyzerStore.toggleVariablePanel()}
+                class={`p-2 rounded-xl border transition-all ${analyzerStore.showVariablePanel ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-[#18181b] text-slate-500 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'}`}
+                title={analyzerStore.showVariablePanel ? 'Ocultar Variáveis' : 'Mostrar Variáveis'}
+              >
+                <Sliders size={16} />
+              </button>
+            {/if}
+          </div>
         </div>
       </div>
 
@@ -361,19 +387,24 @@
             </div>
           </div>
         {:else if analyzerStore.isActiveTabEmpty}
-          <div class="h-full flex items-center justify-center">
-            <div class="text-center">
-              <Upload size={64} class="mx-auto mb-4 text-slate-300 dark:text-zinc-700" />
-              <h2 class="text-lg font-bold text-slate-600 dark:text-zinc-400 mb-2">
-                Arraste um arquivo JSON aqui
-              </h2>
-              <p class="text-sm text-slate-500 dark:text-zinc-500 mb-4">
-                Ou clique no botão para selecionar
-              </p>
+          <div class="h-full flex items-center justify-center p-8">
+            <div class="flex flex-col items-center justify-center gap-6 p-12 border-2 border-dashed border-slate-300 dark:border-zinc-700 rounded-2xl bg-slate-50/50 dark:bg-zinc-900/50 max-w-lg w-full transition-colors hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50/30 dark:hover:bg-blue-900/10">
+              <div class="w-20 h-20 rounded-2xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center">
+                <Upload size={40} class="text-slate-400 dark:text-zinc-500" />
+              </div>
+              <div class="text-center space-y-2">
+                <h2 class="text-xl font-semibold text-slate-700 dark:text-zinc-200">
+                  Arraste um arquivo JSON aqui
+                </h2>
+                <p class="text-sm text-slate-500 dark:text-zinc-400 max-w-xs">
+                  Ou clique no botão para selecionar um arquivo de dados do experimento
+                </p>
+              </div>
               <button
                 onclick={() => fileInput?.click()}
-                class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
+                class="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shadow-sm"
               >
+                <Upload size={16} />
                 Carregar JSON
               </button>
             </div>

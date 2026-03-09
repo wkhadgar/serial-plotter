@@ -32,6 +32,10 @@ export function setPlantStats(plantId: string, stats: PlantStats): void {
   _stats.set(plantId, stats);
 }
 
+export function setPlantData(plantId: string, data: PlantDataPoint[]): void {
+  _data.set(plantId, data);
+}
+
 export function getVariableStats(plantId: string, varIndex: number): VariableStats {
   const key = `${plantId}_var_${varIndex}`;
   return _variableStats.get(key) ?? { ...DEFAULT_VAR_STATS };
@@ -42,10 +46,16 @@ export function setVariableStats(plantId: string, varIndex: number, stats: Varia
   _variableStats.set(key, stats);
 }
 
+export function clearVariableStats(plantId: string): void {
+  for (const key of _variableStats.keys()) {
+    if (key.startsWith(`${plantId}_var_`)) {
+      _variableStats.delete(key);
+    }
+  }
+}
+
 export function clearPlant(plantId: string): void {
   _data.set(plantId, []);
   _stats.set(plantId, { ...DEFAULT_STATS });
-  for (let i = 0; i < 10; i++) {
-    _variableStats.delete(`${plantId}_var_${i}`);
-  }
+  clearVariableStats(plantId);
 }

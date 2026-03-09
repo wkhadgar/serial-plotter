@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { appStore } from '$lib/stores/data.svelte';
-  import { getPlantData, getPlantStats, getVariableStats } from '$lib/stores/plantData';
+  import { clearPlant, clearVariableStats, getPlantData, getPlantStats, getVariableStats, setPlantData, setPlantStats, setVariableStats } from '$lib/stores/plantData';
   import { exportPlantDataCSV, exportPlantDataJSON } from '$lib/services/export';
   import { formatTime } from '$lib/utils/format';
   import VariableGrid from '../charts/VariableGrid.svelte';
@@ -11,13 +11,11 @@
   import ControllerPanel from '../plotter/ControllerPanel.svelte';
   import PlantRemovalModal from '../modals/PlantRemovalModal.svelte';
   import CreatePlantModal from '../modals/CreatePlantModal.svelte';
-  import type { Plant, PlantVariable, VariableStats } from '$lib/types/plant';
-  import { createDefaultVariable } from '$lib/types/plant';
+  import type { Plant, PlantVariable } from '$lib/types/plant';
   import { getVariableKeys } from '$lib/types/plant';
   import { type ChartStateType, defaultChartState, DEFAULT_LINE_COLORS, nextViewState, resetToGridView } from '$lib/types/chart';
-  import { generateId } from '$lib/utils/format';
-  import { openPlant } from '$lib/services/plantBackend';
-  import { openFileDialog, readFileAsJSON, FILE_FILTERS } from '$lib/services/fileDialog';
+  import { connectPlant, disconnectPlant, openPlant, pausePlant, removePlant, resumePlant } from '$lib/services/plant';
+  import { openFileDialog, FILE_FILTERS } from '$lib/services/fileDialog';
 
   let { plants, activePlantId, theme, active = true, showControllerPanel = $bindable(false) } = $props();
 
@@ -47,7 +45,7 @@
 
   let contextMenu = $state({ visible: false, x: 0, y: 0 });
   let contextSensorIndex = $state(0);
-  let graphContainerRef: HTMLDivElement;
+  let graphContainerRef = $state<HTMLDivElement | undefined>(undefined);
 
   let removeModal = $state({
     visible: false,
@@ -57,7 +55,11 @@
   });
 
   let createPlantModal = $state(false);
+  let editPlantModal = $state(false);
   let openPlantLoading = $state(false);
+  let dragOverlay = $state(false);
+  let dragDepth = $state(0);
+  let plantActionLoading = $state<'connect' | 'pause' | 'remove' | null>(null);
 
   const activePlant = $derived(plants.find((p: Plant) => p.id === activePlantId));
 
@@ -188,6 +190,23 @@
     };
   }
 
+  async function importPlantFile(file: File): Promise<void> {
+    const plantResult = await openPlant({ filePath: file.name, file });
+    if (plantResult.success && plantResult.plant) {
+      appStore.addPlant(plantResult.plant);
+      appStore.setActivePlantId(plantResult.plant.id);
+      setPlantData(plantResult.plant.id, plantResult.data ?? []);
+      setPlantStats(plantResult.plant.id, plantResult.stats ?? plantResult.plant.stats);
+      clearVariableStats(plantResult.plant.id);
+      for (const [index, stats] of (plantResult.variableStats ?? []).entries()) {
+        setVariableStats(plantResult.plant.id, index, stats);
+      }
+      return;
+    }
+
+    throw new Error(plantResult.error || 'Erro ao abrir planta');
+  }
+
   async function handleOpenFile() {
     openPlantLoading = true;
     try {
@@ -201,13 +220,7 @@
         return;
       }
 
-      const plantResult = await openPlant({ filePath: result.name });
-      if (plantResult.success && plantResult.plant) {
-        appStore.addPlant(plantResult.plant);
-        appStore.setActivePlantId(plantResult.plant.id);
-      } else {
-        alert(plantResult.error || 'Erro ao abrir planta');
-      }
+      await importPlantFile(result.file);
     } catch (e) {
       console.error('Erro ao abrir planta:', e);
       alert('Erro ao abrir planta');
@@ -220,22 +233,19 @@
     createPlantModal = true;
   }
 
-  function handlePlantCreated(plant: Plant) {
-    appStore.addPlant(plant);
+  function handleEditPlant() {
+    if (!activePlant) return;
+    editPlantModal = true;
+  }
+
+  function handlePlantSaved(plant: Plant) {
+    appStore.upsertPlant(plant);
     appStore.setActivePlantId(plant.id);
     createPlantModal = false;
+    editPlantModal = false;
   }
 
   function handleRemovePlant(plantId: string) {
-    if (plants.length <= 1) {
-      removeModal = {
-        visible: true,
-        plantId,
-        plantName: plants.find((p: Plant) => p.id === plantId)?.name || '',
-        reason: 'min-units'
-      };
-      return;
-    }
     removeModal = {
       visible: true,
       plantId,
@@ -244,9 +254,17 @@
     };
   }
 
-  function confirmRemovePlant() {
+  async function confirmRemovePlant() {
     if (removeModal.reason === 'confirm') {
-      appStore.removePlant(removeModal.plantId);
+      plantActionLoading = 'remove';
+      const result = await removePlant(removeModal.plantId);
+      if (result.success) {
+        appStore.removePlant(removeModal.plantId);
+        clearPlant(removeModal.plantId);
+      } else {
+        alert(result.error || 'Erro ao remover planta');
+      }
+      plantActionLoading = null;
     }
     removeModal.visible = false;
   }
@@ -255,16 +273,34 @@
     removeModal.visible = false;
   }
 
-  function handleToggleConnect() {
-    if (activePlant) {
-      appStore.toggleConnect(activePlant.id);
+  async function handleToggleConnect() {
+    if (!activePlant) return;
+    plantActionLoading = 'connect';
+    const result = activePlant.connected
+      ? await disconnectPlant(activePlant.id)
+      : await connectPlant(activePlant.id);
+
+    if (result.success && result.plant) {
+      appStore.upsertPlant(result.plant);
+    } else {
+      alert(result.error || 'Erro ao atualizar conexão da planta');
     }
+    plantActionLoading = null;
   }
 
-  function handleTogglePause() {
-    if (activePlant) {
-      appStore.togglePause(activePlant.id);
+  async function handleTogglePause() {
+    if (!activePlant) return;
+    plantActionLoading = 'pause';
+    const result = activePlant.paused
+      ? await resumePlant(activePlant.id)
+      : await pausePlant(activePlant.id);
+
+    if (result.success && result.plant) {
+      appStore.upsertPlant(result.plant);
+    } else {
+      alert(result.error || 'Erro ao atualizar pausa da planta');
     }
+    plantActionLoading = null;
   }
 
   function handleExportCSV() {
@@ -429,9 +465,85 @@
     chartState.xMax = xMax;
     chartState.xMode = 'manual';
   }
+
+  function hasDraggedFiles(event: DragEvent): boolean {
+    const types = Array.from(event.dataTransfer?.types ?? []);
+    const itemKinds = Array.from(event.dataTransfer?.items ?? []).map((item) => item.kind);
+    return types.includes('Files') || itemKinds.includes('file') || (event.dataTransfer?.files?.length ?? 0) > 0;
+  }
+
+  function handleDragEnter(event: DragEvent) {
+    if (!active || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    dragDepth += 1;
+    dragOverlay = true;
+  }
+
+  function handleDragOver(event: DragEvent) {
+    if (!active || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+    dragOverlay = true;
+  }
+
+  function handleDragLeave(event: DragEvent) {
+    if (!active || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) {
+      dragOverlay = false;
+    }
+  }
+
+  async function handleDrop(event: DragEvent) {
+    if (!active || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    dragDepth = 0;
+    dragOverlay = false;
+
+    const file = event.dataTransfer?.files?.[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      alert('Apenas arquivos JSON exportados podem ser soltos no Plotter.');
+      return;
+    }
+
+    openPlantLoading = true;
+    try {
+      await importPlantFile(file);
+    } catch (error) {
+      console.error('Erro ao abrir arquivo arrastado:', error);
+      alert(error instanceof Error ? error.message : 'Erro ao abrir planta');
+    } finally {
+      openPlantLoading = false;
+    }
+  }
 </script>
 
-<div class="flex flex-col h-full w-full bg-white dark:bg-[#09090b] text-slate-900 dark:text-white">
+<svelte:window
+  ondragenter={handleDragEnter}
+  ondragover={handleDragOver}
+  ondragleave={handleDragLeave}
+  ondrop={handleDrop}
+/>
+
+<div
+  class="flex flex-col h-full w-full bg-white dark:bg-[#09090b] text-slate-900 dark:text-white relative"
+  role="presentation"
+>
+  {#if dragOverlay}
+    <div class="pointer-events-none absolute inset-4 z-40 flex items-center justify-center rounded-[28px] border-2 border-dashed border-blue-500 bg-blue-500/10 backdrop-blur-sm">
+      <div class="text-center">
+        <svg class="mx-auto h-10 w-10 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 16l5-5 5 5M12 11v10M5 4h14" />
+        </svg>
+        <p class="mt-3 text-sm font-semibold text-blue-700 dark:text-blue-300">Solte um JSON exportado para abrir a planta no Plotter</p>
+      </div>
+    </div>
+  {/if}
+
   <PlantTabs
     {plants}
     {activePlantId}
@@ -441,6 +553,54 @@
     onRemove={handleRemovePlant}
   />
 
+  {#if plants.length === 0}
+    <div class="flex-1 flex items-center justify-center bg-slate-50 p-8 dark:bg-[#09090b]">
+      <div
+        class="flex w-full max-w-3xl flex-col items-center justify-center gap-6 rounded-[28px] border border-slate-200 bg-white p-12 shadow-sm transition-colors hover:border-blue-300 dark:border-white/10 dark:bg-[#0c0c0e] dark:hover:border-blue-500/40"
+        role="region"
+        aria-label="Área para criar ou abrir uma planta"
+      >
+        <div class="w-20 h-20 rounded-2xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center">
+          <svg class="w-10 h-10 text-slate-400 dark:text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+        </div>
+        
+        <div class="text-center space-y-2">
+          <h2 class="text-2xl font-semibold text-slate-700 dark:text-zinc-200">
+            Nenhuma planta ativa
+          </h2>
+          <p class="max-w-md text-sm text-slate-500 dark:text-zinc-400">
+            Crie uma nova planta ou abra um arquivo <code class="px-1 py-0.5 bg-slate-200 dark:bg-zinc-700 rounded text-xs">.json</code> para começar a plotar dados
+          </p>
+        </div>
+
+        <div class="flex gap-3 mt-2">
+          <button
+            type="button"
+            onclick={handleCreateNew}
+            class="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors shadow-sm"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            Nova Planta
+          </button>
+          <button
+            type="button"
+            onclick={handleOpenFile}
+            disabled={openPlantLoading}
+            class="flex items-center gap-2 px-5 py-2.5 bg-slate-200 dark:bg-zinc-700 hover:bg-slate-300 dark:hover:bg-zinc-600 text-slate-700 dark:text-zinc-200 font-medium rounded-lg transition-colors disabled:opacity-50"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+            </svg>
+            {openPlantLoading ? 'Abrindo...' : 'Abrir Arquivo'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {:else}
   <div class="flex-1 flex overflow-hidden bg-slate-50 dark:bg-[#09090b] relative">
     <div class="flex-1 flex flex-col min-w-0 relative">
       <PlotterToolbar
@@ -450,6 +610,7 @@
         bind:showControllerPanel
         onToggleConnect={handleToggleConnect}
         onTogglePause={handleTogglePause}
+        onEditPlant={handleEditPlant}
         onResetZoom={resetZoom}
         onExportCSV={handleExportCSV}
         onExportJSON={handleExportJSON}
@@ -504,6 +665,7 @@
       onUpdateSetpoint={updateSetpoint}
     />
   </div>
+  {/if}
 
   <PlantRemovalModal
     bind:visible={removeModal.visible}
@@ -515,8 +677,14 @@
 
   <CreatePlantModal
     bind:visible={createPlantModal}
-    onPlantCreated={handlePlantCreated}
+    onPlantSaved={handlePlantSaved}
     onClose={() => createPlantModal = false}
   />
-</div>
 
+  <CreatePlantModal
+    visible={editPlantModal}
+    initialPlant={activePlant ?? null}
+    onPlantSaved={handlePlantSaved}
+    onClose={() => editPlantModal = false}
+  />
+</div>
