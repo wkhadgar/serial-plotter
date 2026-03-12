@@ -1,24 +1,31 @@
+use crate::state::{plant_store::PlantStore, PluginStore};
+use std::sync::Arc;
+
+#[derive(Clone)]
 pub struct AppState {
-    pub plants: Arc<RwLock<HashMap<String, Plant>>>,
-    pub sessions: Arc<RwLock<HashMap<String, SessionHandle>>>,
-    pub plugin_registry: Arc<RwLock<HashMap<String, PluginInfo>>>,
+    plant_store: Arc<PlantStore>,
+    plugin_store: Arc<PluginStore>,
 }
 
-pub struct SessionHandle {
-    pub stop: tokio_util::sync::CancellationToken,
-    pub paused: Arc<std::sync::atomic::AtomicBool>,
+impl AppState {
+    pub fn new() -> Self {
+        Self {
+            plant_store: Arc::new(PlantStore::new()),
+            plugin_store: Arc::new(PluginStore::new()),
+        }
+    }
+
+    pub fn plants(&self) -> &PlantStore {
+        &self.plant_store
+    }
+
+    pub fn plugins(&self) -> &PluginStore {
+        &self.plugin_store
+    }
 }
 
-pub struct PluginInfo {
-    pub id: String,
-    pub name: String,
-    pub plugin_type: PluginType,
-    pub description: String,
-    pub path: PathBuf,
-    pub schema: PluginSchema,
-}
-
-pub enum PluginType {
-    Driver,
-    Controller,
+impl Default for AppState {
+    fn default() -> Self {
+        Self::new()
+    }
 }

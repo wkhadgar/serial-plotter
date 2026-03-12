@@ -1,14 +1,19 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-mod core;
 mod commands;
+mod core;
 mod state;
 
+use crate::commands::plants::{
+    connect_plant, create_plant, disconnect_plant, get_plant, list_plants, pause_plant,
+    remove_plant, resume_plant,
+};
+use crate::commands::plugins::{create_plugin, list_plugins, list_plugins_by_type};
 use crate::core::error::{AppError, ErrorDto};
-use crate::commands::plants::create_plant;
+use crate::state::AppState;
 
 #[tauri::command]
 fn greet_safe(name: &str) -> Result<String, ErrorDto> {
-    if name.trim().is_empty(){
+    if name.trim().is_empty() {
         return Err(AppError::InvalidArgument("name is required".to_string()).into());
     }
 
@@ -24,10 +29,21 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
             greet,
             greet_safe,
-            create_plant
+            create_plant,
+            list_plants,
+            get_plant,
+            remove_plant,
+            connect_plant,
+            disconnect_plant,
+            pause_plant,
+            resume_plant,
+            create_plugin,
+            list_plugins,
+            list_plugins_by_type,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
