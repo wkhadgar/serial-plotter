@@ -1,4 +1,4 @@
-export type ControllerType = 'PID' | 'Flow' | 'Level';
+export type ControllerType = 'PID' | 'Flow' | 'Level' | (string & {});
 
 export type ParamType = 'number' | 'boolean' | 'string';
 

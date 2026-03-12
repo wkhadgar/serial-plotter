@@ -96,6 +96,7 @@ mod tests {
         Plant {
             id: id.to_string(),
             name: name.to_string(),
+            sample_time_ms: 100,
             variables: vec![PlantVariable {
                 id: "var_0".to_string(),
                 name: "Temperatura".to_string(),

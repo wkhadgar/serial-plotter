@@ -50,11 +50,13 @@
 
   const pvStyle = $derived(lineStyles[pvKey]);
   const spStyle = $derived(lineStyles[spKey]);
+  const pvLabel = $derived(pvStyle?.label ?? `${title}`);
+  const spLabel = $derived(spStyle?.label ?? 'Setpoint');
 
   const pvSpSeries = $derived<ChartSeries[]>([
     {
       key: 'pv',
-      label: `PV ${unit}`,
+      label: pvLabel,
       color: pvStyle?.color ?? colors.pv,
       visible: pvStyle?.visible ?? visible.pv,
       data: pvData,
@@ -64,7 +66,7 @@
     },
     {
       key: 'sp',
-      label: `SP ${unit}`,
+      label: spLabel,
       color: spStyle?.color ?? colors.sp,
       visible: spStyle?.visible ?? visible.sp,
       data: pvData,
@@ -81,7 +83,7 @@
     actuators.length > 0
       ? actuators.map((act, idx) => ({
           key: act.id,
-          label: act.name,
+          label: lineStyles[act.dataKey]?.label ?? act.name,
           color: lineStyles[act.dataKey]?.color || act.color || actuatorColors[idx % actuatorColors.length],
           visible: lineStyles[act.dataKey]?.visible ?? true,
           data: mvData,
@@ -91,6 +93,8 @@
         }))
       : []
   );
+
+  const hasActuatorChart = $derived(mvSeries.length > 0);
 </script>
 
 <div class="flex flex-col h-full bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm">
@@ -123,16 +127,16 @@
       <div class="flex items-center gap-3 text-[10px] font-medium">
         <div class="flex items-center gap-1">
           <div class="w-2 h-2 rounded-full" style="background-color: {pvStyle?.color ?? colors.pv}"></div>
-          <span class="text-slate-500 dark:text-zinc-400">PV</span>
+          <span class="text-slate-500 dark:text-zinc-400">{pvLabel}</span>
         </div>
         <div class="flex items-center gap-1">
           <div class="w-2 h-2 rounded-full" style="background-color: {spStyle?.color ?? colors.sp}"></div>
-          <span class="text-slate-500 dark:text-zinc-400">SP</span>
+          <span class="text-slate-500 dark:text-zinc-400">{spLabel}</span>
         </div>
         {#each actuators as act, idx}
           <div class="flex items-center gap-1">
             <div class="w-2 h-2 rounded-full" style="background-color: {lineStyles[act.dataKey]?.color || act.color || actuatorColors[idx % actuatorColors.length]}"></div>
-            <span class="text-slate-500 dark:text-zinc-400">{act.name}</span>
+            <span class="text-slate-500 dark:text-zinc-400">{lineStyles[act.dataKey]?.label ?? act.name}</span>
           </div>
         {/each}
       </div>
@@ -140,7 +144,7 @@
   </div>
 
   <div class="flex-1 flex flex-col min-h-0">
-    <div class={actuators.length > 0 ? 'flex-[2] min-h-0' : 'flex-1 min-h-0'}>
+    <div class={hasActuatorChart ? 'flex-[2] min-h-0' : 'flex-1 min-h-0'}>
       <PlotlyChart
         series={pvSpSeries}
         config={pvConfig}
@@ -148,7 +152,7 @@
         {onRangeChange}
       />
     </div>
-    {#if actuators.length > 0}
+    {#if hasActuatorChart}
       <div class="flex-1 min-h-0 border-t border-slate-100 dark:border-white/5">
         <PlotlyChart
           series={mvSeries}

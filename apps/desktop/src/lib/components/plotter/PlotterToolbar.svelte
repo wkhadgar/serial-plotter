@@ -31,6 +31,7 @@
   } = $props();
 
   let exportMenuOpen = $state(false);
+  const effectiveSamplingMs = $derived(dt > 0 ? dt * 1000 : 0);
 
   function handleExportCSV() {
     exportMenuOpen = false;
@@ -115,8 +116,22 @@
   </div>
 
   <div class="flex items-center gap-6">
-    {#if plant?.connected}
-      <div class="hidden md:flex items-center gap-4 mr-4">
+    <div class="hidden md:flex items-center gap-4 mr-4">
+      {#if plant}
+        <div class="flex flex-col items-end">
+          <span class="text-[9px] font-bold text-slate-400 uppercase">Config.</span>
+          <div class="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">
+            {plant.sampleTimeMs} ms
+          </div>
+        </div>
+      {/if}
+      <div class="flex flex-col items-end">
+        <span class="text-[9px] font-bold text-slate-400 uppercase">Amostragem</span>
+        <div class="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">
+          {effectiveSamplingMs > 0 ? `${effectiveSamplingMs.toFixed(1)} ms` : '--'}
+        </div>
+      </div>
+      {#if plant?.connected}
         <div class="flex flex-col items-end">
           <span class="text-[9px] font-bold text-slate-400 uppercase">dt</span>
           <div class="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">
@@ -130,8 +145,8 @@
             {formatTime(currentStats.uptime)}
           </div>
         </div>
-      </div>
-    {/if}
+      {/if}
+    </div>
     <div class="flex flex-col items-end mr-2">
       <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</span>
       <div class="flex items-center gap-1.5">

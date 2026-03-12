@@ -1,7 +1,19 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { appStore } from '$lib/stores/data.svelte';
-  import { clearPlant, clearVariableStats, getPlantData, getPlantStats, getVariableStats, setPlantData, setPlantStats, setVariableStats } from '$lib/stores/plantData';
+  import {
+    clearPlant,
+    clearVariableStats,
+    getPlantData,
+    getPlantSeriesCatalog,
+    getPlantStats,
+    getVariableStats,
+    seedPlantSeriesCatalog,
+    setPlantData,
+    setPlantSeriesCatalog,
+    setPlantStats,
+    setVariableStats,
+  } from '$lib/stores/plantData';
   import { exportPlantDataCSV, exportPlantDataJSON } from '$lib/services/export';
   import { formatTime } from '$lib/utils/format';
   import VariableGrid from '../charts/VariableGrid.svelte';
@@ -9,10 +21,12 @@
   import PlotterToolbar from '../plotter/PlotterToolbar.svelte';
   import ChartContextMenu from '../plotter/ChartContextMenu.svelte';
   import ControllerPanel from '../plotter/ControllerPanel.svelte';
+  import ControllerLibraryModal from '../modals/ControllerLibraryModal.svelte';
   import PlantRemovalModal from '../modals/PlantRemovalModal.svelte';
   import CreatePlantModal from '../modals/CreatePlantModal.svelte';
+  import type { Controller } from '$lib/types/controller';
   import type { Plant, PlantVariable } from '$lib/types/plant';
-  import { getVariableKeys } from '$lib/types/plant';
+  import { buildPlantSeriesCatalog, getVariableKeys } from '$lib/types/plant';
   import { type ChartStateType, defaultChartState, DEFAULT_LINE_COLORS, nextViewState, resetToGridView } from '$lib/types/chart';
   import { connectPlant, disconnectPlant, openPlant, pausePlant, removePlant, resumePlant } from '$lib/services/plant';
   import { openFileDialog, FILE_FILTERS } from '$lib/services/fileDialog';
@@ -56,6 +70,7 @@
 
   let createPlantModal = $state(false);
   let editPlantModal = $state(false);
+  let controllerLibraryModal = $state(false);
   let openPlantLoading = $state(false);
   let dragOverlay = $state(false);
   let dragDepth = $state(0);
@@ -63,10 +78,25 @@
 
   const activePlant = $derived(plants.find((p: Plant) => p.id === activePlantId));
 
+  $effect(() => {
+    for (const plant of plants) {
+      seedPlantSeriesCatalog(buildPlantSeriesCatalog(plant.id, plant.variables));
+    }
+  });
+
   const sensorVariables = $derived(
     activePlant?.variables
       .map((variable: PlantVariable, index: number) => ({ variable, index }))
       .filter(({ variable }: { variable: PlantVariable; index: number }) => variable.type === 'sensor') ?? []
+  );
+
+  const activeSeriesCatalog = $derived.by(() => {
+    _displayTick;
+    return activePlant ? getPlantSeriesCatalog(activePlant.id) : [];
+  });
+
+  const activeSeriesCatalogByKey = $derived.by(
+    () => new Map(activeSeriesCatalog.map((entry) => [entry.key, entry]))
   );
 
   const focusedSensor = $derived.by(() => {
@@ -90,23 +120,27 @@
 
     activePlant.variables.forEach((variable: PlantVariable, index: number) => {
       const keys = getVariableKeys(index);
+      const pvLabel = activeSeriesCatalogByKey.get(keys.pv)?.label ?? `${variable.name}`;
+      const spLabel = 'Setpoint';
+      const currentPv = current[keys.pv];
+      const currentSp = current[keys.sp];
 
       if (variable.type === 'sensor') {
-        next[keys.pv] = current[keys.pv] ?? {
-          color: DEFAULT_LINE_COLORS.pv,
-          visible: true,
-          label: `${variable.name} PV`,
+        next[keys.pv] = {
+          color: currentPv?.color ?? DEFAULT_LINE_COLORS.pv,
+          visible: currentPv?.visible ?? true,
+          label: pvLabel,
         };
-        next[keys.sp] = current[keys.sp] ?? {
-          color: DEFAULT_LINE_COLORS.sp,
-          visible: true,
-          label: `${variable.name} SP`,
+        next[keys.sp] = {
+          color: currentSp?.color ?? DEFAULT_LINE_COLORS.sp,
+          visible: currentSp?.visible ?? true,
+          label: spLabel,
         };
       } else {
-        next[keys.pv] = current[keys.pv] ?? {
-          color: actuatorPalette[actuatorColorIndex % actuatorPalette.length],
-          visible: true,
-          label: variable.name,
+        next[keys.pv] = {
+          color: currentPv?.color ?? actuatorPalette[actuatorColorIndex % actuatorPalette.length],
+          visible: currentPv?.visible ?? true,
+          label: activeSeriesCatalogByKey.get(keys.pv)?.label ?? variable.name,
         };
         actuatorColorIndex += 1;
       }
@@ -126,14 +160,14 @@
 
     controls.push({
       key: sensorKeys.pv,
-      label: 'PV (Sensor)',
+      label: pvStyle?.label ?? activeSeriesCatalogByKey.get(sensorKeys.pv)?.label ?? `${contextSensor.variable.name} PV`,
       color: pvStyle?.color ?? DEFAULT_LINE_COLORS.pv,
       visible: pvStyle?.visible ?? true,
     });
 
     controls.push({
       key: sensorKeys.sp,
-      label: 'SP (Setpoint)',
+      label: spStyle?.label ?? 'Setpoint',
       color: spStyle?.color ?? DEFAULT_LINE_COLORS.sp,
       visible: spStyle?.visible ?? true,
     });
@@ -148,7 +182,7 @@
 
       controls.push({
         key: actuatorKey,
-        label: `${variable.name} (Atuador)`,
+        label: actuatorStyle?.label ?? activeSeriesCatalogByKey.get(actuatorKey)?.label ?? variable.name,
         color: actuatorStyle?.color ?? DEFAULT_LINE_COLORS.mv,
         visible: actuatorStyle?.visible ?? true,
       });
@@ -160,11 +194,6 @@
   const contextSeriesTitle = $derived(
     contextSensor ? `Linhas - ${contextSensor.variable.name}` : 'Linhas'
   );
-
-  const mockDt = $derived.by(() => {
-    _displayTick;
-    return activePlant?.connected ? 0.1 : 0;
-  });
 
   function toggleSeriesVisibility(key: string) {
     const current = seriesStyles[key];
@@ -196,6 +225,7 @@
       appStore.addPlant(plantResult.plant);
       appStore.setActivePlantId(plantResult.plant.id);
       setPlantData(plantResult.plant.id, plantResult.data ?? []);
+      setPlantSeriesCatalog(plantResult.seriesCatalog ?? buildPlantSeriesCatalog(plantResult.plant.id, plantResult.plant.variables));
       setPlantStats(plantResult.plant.id, plantResult.stats ?? plantResult.plant.stats);
       clearVariableStats(plantResult.plant.id);
       for (const [index, stats] of (plantResult.variableStats ?? []).entries()) {
@@ -241,6 +271,8 @@
   function handlePlantSaved(plant: Plant) {
     appStore.upsertPlant(plant);
     appStore.setActivePlantId(plant.id);
+    setPlantSeriesCatalog(buildPlantSeriesCatalog(plant.id, plant.variables));
+    setPlantStats(plant.id, plant.stats);
     createPlantModal = false;
     editPlantModal = false;
   }
@@ -362,16 +394,19 @@
 
   function addController() {
     if (!activePlant) return;
+    controllerLibraryModal = true;
+  }
+
+  function handleControllerTemplateSelected(template: Controller) {
+    if (!activePlant) return;
+
     appStore.addController(activePlant.id, {
-      name: 'Nova Malha',
-      type: 'PID',
-      active: false,
-      params: {
-        kp: { type: 'number', value: 1.0, label: 'Kp' },
-        ki: { type: 'number', value: 0.0, label: 'Ki' },
-        kd: { type: 'number', value: 0.0, label: 'Kd' },
-        manualMode: { type: 'boolean', value: false, label: 'Manual' }
-      }
+      name: `${template.name} ${activePlant.controllers.length + 1}`,
+      type: template.type,
+      active: true,
+      params: Object.fromEntries(
+        Object.entries(template.params ?? {}).map(([key, param]) => [key, { ...param }])
+      ),
     });
   }
 
@@ -414,7 +449,7 @@
 
   $effect(() => {
     if (!active) return;
-    const timer = setInterval(() => _displayTick++, 33);
+    const timer = setInterval(() => _displayTick++, 250);
     return () => clearInterval(timer);
   });
 
@@ -427,6 +462,11 @@
   const currentStats = $derived.by(() => {
     _displayTick;
     return getPlantStats(activePlantId);
+  });
+
+  const displayDt = $derived.by(() => {
+    _displayTick;
+    return activePlant?.connected ? currentStats.dt : 0;
   });
   const plantData = $derived(getPlantData(activePlantId));
   
@@ -606,7 +646,7 @@
       <PlotterToolbar
         plant={activePlant}
         {currentStats}
-        dt={mockDt}
+        dt={displayDt}
         bind:showControllerPanel
         onToggleConnect={handleToggleConnect}
         onTogglePause={handleTogglePause}
@@ -673,6 +713,12 @@
     reason={removeModal.reason}
     onConfirm={confirmRemovePlant}
     onCancel={cancelRemovePlant}
+  />
+
+  <ControllerLibraryModal
+    bind:visible={controllerLibraryModal}
+    onClose={() => controllerLibraryModal = false}
+    onSelect={handleControllerTemplateSelected}
   />
 
   <CreatePlantModal

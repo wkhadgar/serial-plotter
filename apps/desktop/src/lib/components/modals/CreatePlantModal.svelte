@@ -7,15 +7,11 @@
   import { PLUGIN_RUNTIME_LABELS } from '$lib/types/plugin';
   import { createDefaultVariable, VARIABLE_TYPE_LABELS } from '$lib/types/plant';
   import { createPlant, updatePlant, type CreatePlantRequest, type UpdatePlantRequest } from '$lib/services/plant';
-  import { listPluginsByType, validatePluginFile, registerPlugin } from '$lib/services/plugin';
+  import { listControllerTemplates, listPluginsByType, validatePluginFile, registerPlugin } from '$lib/services/plugin';
   import { openFileDialog, readFileAsJSON, FILE_FILTERS } from '$lib/services/fileDialog';
   import { generateId } from '$lib/utils/format';
   import CreatePluginModal from './CreatePluginModal.svelte';
   import PluginInstanceConfigModal from './PluginInstanceConfigModal.svelte';
-
-  async function listControllerTemplates(): Promise<Controller[]> {
-    return [];
-  }
 
   interface Props {
     visible: boolean;
@@ -32,6 +28,7 @@
   }: Props = $props();
 
   let plantName = $state('');
+  let sampleTimeMs = $state(100);
   let driverInstance = $state<PluginInstance | null>(null);
   let variables = $state<PlantVariable[]>([createDefaultVariable(0, 'Variável 1')]);
   let selectedControllers = $state<Controller[]>([]);
@@ -143,6 +140,7 @@
     );
 
     plantName = plant?.name ?? '';
+    sampleTimeMs = Math.max(1, Math.round(plant?.sampleTimeMs ?? 100));
     variables = nextVariables;
     selectedControllers = (plant?.controllers ?? []).map(cloneController);
     driverInstance = plant?.driver
@@ -164,6 +162,9 @@
   const driverAutoConfig = $derived(buildDriverAutoConfig(variables));
   const sensorCount = $derived(Number(driverAutoConfig.num_sensors ?? 0));
   const actuatorCount = $derived(Number(driverAutoConfig.num_actuators ?? 0));
+  const normalizedSampleTimeMs = $derived(
+    Number.isFinite(sampleTimeMs) && sampleTimeMs > 0 ? Math.round(sampleTimeMs) : 0
+  );
   const filteredPlugins = $derived(
     availablePlugins.filter((definition) =>
       definition.name.toLowerCase().includes(driverSearch.toLowerCase()) ||
@@ -378,7 +379,15 @@
 
   function validateCurrentStep(): string | null {
     if (currentStep === 'info') {
-      return plantName.trim() ? null : 'Nome da planta é obrigatório';
+      if (!plantName.trim()) {
+        return 'Nome da planta é obrigatório';
+      }
+
+      if (!Number.isFinite(sampleTimeMs) || sampleTimeMs < 1) {
+        return 'O tempo de amostragem deve ser maior que 0 ms';
+      }
+
+      return null;
     }
 
     if (currentStep === 'driver') {
@@ -427,6 +436,12 @@
       return;
     }
 
+    if (!Number.isFinite(sampleTimeMs) || sampleTimeMs < 1) {
+      error = 'O tempo de amostragem deve ser maior que 0 ms';
+      currentStep = 'info';
+      return;
+    }
+
     if (!driverInstance) {
       error = 'Configure um driver de comunicação';
       currentStep = 'driver';
@@ -451,6 +466,7 @@
     try {
       const payload: CreatePlantRequest = {
         name: plantName.trim(),
+        sampleTimeMs: normalizedSampleTimeMs,
         driver: driverInstance,
         variables,
         controllers: selectedControllers,
@@ -549,6 +565,9 @@
           <span class="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300">
             {actuatorCount} atuador(es)
           </span>
+          <span class="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300">
+            {normalizedSampleTimeMs > 0 ? `${normalizedSampleTimeMs} ms` : 'Amostragem pendente'}
+          </span>
           {#if driverInstance}
             <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
               Driver pronto
@@ -573,9 +592,26 @@
               <input
                 type="text"
                 bind:value={plantName}
-                placeholder="Ex: Tanque Misturador T-200"
+                placeholder="Ex: Tanques Acoplados"
                 class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500"
               />
+            </label>
+
+            <label class="block">
+              <span class="block text-sm font-medium text-slate-700 dark:text-zinc-300 mb-2">
+                Tempo de Amostragem (ms) *
+              </span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                bind:value={sampleTimeMs}
+                placeholder="Ex: 100"
+                class="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500"
+              />
+              <p class="mt-2 text-xs text-slate-500 dark:text-zinc-400">
+                Intervalo entre amostras da planta.
+              </p>
             </label>
 
             {#if driverInstance}
@@ -587,7 +623,7 @@
                   <div class="flex-1">
                     <div class="font-medium text-slate-800 dark:text-white">{driverInstance.pluginName}</div>
                     <div class="text-xs text-slate-500 dark:text-zinc-400">
-                      Configurado · {sensorCount} sensor(es) · {actuatorCount} atuador(es)
+                      Configurado · {sensorCount} sensor(es) · {actuatorCount} atuador(es) · {normalizedSampleTimeMs > 0 ? `${normalizedSampleTimeMs} ms` : 'sem amostragem'}
                     </div>
                   </div>
                   <button

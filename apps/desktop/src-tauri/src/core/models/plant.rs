@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+fn default_sample_time_ms() -> u64 {
+    100
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VariableType {
@@ -27,6 +31,8 @@ pub struct PlantVariable {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreatePlantRequest {
     pub name: String,
+    #[serde(default = "default_sample_time_ms")]
+    pub sample_time_ms: u64,
     pub variables: Vec<CreatePlantVariableRequest>,
 
     #[serde(default)]
@@ -71,6 +77,8 @@ impl PlantStats {
 pub struct Plant {
     pub id: String,
     pub name: String,
+    #[serde(default = "default_sample_time_ms")]
+    pub sample_time_ms: u64,
     pub variables: Vec<PlantVariable>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -93,6 +101,7 @@ pub struct Plant {
 pub struct PlantResponse {
     pub id: String,
     pub name: String,
+    pub sample_time_ms: u64,
     pub connected: bool,
     pub paused: bool,
     pub variables: Vec<PlantVariable>,
@@ -110,6 +119,7 @@ impl From<&Plant> for PlantResponse {
         Self {
             id: plant.id.clone(),
             name: plant.name.clone(),
+            sample_time_ms: plant.sample_time_ms,
             connected: plant.connected,
             paused: plant.paused,
             variables: plant.variables.clone(),

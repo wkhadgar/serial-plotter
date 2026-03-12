@@ -16,13 +16,14 @@
   let wrapper: HTMLDivElement;
   let chart: uPlot | null = null;
   let renderTimer: number | null = null;
-  let prevLen = -1;
+  let prevDataSignature = '';
   let _mounted = false;
   let _panning = false;
   let _panStartX = 0;
   let _panScaleMin = 0;
   let _panScaleMax = 0;
   let tooltipEl: HTMLDivElement;
+  const MAX_RENDER_POINTS = 2400;
 
   const _scaleRef = {
     xMode: 'auto' as string,
@@ -51,19 +52,110 @@
     ticks: theme === 'dark' ? '#71717a' : '#6b7280',
   });
 
+  function getDataSignature(): string {
+    const source = series[0]?.data;
+
+    if (!source?.length) {
+      return '0';
+    }
+
+    return `${source.length}:${source[0]?.time ?? 0}:${source[source.length - 1]?.time ?? 0}`;
+  }
+
+  function findLowerBound(data: typeof series[number]['data'], target: number): number {
+    let low = 0;
+    let high = data.length;
+
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+
+      if ((data[mid]?.time ?? 0) < target) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+
+    return low;
+  }
+
+  function findUpperBound(data: typeof series[number]['data'], target: number): number {
+    let low = 0;
+    let high = data.length;
+
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+
+      if ((data[mid]?.time ?? 0) <= target) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+
+    return low;
+  }
+
+  function buildRenderIndices(source: typeof series[number]['data']): number[] {
+    if (source.length === 0) {
+      return [];
+    }
+
+    const firstTime = source[0].time;
+    const lastTime = source[source.length - 1].time;
+    const rangeStart =
+      _scaleRef.xMode === 'sliding'
+        ? Math.max(firstTime, lastTime - _scaleRef.windowSize)
+        : _scaleRef.xMode === 'manual' && _scaleRef.xMin != null
+          ? _scaleRef.xMin
+          : firstTime;
+    const rangeEnd =
+      _scaleRef.xMode === 'manual' && _scaleRef.xMax != null
+        ? _scaleRef.xMax
+        : lastTime;
+
+    const startIndex = Math.min(source.length - 1, findLowerBound(source, rangeStart));
+    const endIndex = Math.min(source.length, Math.max(startIndex + 1, findUpperBound(source, rangeEnd)));
+    const count = endIndex - startIndex;
+
+    if (count <= MAX_RENDER_POINTS) {
+      const indices = new Array<number>(count);
+      for (let index = 0; index < count; index += 1) {
+        indices[index] = startIndex + index;
+      }
+      return indices;
+    }
+
+    const step = Math.max(1, Math.floor(count / (MAX_RENDER_POINTS - 1)));
+    const indices: number[] = [];
+
+    for (let index = startIndex; index < endIndex; index += step) {
+      indices.push(index);
+    }
+
+    if (indices[indices.length - 1] !== endIndex - 1) {
+      indices.push(endIndex - 1);
+    }
+
+    return indices;
+  }
+
   function buildData(): uPlot.AlignedData {
     if (!series.length || !series[0].data.length) {
       return [[], ...series.map(() => [])] as uPlot.AlignedData;
     }
+
+    syncScaleRef();
     const src = series[0].data;
-    const n = src.length;
+    const indices = buildRenderIndices(src);
+    const n = indices.length;
     const xs: number[] = new Array(n);
-    for (let i = 0; i < n; i++) xs[i] = src[i].time;
+    for (let i = 0; i < n; i++) xs[i] = src[indices[i]].time;
     const cols: (number | null)[][] = [xs];
     for (const s of series) {
       if (s.visible && s.data.length > 0) {
-        const col: number[] = new Array(n);
-        for (let i = 0; i < n; i++) col[i] = s.data[i]?.[s.dataKey] ?? 0;
+        const col: (number | null)[] = new Array(n);
+        for (let i = 0; i < n; i++) col[i] = s.data[indices[i]]?.[s.dataKey] ?? null;
         cols.push(col);
       } else {
         cols.push(new Array(n).fill(null));
@@ -293,7 +385,7 @@
     const opts = buildOpts(Math.floor(rect.width), Math.floor(rect.height));
     const data = buildData();
     chart = new uPlot(opts, data, wrapper);
-    prevLen = series.length > 0 ? series[0].data.length : 0;
+    prevDataSignature = getDataSignature();
   }
 
 
@@ -315,9 +407,9 @@
 
   function renderLoop() {
     if (chart && wrapper) {
-      const n = series.length > 0 ? series[0].data.length : 0;
-      if (n !== prevLen) {
-        prevLen = n;
+      const signature = getDataSignature();
+      if (signature !== prevDataSignature) {
+        prevDataSignature = signature;
         updateChart();
       }
     }
@@ -341,7 +433,7 @@
         if (w > 10 && h > 10) {
           if (chart) {
             chart.setSize({ width: w, height: h });
-            prevLen = -1;
+            prevDataSignature = '';
           } else {
             initChart();
           }
@@ -368,7 +460,7 @@
       config.yMode,
       config.showGrid,
       theme,
-      ...series.map((s) => `${s.visible}|${s.color}`),
+      ...series.map((s) => `${s.visible}|${s.color}|${s.label}`),
     ];
     untrack(() => {
       if (_mounted && chart) initChart();

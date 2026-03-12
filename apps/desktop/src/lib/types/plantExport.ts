@@ -24,6 +24,7 @@ export interface ExportPlantMeta {
   version: string;
   sampleCount: number;
   duration: number;
+  sampleTimeMs?: number;
 }
 
 export interface ExportDataSample {
@@ -57,6 +58,9 @@ export function validatePlantExportJSON(obj: unknown): string | null {
   if (typeof meta.name !== 'string') return 'meta.name deve ser uma string';
   if (typeof meta.version !== 'string') return 'meta.version deve ser uma string';
   if (typeof meta.sampleCount !== 'number') return 'meta.sampleCount deve ser um número';
+  if (meta.sampleTimeMs !== undefined && typeof meta.sampleTimeMs !== 'number') {
+    return 'meta.sampleTimeMs deve ser um número';
+  }
 
   if (!Array.isArray(json.sensors)) {
     return 'Arquivo inválido: campo "sensors" deve ser um array';

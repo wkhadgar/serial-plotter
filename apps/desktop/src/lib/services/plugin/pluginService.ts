@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { Controller, ControllerParam, ControllerType } from '$lib/types/controller';
 import type { BuiltInPluginKind, PluginDefinition, PluginKind } from '$lib/types/plugin';
-import { isBuiltInPluginKind, normalizePluginKind, validatePluginJSON } from '$lib/types/plugin';
+import { getDefaultValueForType, isBuiltInPluginKind, normalizePluginKind, validatePluginJSON } from '$lib/types/plugin';
 import type {
   CreatePluginRequest,
   CreatePluginResponse,
@@ -149,6 +150,54 @@ function mergePlugins(backendPlugins: PluginDefinition[], workspacePlugins: Plug
   return Array.from(registry.values()).sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'));
 }
 
+function inferControllerType(plugin: PluginDefinition): ControllerType {
+  const normalizedName = plugin.name.trim().toUpperCase();
+
+  if (normalizedName.includes('PID')) return 'PID';
+  if (normalizedName.includes('FLOW')) return 'Flow';
+  if (normalizedName.includes('LEVEL')) return 'Level';
+
+  return (plugin.name.trim() || 'PID') as ControllerType;
+}
+
+function mapSchemaFieldToControllerParam(field: PluginDefinition['schema'][number]): ControllerParam {
+  const defaultValue = field.defaultValue ?? getDefaultValueForType(field.type);
+
+  if (field.type === 'bool') {
+    return {
+      type: 'boolean',
+      value: typeof defaultValue === 'boolean' ? defaultValue : false,
+      label: field.description?.trim() || field.name,
+    };
+  }
+
+  if (field.type === 'int' || field.type === 'float') {
+    return {
+      type: 'number',
+      value: typeof defaultValue === 'number' ? defaultValue : 0,
+      label: field.description?.trim() || field.name,
+    };
+  }
+
+  return {
+    type: 'string',
+    value: Array.isArray(defaultValue) ? defaultValue.join(', ') : String(defaultValue ?? ''),
+    label: field.description?.trim() || field.name,
+  };
+}
+
+function toControllerTemplate(plugin: PluginDefinition): Controller {
+  return {
+    id: plugin.id,
+    name: plugin.name,
+    type: inferControllerType(plugin),
+    active: false,
+    params: Object.fromEntries(
+      plugin.schema.map((field) => [field.name, mapSchemaFieldToControllerParam(field)])
+    ),
+  };
+}
+
 export async function createPlugin(request: CreatePluginRequest): Promise<CreatePluginResponse> {
   if (!request.name.trim()) {
     return { success: false, error: 'Nome do plugin é obrigatório' };
@@ -228,6 +277,11 @@ export async function listPluginsByType(kind: PluginKind): Promise<PluginDefinit
   return mergePlugins(backendPlugins, workspacePlugins, state.deletedPluginIds).filter(
     (plugin) => normalizePluginKind(plugin.kind) === normalizedKind
   );
+}
+
+export async function listControllerTemplates(): Promise<Controller[]> {
+  const controllerPlugins = await listPluginsByType('controller');
+  return controllerPlugins.map(toControllerTemplate);
 }
 
 export async function validatePluginFile(json: unknown): Promise<{ success: boolean; plugin?: PluginDefinition; error?: string }> {

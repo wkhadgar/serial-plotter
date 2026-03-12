@@ -14,6 +14,14 @@ export interface VariableStats {
   ripple: number;
 }
 
+export type PlantSeriesRole = 'pv' | 'sp' | 'mv';
+
+export interface PlantSeriesDescriptor {
+  key: string;
+  label: string;
+  role: PlantSeriesRole;
+}
+
 export type VariableType = 'sensor' | 'atuador';
 
 export const VARIABLE_TYPE_LABELS: Record<VariableType, string> = {
@@ -35,6 +43,11 @@ export interface PlantVariable {
 export interface PlantDataPoint {
   time: number;
   [key: string]: number;
+}
+
+export interface PlantSeriesCatalog {
+  plantId: string;
+  series: PlantSeriesDescriptor[];
 }
 
 export function getVariableKeys(varIndex: number) {
@@ -63,9 +76,15 @@ export interface PlantStats {
   uptime: number;  // Segundos desde que iniciou
 }
 
+export interface PlantTelemetryBufferConfig {
+  maxPoints: number;
+  trimTo: number;
+}
+
 export interface Plant {
   id: string;
   name: string;
+  sampleTimeMs: number;
   connected: boolean;
   paused: boolean;
   variables: PlantVariable[];
@@ -74,6 +93,39 @@ export interface Plant {
   driver?: PluginInstance | null;
   driverId?: string | null;
   source?: 'backend' | 'workspace';
+}
+
+export function buildPlantSeriesCatalog(plantId: string, variables: PlantVariable[]): PlantSeriesCatalog {
+  const series: PlantSeriesDescriptor[] = [];
+
+  variables.forEach((variable, index) => {
+    const keys = getVariableKeys(index);
+
+    if (variable.type === 'sensor') {
+      series.push({
+        key: keys.pv,
+        label: `${variable.name} PV`,
+        role: 'pv',
+      });
+      series.push({
+        key: keys.sp,
+        label: `${variable.name} SP`,
+        role: 'sp',
+      });
+      return;
+    }
+
+    series.push({
+      key: keys.pv,
+      label: variable.name,
+      role: 'mv',
+    });
+  });
+
+  return {
+    plantId,
+    series,
+  };
 }
 
 export function createDefaultVariable(index: number, name?: string, type: VariableType = 'sensor'): PlantVariable {

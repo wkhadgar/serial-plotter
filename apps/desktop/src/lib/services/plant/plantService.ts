@@ -1,5 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Plant, PlantDataPoint, PlantStats, PlantVariable, VariableStats } from '$lib/types/plant';
+import { ingestPlantTelemetry } from '$lib/stores/plantData';
+import {
+  buildPlantSeriesCatalog,
+  type Plant,
+  type PlantDataPoint,
+  type PlantStats,
+  type PlantVariable,
+  type VariableStats,
+} from '$lib/types/plant';
 import type {
   CreatePlantDto,
   CreatePlantRequest,
@@ -7,6 +15,7 @@ import type {
   OpenPlantRequest,
   OpenPlantResponse,
   PlantActionResponse,
+  PlantTelemetryPacket,
   PlantDto,
   UpdatePlantRequest,
 } from './types';
@@ -26,6 +35,14 @@ const DEFAULT_WORKSPACE_STATE: PlantWorkspaceState = {
   plantOverrides: {},
   deletedBackendPlantIds: [],
 };
+
+const DEFAULT_SAMPLE_TIME_MS = 100;
+
+function normalizeSampleTimeMs(sampleTimeMs: number | null | undefined, fallback = DEFAULT_SAMPLE_TIME_MS): number {
+  const resolved = Number(sampleTimeMs);
+  if (!Number.isFinite(resolved)) return fallback;
+  return Math.max(1, Math.round(resolved));
+}
 
 function canUseStorage(): boolean {
   return typeof window !== 'undefined' && typeof localStorage !== 'undefined';
@@ -55,11 +72,21 @@ function saveWorkspaceState(state: PlantWorkspaceState): void {
 }
 
 function normalizePlant(plant: Plant): Plant {
+  const sampleTimeMs = normalizeSampleTimeMs(
+    plant.sampleTimeMs,
+    normalizeSampleTimeMs(plant.stats?.dt ? plant.stats.dt * 1000 : undefined)
+  );
+
   return {
     ...plant,
+    sampleTimeMs,
     controllers: plant.controllers ?? [],
     driver: plant.driver ?? null,
     driverId: plant.driver?.pluginId ?? plant.driverId ?? null,
+    stats: {
+      dt: plant.stats?.dt && plant.stats.dt > 0 ? plant.stats.dt : sampleTimeMs / 1000,
+      uptime: plant.stats?.uptime ?? 0,
+    },
     source: plant.source ?? 'workspace',
   };
 }
@@ -78,14 +105,20 @@ function mapVariableDtoToFrontend(variable: PlantDto['variables'][number], index
 }
 
 function mapDtoToPlant(dto: PlantDto): Plant {
+  const sampleTimeMs = normalizeSampleTimeMs(
+    dto.sample_time_ms,
+    dto.stats.dt > 0 ? dto.stats.dt * 1000 : undefined
+  );
+
   return {
     id: dto.id,
     name: dto.name,
+    sampleTimeMs,
     connected: dto.connected,
     paused: dto.paused,
     variables: dto.variables.map(mapVariableDtoToFrontend),
     stats: {
-      dt: dto.stats.dt,
+      dt: dto.stats.dt > 0 ? dto.stats.dt : sampleTimeMs / 1000,
       uptime: dto.stats.uptime,
     },
     controllers: [],
@@ -108,8 +141,11 @@ function mapVariableToDto(variable: PlantVariable): CreatePlantDto['variables'][
 }
 
 function buildCreatePlantDto(request: CreatePlantRequest): CreatePlantDto {
+  const sampleTimeMs = normalizeSampleTimeMs(request.sampleTimeMs);
+
   return {
     name: request.name.trim(),
+    sample_time_ms: sampleTimeMs,
     variables: request.variables.map(mapVariableToDto),
     driver_id: request.driver?.pluginId ?? null,
     controller_ids: null,
@@ -245,6 +281,8 @@ export async function createPlant(request: CreatePlantRequest): Promise<CreatePl
     return { success: false, error: 'Nome da planta é obrigatório' };
   }
 
+  const sampleTimeMs = normalizeSampleTimeMs(request.sampleTimeMs);
+
   if (request.variables.length === 0) {
     return { success: false, error: 'Pelo menos uma variável deve ser definida' };
   }
@@ -253,6 +291,7 @@ export async function createPlant(request: CreatePlantRequest): Promise<CreatePl
     const response = await invoke<PlantDto>('create_plant', { request: buildCreatePlantDto(request) });
     const plant = savePlantOverride({
       ...mapDtoToPlant(response),
+      sampleTimeMs,
       driver: request.driver,
       driverId: request.driver?.pluginId ?? response.driver_id ?? null,
       controllers: request.controllers ?? [],
@@ -267,6 +306,7 @@ export async function createPlant(request: CreatePlantRequest): Promise<CreatePl
   const plant = upsertWorkspacePlant({
     id: generateId(),
     name: request.name.trim(),
+    sampleTimeMs,
     connected: false,
     paused: false,
     variables: request.variables,
@@ -274,7 +314,7 @@ export async function createPlant(request: CreatePlantRequest): Promise<CreatePl
     driver: request.driver,
     driverId: request.driver?.pluginId ?? null,
     stats: {
-      dt: 0,
+      dt: sampleTimeMs / 1000,
       uptime: 0,
     },
     source: 'workspace',
@@ -289,16 +329,26 @@ export async function updatePlant(request: UpdatePlantRequest): Promise<PlantAct
     return { success: false, error: 'Planta não encontrada' };
   }
 
+  const sampleTimeMs = normalizeSampleTimeMs(request.sampleTimeMs, current.sampleTimeMs);
+  const currentDtMs = current.stats.dt > 0 ? Math.round(current.stats.dt * 1000) : 0;
+  const shouldRefreshConfiguredDt = !current.connected || currentDtMs === current.sampleTimeMs;
+
   const updatedPlant: Plant = normalizePlant({
     id: request.id,
     name: request.name.trim(),
+    sampleTimeMs,
     variables: request.variables,
     controllers: request.controllers,
     driver: request.driver,
     driverId: request.driver?.pluginId ?? current.driverId ?? null,
     connected: current.connected,
     paused: current.paused,
-    stats: current.stats,
+    stats: shouldRefreshConfiguredDt
+      ? {
+          ...current.stats,
+          dt: sampleTimeMs / 1000,
+        }
+      : current.stats,
     source: request.source ?? current.source ?? 'workspace',
   });
 
@@ -510,20 +560,23 @@ export async function openPlant(request: OpenPlantRequest): Promise<OpenPlantRes
       return point;
     });
 
+    const stats = computePlantStats(data);
     const plant = upsertWorkspacePlant({
       id: generateId(),
       name: ((parsed.meta as Record<string, unknown>).name as string) ?? request.filePath,
+      sampleTimeMs: normalizeSampleTimeMs((parsed.meta as Record<string, unknown>).sampleTimeMs as number | undefined, stats.dt * 1000),
       connected: false,
       paused: false,
       variables: [...sensors, ...actuators],
       controllers: [],
       driver: null,
       driverId: null,
-      stats: computePlantStats(data),
+      stats,
       source: 'workspace',
     });
 
     const variableStats = plant.variables.map((variable, index) => computeVariableStats(data, index, variable));
+    const seriesCatalog = buildPlantSeriesCatalog(plant.id, plant.variables);
 
     return {
       success: true,
@@ -531,9 +584,14 @@ export async function openPlant(request: OpenPlantRequest): Promise<OpenPlantRes
       data,
       stats: plant.stats,
       variableStats,
+      seriesCatalog,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Erro ao abrir arquivo';
     return { success: false, error: errorMessage };
   }
+}
+
+export function applyPlantTelemetryPacket(packet: PlantTelemetryPacket): PlantDataPoint[] {
+  return ingestPlantTelemetry(packet);
 }

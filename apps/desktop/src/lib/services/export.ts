@@ -129,6 +129,7 @@ export function buildPlantExportJSON(plant: Plant, data: PlantDataPoint[]): Plan
       version: EXPORT_FORMAT_VERSION,
       sampleCount: data.length,
       duration,
+      sampleTimeMs: plant.sampleTimeMs,
     },
     sensors: exportSensors,
     actuators: exportActuators,

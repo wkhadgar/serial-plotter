@@ -19,6 +19,7 @@ impl PlantService {
 
     fn build_plant(request: CreatePlantRequest) -> Plant {
         let plant_id = format!("plant_{}", Uuid::new_v4());
+        let sample_time_ms = request.sample_time_ms;
 
         let variables = request
             .variables
@@ -39,12 +40,16 @@ impl PlantService {
         Plant {
             id: plant_id,
             name: request.name,
+            sample_time_ms,
             variables,
             driver_id: request.driver_id,
             controller_ids: request.controller_ids,
             connected: false,
             paused: false,
-            stats: PlantStats::default(),
+            stats: PlantStats {
+                dt: sample_time_ms as f64 / 1000.0,
+                uptime: 0,
+            },
         }
     }
 
@@ -65,6 +70,12 @@ impl PlantService {
         if request.variables.is_empty() {
             return Err(AppError::InvalidArgument(
                 "Pelo menos uma variável deve ser definida".into(),
+            ));
+        }
+
+        if request.sample_time_ms == 0 {
+            return Err(AppError::InvalidArgument(
+                "Tempo de amostragem deve ser maior que 0 ms".into(),
             ));
         }
 
@@ -157,6 +168,7 @@ mod tests {
     fn create_valid_request(name: &str) -> CreatePlantRequest {
         CreatePlantRequest {
             name: name.to_string(),
+            sample_time_ms: 100,
             variables: vec![create_test_variable("Temperatura")],
             driver_id: None,
             controller_ids: None,
@@ -173,6 +185,7 @@ mod tests {
 
         let plant = result.unwrap();
         assert_eq!(plant.name, "Planta 1");
+        assert_eq!(plant.sample_time_ms, 100);
         assert_eq!(plant.variables.len(), 1);
         assert!(!plant.connected);
         assert!(!plant.paused);
@@ -184,6 +197,7 @@ mod tests {
         let store = PlantStore::new();
         let request = CreatePlantRequest {
             name: "".to_string(),
+            sample_time_ms: 100,
             variables: vec![create_test_variable("Temperatura")],
             driver_id: None,
             controller_ids: None,
@@ -199,6 +213,7 @@ mod tests {
         let store = PlantStore::new();
         let request = CreatePlantRequest {
             name: "   ".to_string(),
+            sample_time_ms: 100,
             variables: vec![create_test_variable("Temperatura")],
             driver_id: None,
             controller_ids: None,
@@ -213,6 +228,7 @@ mod tests {
         let store = PlantStore::new();
         let request = CreatePlantRequest {
             name: "Planta 1".to_string(),
+            sample_time_ms: 100,
             variables: vec![],
             driver_id: None,
             controller_ids: None,
@@ -231,6 +247,7 @@ mod tests {
 
         let request = CreatePlantRequest {
             name: "Planta 1".to_string(),
+            sample_time_ms: 100,
             variables: vec![var],
             driver_id: None,
             controller_ids: None,
@@ -248,6 +265,7 @@ mod tests {
 
         let request = CreatePlantRequest {
             name: "Planta 1".to_string(),
+            sample_time_ms: 100,
             variables: vec![var],
             driver_id: None,
             controller_ids: None,
@@ -266,6 +284,7 @@ mod tests {
 
         let request = CreatePlantRequest {
             name: "Planta Complexa".to_string(),
+            sample_time_ms: 250,
             variables: vec![var1, var2],
             driver_id: Some("driver_1".to_string()),
             controller_ids: Some(vec!["ctrl_1".to_string()]),
@@ -278,6 +297,7 @@ mod tests {
         assert_eq!(plant.variables.len(), 2);
         assert_eq!(plant.variables[0].id, "var_0");
         assert_eq!(plant.variables[1].id, "var_1");
+        assert_eq!(plant.sample_time_ms, 250);
         assert_eq!(plant.driver_id, Some("driver_1".to_string()));
     }
 
@@ -292,6 +312,21 @@ mod tests {
         let result = PlantService::create(&store, request2);
         assert!(result.is_err());
         assert_eq!(store.count(), 1);
+    }
+
+    #[test]
+    fn test_create_plant_invalid_sample_time() {
+        let store = PlantStore::new();
+        let request = CreatePlantRequest {
+            name: "Planta 1".to_string(),
+            sample_time_ms: 0,
+            variables: vec![create_test_variable("Temperatura")],
+            driver_id: None,
+            controller_ids: None,
+        };
+
+        let result = PlantService::create(&store, request);
+        assert!(result.is_err());
     }
 
     #[test]
@@ -368,4 +403,3 @@ mod tests {
         assert!(result.is_err());
     }
 }
-

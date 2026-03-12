@@ -9,6 +9,7 @@ export {
   pausePlant,
   resumePlant,
   openPlant,
+  applyPlantTelemetryPacket,
 } from './plantService';
 
 export type {
@@ -18,6 +19,7 @@ export type {
   OpenPlantRequest,
   OpenPlantResponse,
   PlantActionResponse,
+  PlantTelemetryPacket,
   PlantDto,
   CreatePlantDto,
 } from './types';
