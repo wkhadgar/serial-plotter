@@ -42,7 +42,7 @@
 
   let isLoading = $state(false);
   let error = $state<string | null>(null);
-  let currentStep = $state<'info' | 'driver' | 'variables' | 'controllers'>('info');
+  let currentStep = $state<'info' | 'variables' | 'driver' | 'controllers'>('info');
 
   let availablePlugins = $state<PluginDefinition[]>([]);
   let controllerTemplates = $state<PluginDefinition[]>([]);
@@ -109,7 +109,7 @@
   );
   const submitLabel = $derived(isEditing ? 'Salvar Alterações' : 'Criar Planta');
   const formKey = $derived(visible ? initialPlant?.id ?? '__new__' : null);
-  const stepOrder = ['info', 'driver', 'variables', 'controllers'] as const;
+  const stepOrder = ['info', 'variables', 'driver', 'controllers'] as const;
   const currentStepIndex = $derived(stepOrder.indexOf(currentStep));
   const isFirstStep = $derived(currentStepIndex <= 0);
   const isLastStep = $derived(currentStepIndex >= stepOrder.length - 1);
@@ -228,7 +228,7 @@
     }
 
     driverInstance = syncDriverWithVariables(instance, variables);
-    currentStep = 'variables';
+    currentStep = 'controllers';
     showInstanceConfig = false;
     pluginToConfig = null;
     configTarget = null;
@@ -490,6 +490,12 @@
           Informações
         </button>
         <button
+          onclick={() => goToStep('variables')}
+          class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'variables' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
+        >
+          Variáveis ({variables.length})
+        </button>
+        <button
           onclick={() => goToStep('driver')}
           class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'driver' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
         >
@@ -497,12 +503,6 @@
           {#if driverInstance}
             <span class="ml-1.5 w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
           {/if}
-        </button>
-        <button
-          onclick={() => goToStep('variables')}
-          class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'variables' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
-        >
-          Variáveis ({variables.length})
         </button>
         <button
           onclick={() => goToStep('controllers')}
@@ -940,6 +940,19 @@
           {:else}
             Continuar
             <ArrowRight size={16} />
+          {/if}
+        </button>
+        <button
+          onclick={handleSubmit}
+          disabled={isLoading}
+          class="px-6 py-2 rounded-lg text-sm font-bold bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white transition-colors flex items-center gap-2"
+        >
+          {#if isLoading}
+            <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+            Salvando...
+          {:else}
+            <Check size={16} />
+            {submitLabel}
           {/if}
         </button>
       </div>

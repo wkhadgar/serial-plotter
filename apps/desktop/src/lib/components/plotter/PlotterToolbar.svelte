@@ -119,25 +119,19 @@
     <div class="hidden md:flex items-center gap-4 mr-4">
       {#if plant}
         <div class="flex flex-col items-end">
-          <span class="text-[9px] font-bold text-slate-400 uppercase">Config.</span>
+          <span class="text-[9px] font-bold text-slate-400 uppercase">Dt. Config.</span>
           <div class="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">
             {plant.sampleTimeMs} ms
           </div>
         </div>
       {/if}
       <div class="flex flex-col items-end">
-        <span class="text-[9px] font-bold text-slate-400 uppercase">Amostragem</span>
+        <span class="text-[9px] font-bold text-slate-400 uppercase">Dt. Real</span>
         <div class="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">
           {effectiveSamplingMs > 0 ? `${effectiveSamplingMs.toFixed(1)} ms` : '--'}
         </div>
       </div>
       {#if plant?.connected}
-        <div class="flex flex-col items-end">
-          <span class="text-[9px] font-bold text-slate-400 uppercase">dt</span>
-          <div class="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">
-            {dt.toFixed(3)} s
-          </div>
-        </div>
         <div class="flex flex-col items-end">
           <span class="text-[9px] font-bold text-slate-400 uppercase">Uptime</span>
           <div class="text-xs font-mono font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
