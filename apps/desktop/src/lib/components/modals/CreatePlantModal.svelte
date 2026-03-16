@@ -466,7 +466,7 @@
     onclick={handleClose}
   >
     <div
-      class="bg-white dark:bg-[#0c0c0e] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-white/10"
+      class="bg-white dark:bg-[#0c0c0e] rounded-2xl shadow-2xl w-full max-w-2xl h-[85vh] max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-white/10"
       onclick={(event) => event.stopPropagation()}
     >
       <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-white/5 shrink-0">
