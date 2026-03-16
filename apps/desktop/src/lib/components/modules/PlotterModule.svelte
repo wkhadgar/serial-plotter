@@ -22,14 +22,27 @@
   import ChartContextMenu from '../plotter/ChartContextMenu.svelte';
   import ControllerPanel from '../plotter/ControllerPanel.svelte';
   import ControllerLibraryModal from '../modals/ControllerLibraryModal.svelte';
+  import ControllerBindingsModal from '../modals/ControllerBindingsModal.svelte';
   import PlantRemovalModal from '../modals/PlantRemovalModal.svelte';
   import CreatePlantModal from '../modals/CreatePlantModal.svelte';
-  import type { Controller } from '$lib/types/controller';
   import type { Plant, PlantVariable } from '$lib/types/plant';
-  import { buildPlantSeriesCatalog, getVariableKeys } from '$lib/types/plant';
-  import { type ChartStateType, defaultChartState, DEFAULT_LINE_COLORS, nextViewState, resetToGridView } from '$lib/types/chart';
-  import { connectPlant, disconnectPlant, openPlant, pausePlant, removePlant, resumePlant } from '$lib/services/plant';
+  import { buildPlantSeriesCatalog, type Controller } from '$lib/types/plant';
+  import type { PluginDefinition, PluginInstance } from '$lib/types/plugin';
+  import { type ChartStateType, defaultChartState, nextViewState, resetToGridView } from '$lib/types/chart';
+  import {
+    connectPlant,
+    disconnectPlant,
+    openPlant,
+    pausePlant,
+    removePlant,
+    resumePlant,
+    saveControllerInstanceConfig,
+  } from '$lib/services/plant';
+  import { createConfiguredController } from '$lib/services/plugin';
   import { openFileDialog, FILE_FILTERS } from '$lib/services/fileDialog';
+  import { getControllerActivationConflict } from '$lib/utils/controllerAssignments';
+  import { buildContextSeriesControls, buildSeriesStyles, type SeriesStyle } from '$lib/utils/plotterSeries';
+  import PluginInstanceConfigModal from '../modals/PluginInstanceConfigModal.svelte';
 
   let { plants, activePlantId, theme, active = true, showControllerPanel = $bindable(false) } = $props();
 
@@ -48,14 +61,7 @@
 
   const chartState = $derived(chartStates[activePlantId] ?? defaultChartState());
 
-  type SeriesStyle = {
-    color: string;
-    visible: boolean;
-    label: string;
-  };
-
   let seriesStyles = $state<Record<string, SeriesStyle>>({});
-  const actuatorPalette = ['#10b981', '#06b6d4', '#8b5cf6', '#f97316', '#ec4899', '#14b8a6'];
 
   let contextMenu = $state({ visible: false, x: 0, y: 0 });
   let contextSensorIndex = $state(0);
@@ -71,6 +77,10 @@
   let createPlantModal = $state(false);
   let editPlantModal = $state(false);
   let controllerLibraryModal = $state(false);
+  let controllerConfigModal = $state(false);
+  let controllerPluginToConfig = $state<PluginDefinition | null>(null);
+  let controllerBindingsModal = $state(false);
+  let controllerToEditBindings = $state<Controller | null>(null);
   let openPlantLoading = $state(false);
   let dragOverlay = $state(false);
   let dragDepth = $state(0);
@@ -88,6 +98,12 @@
     activePlant?.variables
       .map((variable: PlantVariable, index: number) => ({ variable, index }))
       .filter(({ variable }: { variable: PlantVariable; index: number }) => variable.type === 'sensor') ?? []
+  );
+  const controllerSensorVariables = $derived(
+    activePlant?.variables.filter((variable: PlantVariable) => variable.type === 'sensor') ?? []
+  );
+  const controllerActuatorVariables = $derived(
+    activePlant?.variables.filter((variable: PlantVariable) => variable.type === 'atuador') ?? []
   );
 
   const activeSeriesCatalog = $derived.by(() => {
@@ -114,81 +130,18 @@
   $effect(() => {
     if (!activePlant) return;
 
-    const current = untrack(() => seriesStyles);
-    const next: Record<string, SeriesStyle> = {};
-    let actuatorColorIndex = 0;
-
-    activePlant.variables.forEach((variable: PlantVariable, index: number) => {
-      const keys = getVariableKeys(index);
-      const pvLabel = activeSeriesCatalogByKey.get(keys.pv)?.label ?? `${variable.name}`;
-      const spLabel = 'Setpoint';
-      const currentPv = current[keys.pv];
-      const currentSp = current[keys.sp];
-
-      if (variable.type === 'sensor') {
-        next[keys.pv] = {
-          color: currentPv?.color ?? DEFAULT_LINE_COLORS.pv,
-          visible: currentPv?.visible ?? true,
-          label: pvLabel,
-        };
-        next[keys.sp] = {
-          color: currentSp?.color ?? DEFAULT_LINE_COLORS.sp,
-          visible: currentSp?.visible ?? true,
-          label: spLabel,
-        };
-      } else {
-        next[keys.pv] = {
-          color: currentPv?.color ?? actuatorPalette[actuatorColorIndex % actuatorPalette.length],
-          visible: currentPv?.visible ?? true,
-          label: activeSeriesCatalogByKey.get(keys.pv)?.label ?? variable.name,
-        };
-        actuatorColorIndex += 1;
-      }
-    });
-
-    seriesStyles = next;
+    seriesStyles = buildSeriesStyles(activePlant, untrack(() => seriesStyles), activeSeriesCatalogByKey);
   });
 
   const contextSeriesControls = $derived.by(() => {
     if (!activePlant || !contextSensor) return [];
 
-    const controls: { key: string; label: string; color: string; visible: boolean }[] = [];
-    const sensorKeys = getVariableKeys(contextSensor.index);
-
-    const pvStyle = seriesStyles[sensorKeys.pv];
-    const spStyle = seriesStyles[sensorKeys.sp];
-
-    controls.push({
-      key: sensorKeys.pv,
-      label: pvStyle?.label ?? activeSeriesCatalogByKey.get(sensorKeys.pv)?.label ?? `${contextSensor.variable.name} PV`,
-      color: pvStyle?.color ?? DEFAULT_LINE_COLORS.pv,
-      visible: pvStyle?.visible ?? true,
+    return buildContextSeriesControls({
+      plant: activePlant,
+      contextSensor,
+      seriesStyles,
+      catalogByKey: activeSeriesCatalogByKey,
     });
-
-    controls.push({
-      key: sensorKeys.sp,
-      label: spStyle?.label ?? 'Setpoint',
-      color: spStyle?.color ?? DEFAULT_LINE_COLORS.sp,
-      visible: spStyle?.visible ?? true,
-    });
-
-    activePlant.variables.forEach((variable: PlantVariable, index: number) => {
-      if (variable.type !== 'atuador' || !variable.linkedSensorIds?.includes(contextSensor.variable.id)) {
-        return;
-      }
-
-      const actuatorKey = getVariableKeys(index).pv;
-      const actuatorStyle = seriesStyles[actuatorKey];
-
-      controls.push({
-        key: actuatorKey,
-        label: actuatorStyle?.label ?? activeSeriesCatalogByKey.get(actuatorKey)?.label ?? variable.name,
-        color: actuatorStyle?.color ?? DEFAULT_LINE_COLORS.mv,
-        visible: actuatorStyle?.visible ?? true,
-      });
-    });
-
-    return controls;
   });
 
   const contextSeriesTitle = $derived(
@@ -397,17 +350,35 @@
     controllerLibraryModal = true;
   }
 
-  function handleControllerTemplateSelected(template: Controller) {
+  function handleControllerTemplateSelected(plugin: PluginDefinition) {
     if (!activePlant) return;
 
+    controllerPluginToConfig = plugin;
+    controllerConfigModal = true;
+  }
+
+  function handleControllerConfigured(
+    instance: PluginInstance,
+    bindings?: { inputVariableIds: string[]; outputVariableIds: string[] }
+  ) {
+    if (!activePlant || !controllerPluginToConfig) return;
+
+    const { id: _id, ...controller } = createConfiguredController(
+      controllerPluginToConfig,
+      instance.config,
+      {
+        name: `${controllerPluginToConfig.name} ${activePlant.controllers.length + 1}`,
+        active: true,
+      }
+    );
+
     appStore.addController(activePlant.id, {
-      name: `${template.name} ${activePlant.controllers.length + 1}`,
-      type: template.type,
-      active: true,
-      params: Object.fromEntries(
-        Object.entries(template.params ?? {}).map(([key, param]) => [key, { ...param }])
-      ),
+      ...controller,
+      inputVariableIds: bindings?.inputVariableIds ?? [],
+      outputVariableIds: bindings?.outputVariableIds ?? [],
     });
+    controllerConfigModal = false;
+    controllerPluginToConfig = null;
   }
 
   function deleteController(controllerId: string) {
@@ -420,9 +391,93 @@
     appStore.updateControllerMeta(activePlant.id, controllerId, field, value);
   }
 
+  function openControllerBindingsEditor(controllerId: string) {
+    if (!activePlant) return;
+
+    const controller = activePlant.controllers.find((entry: Controller) => entry.id === controllerId);
+    if (!controller) return;
+
+    if (activePlant.connected && controller.active) {
+      alert('Não é possível editar os vínculos enquanto o controlador estiver em execução.');
+      return;
+    }
+
+    controllerToEditBindings = controller;
+    controllerBindingsModal = true;
+  }
+
+  function toggleControllerActive(controllerId: string, nextActive: boolean) {
+    if (!activePlant) return;
+
+    const controller = activePlant.controllers.find((entry: Controller) => entry.id === controllerId);
+    if (!controller) return;
+
+    if (nextActive) {
+      const conflict = getControllerActivationConflict(
+        {
+          ...controller,
+          active: true,
+        },
+        activePlant.controllers,
+        activePlant.variables
+      );
+
+      if (conflict) {
+        alert(conflict);
+        return;
+      }
+    }
+
+    appStore.updateControllerMeta(activePlant.id, controllerId, 'active', nextActive);
+  }
+
+  function updateControllerBindings(
+    controllerId: string,
+    bindings: { inputVariableIds: string[]; outputVariableIds: string[] }
+  ): string | null {
+    if (!activePlant) return 'Planta ativa não encontrada';
+
+    const controller = activePlant.controllers.find((entry: Controller) => entry.id === controllerId);
+    if (!controller) return 'Controlador não encontrado';
+
+    const nextController: Controller = {
+      ...controller,
+      inputVariableIds: bindings.inputVariableIds,
+      outputVariableIds: bindings.outputVariableIds,
+    };
+
+    if (controller.active) {
+      const conflict = getControllerActivationConflict(nextController, activePlant.controllers, activePlant.variables);
+      if (conflict) {
+        return conflict;
+      }
+    }
+
+    appStore.updateControllerMeta(activePlant.id, controllerId, 'inputVariableIds', bindings.inputVariableIds);
+    appStore.updateControllerMeta(activePlant.id, controllerId, 'outputVariableIds', bindings.outputVariableIds);
+    return null;
+  }
+
   function updateControllerParam(controllerId: string, paramKey: string, value: any) {
     if (!activePlant) return;
     appStore.updateControllerParam(activePlant.id, controllerId, paramKey, value);
+  }
+
+  async function handleSaveControllerConfig(controllerId: string) {
+    if (!activePlant) {
+      return { success: false, error: 'Planta ativa nao encontrada' };
+    }
+
+    const controller = activePlant.controllers.find((entry: Controller) => entry.id === controllerId);
+    if (!controller) {
+      return { success: false, error: 'Controlador nao encontrado' };
+    }
+
+    return saveControllerInstanceConfig({
+      plantId: activePlant.id,
+      controller,
+      source: activePlant.source,
+    });
   }
 
   function updateSetpoint(varIndex: number, value: number) {
@@ -700,6 +755,9 @@
       plant={activePlant}
       onAddController={addController}
       onDeleteController={deleteController}
+      onEditControllerBindings={openControllerBindingsEditor}
+      onSaveControllerConfig={handleSaveControllerConfig}
+      onToggleControllerActive={toggleControllerActive}
       onUpdateControllerMeta={updateControllerMeta}
       onUpdateControllerParam={updateControllerParam}
       onUpdateSetpoint={updateSetpoint}
@@ -719,6 +777,47 @@
     bind:visible={controllerLibraryModal}
     onClose={() => controllerLibraryModal = false}
     onSelect={handleControllerTemplateSelected}
+  />
+
+  <PluginInstanceConfigModal
+    visible={controllerConfigModal}
+    plugin={controllerPluginToConfig}
+    instanceLabel={controllerPluginToConfig?.name}
+    showVariableBindings={true}
+    sensorVariables={controllerSensorVariables}
+    actuatorVariables={controllerActuatorVariables}
+    submitLabel="Adicionar controlador"
+    onClose={() => {
+      controllerConfigModal = false;
+      controllerPluginToConfig = null;
+    }}
+    onConfigured={handleControllerConfigured}
+  />
+
+  <ControllerBindingsModal
+    visible={controllerBindingsModal}
+    controllerName={controllerToEditBindings?.name ?? 'Controlador'}
+    sensorVariables={controllerSensorVariables}
+    actuatorVariables={controllerActuatorVariables}
+    initialInputVariableIds={controllerToEditBindings?.inputVariableIds ?? []}
+    initialOutputVariableIds={controllerToEditBindings?.outputVariableIds ?? []}
+    onClose={() => {
+      controllerBindingsModal = false;
+      controllerToEditBindings = null;
+    }}
+    onSave={(bindings) => {
+      if (!controllerToEditBindings) {
+        return 'Controlador não encontrado';
+      }
+
+      const result = updateControllerBindings(controllerToEditBindings.id, bindings);
+      if (!result) {
+        controllerBindingsModal = false;
+        controllerToEditBindings = null;
+      }
+
+      return result;
+    }}
   />
 
   <CreatePlantModal

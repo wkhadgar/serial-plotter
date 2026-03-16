@@ -74,6 +74,10 @@ function normalizeSeriesCatalog(series: PlantSeriesDescriptor[]): PlantSeriesDes
   return Array.from(byKey.values());
 }
 
+function getVariableStatsKey(plantId: string, varIndex: number): string {
+  return `${plantId}_var_${varIndex}`;
+}
+
 export function getPlantData(plantId: string): PlantDataPoint[] {
   let arr = _data.get(plantId);
   if (!arr) {
@@ -191,13 +195,11 @@ export function ingestPlantTelemetry(payload: {
 }
 
 export function getVariableStats(plantId: string, varIndex: number): VariableStats {
-  const key = `${plantId}_var_${varIndex}`;
-  return _variableStats.get(key) ?? { ...DEFAULT_VAR_STATS };
+  return _variableStats.get(getVariableStatsKey(plantId, varIndex)) ?? { ...DEFAULT_VAR_STATS };
 }
 
 export function setVariableStats(plantId: string, varIndex: number, stats: VariableStats): void {
-  const key = `${plantId}_var_${varIndex}`;
-  _variableStats.set(key, stats);
+  _variableStats.set(getVariableStatsKey(plantId, varIndex), stats);
 }
 
 export function clearVariableStats(plantId: string): void {

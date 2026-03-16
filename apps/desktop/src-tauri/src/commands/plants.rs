@@ -1,5 +1,5 @@
 use crate::core::error::ErrorDto;
-use crate::core::models::plant::{CreatePlantRequest, PlantResponse};
+use crate::core::models::plant::{CreatePlantRequest, PlantResponse, UpdatePlantRequest};
 use crate::core::services::plant::PlantService;
 use crate::state::AppState;
 use tauri::State;
@@ -9,7 +9,16 @@ pub fn create_plant(
     state: State<'_, AppState>,
     request: CreatePlantRequest,
 ) -> Result<PlantResponse, ErrorDto> {
-    let plant = PlantService::create(state.plants(), request).map_err(ErrorDto::from)?;
+    let plant = PlantService::create(state.plants(), state.plugins(), request).map_err(ErrorDto::from)?;
+    Ok(PlantResponse::from(&plant))
+}
+
+#[tauri::command]
+pub fn update_plant(
+    state: State<'_, AppState>,
+    request: UpdatePlantRequest,
+) -> Result<PlantResponse, ErrorDto> {
+    let plant = PlantService::update(state.plants(), state.plugins(), request).map_err(ErrorDto::from)?;
     Ok(PlantResponse::from(&plant))
 }
 

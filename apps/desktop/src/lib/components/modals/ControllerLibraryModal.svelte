@@ -1,12 +1,12 @@
 <script lang="ts">
   import { AlertCircle, Plus, Search, Settings, X } from 'lucide-svelte';
-  import { listControllerTemplates } from '$lib/services/plugin';
-  import type { Controller } from '$lib/types/controller';
+  import { listPluginsByType } from '$lib/services/plugin';
+  import type { PluginDefinition } from '$lib/types/plugin';
 
   interface Props {
     visible: boolean;
     onClose: () => void;
-    onSelect: (controller: Controller) => void;
+    onSelect: (plugin: PluginDefinition) => void;
   }
 
   let {
@@ -15,7 +15,7 @@
     onSelect,
   }: Props = $props();
 
-  let templates = $state<Controller[]>([]);
+  let templates = $state<PluginDefinition[]>([]);
   let search = $state('');
   let isLoading = $state(false);
   let error = $state<string | null>(null);
@@ -28,9 +28,9 @@
     }
 
     return templates.filter(
-      (controller) =>
-        controller.name.toLowerCase().includes(query) ||
-        controller.type.toLowerCase().includes(query)
+      (plugin) =>
+        plugin.name.toLowerCase().includes(query) ||
+        plugin.kind.toLowerCase().includes(query)
     );
   });
 
@@ -39,7 +39,7 @@
     error = null;
 
     try {
-      templates = await listControllerTemplates();
+      templates = await listPluginsByType('controller');
     } catch (exception) {
       error = exception instanceof Error ? exception.message : 'Erro ao carregar controladores da biblioteca';
     } finally {
@@ -54,7 +54,7 @@
     onClose();
   }
 
-  function handleSelect(template: Controller) {
+  function handleSelect(template: PluginDefinition) {
     onSelect(template);
     handleClose();
   }
@@ -144,12 +144,12 @@
                   </div>
                   <div class="min-w-0">
                     <div class="truncate text-sm font-semibold text-slate-800 dark:text-white">{template.name}</div>
-                    <div class="text-xs text-slate-500 dark:text-zinc-400">{template.type}</div>
+                    <div class="text-xs text-slate-500 dark:text-zinc-400">{template.kind}</div>
                   </div>
                 </div>
 
                 <div class="mb-3 text-xs text-slate-500 dark:text-zinc-400">
-                  {Object.keys(template.params ?? {}).length} parâmetro(s) configurável(is)
+                  {template.schema.length} parâmetro(s) configurável(is)
                 </div>
 
                 <div class="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">

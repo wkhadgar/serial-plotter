@@ -76,6 +76,14 @@ impl PlantStore {
         plants.values().any(|plant| plant.name == name)
     }
 
+    pub fn exists_by_name_except(&self, id: &str, name: &str) -> bool {
+        let plants = self.plants.read();
+
+        plants
+            .values()
+            .any(|plant| plant.id != id && plant.name == name)
+    }
+
     pub fn count(&self) -> usize {
         let plants = self.plants.read();
         plants.len()
@@ -90,7 +98,9 @@ impl PlantStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::plant::{PlantStats, PlantVariable, VariableType};
+    use crate::core::models::plant::{Plant, PlantController, PlantDriver, PlantStats, PlantVariable, VariableType};
+    use crate::core::models::plugin::PluginRuntime;
+    use std::collections::HashMap;
 
     fn create_test_plant(id: &str, name: &str) -> Plant {
         Plant {
@@ -107,8 +117,15 @@ mod tests {
                 pv_max: 100.0,
                 linked_sensor_ids: None,
             }],
-            driver_id: None,
-            controller_ids: None,
+            driver: PlantDriver {
+                plugin_id: "driver_plugin".to_string(),
+                plugin_name: "Driver Python".to_string(),
+                runtime: PluginRuntime::Python,
+                source_file: Some("driver.py".to_string()),
+                source_code: Some("class Driver:\n    pass".to_string()),
+                config: HashMap::new(),
+            },
+            controllers: Vec::<PlantController>::new(),
             connected: false,
             paused: false,
             stats: PlantStats::default(),

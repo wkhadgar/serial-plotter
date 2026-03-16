@@ -25,7 +25,7 @@ impl PluginStore {
 
         if plugins.contains_key(&registry.id) {
             return Err(AppError::InvalidArgument(format!(
-                "Planta com ID {} já existe!",
+                "Plugin com ID {} já existe!",
                 registry.id
             )));
         }
@@ -54,6 +54,34 @@ impl PluginStore {
             .filter(|p| p.plugin_type == plugin_type)
             .cloned()
             .collect()
+    }
+
+    pub fn update<F>(&self, id: &str, updater: F) -> AppResult<PluginRegistry>
+    where
+        F: FnOnce(&mut PluginRegistry),
+    {
+        let mut plugins = self.registries.write();
+
+        let plugin = plugins
+            .get_mut(id)
+            .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))?;
+
+        updater(plugin);
+        Ok(plugin.clone())
+    }
+
+    pub fn exists_by_name(&self, name: &str) -> bool {
+        self.registries
+            .read()
+            .values()
+            .any(|plugin| plugin.name.eq_ignore_ascii_case(name))
+    }
+
+    pub fn exists_by_name_except(&self, id: &str, name: &str) -> bool {
+        self.registries
+            .read()
+            .values()
+            .any(|plugin| plugin.id != id && plugin.name.eq_ignore_ascii_case(name))
     }
 }
 

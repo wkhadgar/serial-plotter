@@ -1,5 +1,7 @@
 use crate::core::error::{AppError, AppResult};
-use crate::core::models::plugin::{CreatePluginRequest, PluginRegistry};
+use crate::core::models::plugin::{
+    CreatePluginRequest, PluginRegistry, PluginRuntime, UpdatePluginRequest,
+};
 use crate::state::PluginStore;
 use uuid::Uuid;
 
@@ -7,7 +9,14 @@ pub struct PluginService;
 
 impl PluginService {
     pub fn create(store: &PluginStore, request: CreatePluginRequest) -> AppResult<PluginRegistry> {
-        Self::validate_create_request(&request)?;
+        Self::validate_request(
+            store,
+            None,
+            &request.name,
+            request.runtime,
+            request.source_file.as_deref(),
+            request.source_code.as_deref(),
+        )?;
 
         let plugin = Self::build_plugin(request);
         store.insert(plugin.clone())?;
@@ -15,28 +24,96 @@ impl PluginService {
         Ok(plugin)
     }
 
+    pub fn get(store: &PluginStore, id: &str) -> AppResult<PluginRegistry> {
+        store.get(id)
+    }
+
+    pub fn list(store: &PluginStore) -> Vec<PluginRegistry> {
+        store.list()
+    }
+
+    pub fn update(store: &PluginStore, request: UpdatePluginRequest) -> AppResult<PluginRegistry> {
+        Self::validate_request(
+            store,
+            Some(request.id.as_str()),
+            &request.name,
+            request.runtime,
+            request.source_file.as_deref(),
+            request.source_code.as_deref(),
+        )?;
+
+        store.update(&request.id, |plugin| {
+            plugin.name = request.name.trim().to_string();
+            plugin.plugin_type = request.plugin_type;
+            plugin.runtime = request.runtime;
+            plugin.schema = request.schema;
+            plugin.source_file = request.source_file.map(|value| value.trim().to_string());
+            plugin.source_code = request.source_code.map(|value| value.trim().to_string());
+            plugin.dependencies = request.dependencies;
+            plugin.description = request.description.map(|value| value.trim().to_string());
+            plugin.version = request.version.map(|value| value.trim().to_string());
+            plugin.author = request.author.map(|value| value.trim().to_string());
+        })
+    }
+
     fn build_plugin(request: CreatePluginRequest) -> PluginRegistry {
         let plugin_id = format!("plugin_{}", Uuid::new_v4());
 
         PluginRegistry {
             id: plugin_id,
-            name: request.name,
+            name: request.name.trim().to_string(),
             plugin_type: request.plugin_type,
             runtime: request.runtime,
             schema: request.schema,
-            source_file: request.source_file,
-            source_code: request.source_code,
+            source_file: request.source_file.map(|value| value.trim().to_string()),
+            source_code: request.source_code.map(|value| value.trim().to_string()),
             dependencies: request.dependencies,
-            description: request.description,
-            version: request.version,
-            author: request.author,
+            description: request.description.map(|value| value.trim().to_string()),
+            version: request.version.map(|value| value.trim().to_string()),
+            author: request.author.map(|value| value.trim().to_string()),
         }
     }
 
-    fn validate_create_request(request: &CreatePluginRequest) -> AppResult<()> {
-        if request.name.trim().is_empty() {
+    fn validate_request(
+        store: &PluginStore,
+        current_id: Option<&str>,
+        name: &str,
+        runtime: PluginRuntime,
+        source_file: Option<&str>,
+        source_code: Option<&str>,
+    ) -> AppResult<()> {
+        if name.trim().is_empty() {
             return Err(AppError::InvalidArgument(
-                "Nome da planta é obrigatório".into(),
+                "Nome do plugin é obrigatório".into(),
+            ));
+        }
+
+        let has_duplicate_name = current_id
+            .map(|id| store.exists_by_name_except(id, name))
+            .unwrap_or_else(|| store.exists_by_name(name));
+
+        if has_duplicate_name {
+            return Err(AppError::InvalidArgument(format!(
+                "Plugin com nome '{}' já existe",
+                name.trim()
+            )));
+        }
+
+        if runtime != PluginRuntime::Python {
+            return Err(AppError::InvalidArgument(
+                "Somente plugins Python podem ser criados no momento".into(),
+            ));
+        }
+
+        if source_code.map(|code| code.trim().is_empty()).unwrap_or(true) {
+            return Err(AppError::InvalidArgument(
+                "Código fonte Python é obrigatório".into(),
+            ));
+        }
+
+        if source_file.is_some_and(|file_name| file_name.trim().is_empty()) {
+            return Err(AppError::InvalidArgument(
+                "Nome do arquivo fonte inválido".into(),
             ));
         }
 
@@ -78,18 +155,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ValidationError")]
     fn test_empty_name_should_fail() {
         let store = PluginStore::new();
         let mut request = create_valid_request();
 
         request.name = "".to_string();
 
-        PluginService::create(&store, request).expect("ValidationError");
+        assert!(PluginService::create(&store, request).is_err());
     }
 
     #[test]
-    #[should_panic(expected = "ValidationError")]
     fn test_driver_without_source_should_fail() {
         let store = PluginStore::new();
         let mut request = create_valid_request();
@@ -97,6 +172,33 @@ mod tests {
         request.source_code = None;
         request.source_file = None;
 
-        PluginService::create(&store, request).expect("ValidationError");
+        assert!(PluginService::create(&store, request).is_err());
+    }
+
+    #[test]
+    fn test_update_plugin_success() {
+        let store = PluginStore::new();
+        let created = PluginService::create(&store, create_valid_request()).unwrap();
+
+        let updated = PluginService::update(
+            &store,
+            UpdatePluginRequest {
+                id: created.id.clone(),
+                name: "updated_driver".to_string(),
+                plugin_type: PluginType::Driver,
+                runtime: PluginRuntime::Python,
+                schema: vec![],
+                source_file: Some("updated.py".to_string()),
+                source_code: Some("class UpdatedDriver:\n    pass".to_string()),
+                dependencies: vec![],
+                description: Some("updated".to_string()),
+                version: None,
+                author: None,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(updated.name, "updated_driver");
+        assert_eq!(updated.source_file.as_deref(), Some("updated.py"));
     }
 }

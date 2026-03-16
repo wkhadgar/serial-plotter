@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::core::error::ErrorDto;
-use crate::core::models::plugin::{CreatePluginRequest, PluginRegistry, PluginType};
+use crate::core::models::plugin::{CreatePluginRequest, PluginRegistry, PluginType, UpdatePluginRequest};
 use crate::core::services::plugin::PluginService;
 use crate::state::AppState;
 
@@ -16,8 +16,24 @@ pub fn create_plugin(
 }
 
 #[tauri::command]
+pub fn get_plugin(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<PluginRegistry, ErrorDto> {
+    PluginService::get(state.plugins(), &id).map_err(ErrorDto::from)
+}
+
+#[tauri::command]
+pub fn update_plugin(
+    state: State<'_, AppState>,
+    request: UpdatePluginRequest,
+) -> Result<PluginRegistry, ErrorDto> {
+    PluginService::update(state.plugins(), request).map_err(ErrorDto::from)
+}
+
+#[tauri::command]
 pub fn list_plugins(state: State<'_, AppState>) -> Vec<PluginRegistry> {
-    state.plugins().list()
+    PluginService::list(state.plugins())
 }
 
 #[tauri::command]

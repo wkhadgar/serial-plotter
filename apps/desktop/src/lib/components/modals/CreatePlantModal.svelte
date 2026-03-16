@@ -3,13 +3,20 @@
   import { onMount } from 'svelte';
   import type { Plant, PlantVariable, VariableType } from '$lib/types/plant';
   import type { Controller } from '$lib/types/controller';
-  import type { PluginDefinition, PluginInstance, SchemaFieldValue } from '$lib/types/plugin';
+  import type { PluginDefinition, PluginInstance } from '$lib/types/plugin';
   import { PLUGIN_RUNTIME_LABELS } from '$lib/types/plugin';
   import { createDefaultVariable, VARIABLE_TYPE_LABELS } from '$lib/types/plant';
   import { createPlant, updatePlant, type CreatePlantRequest, type UpdatePlantRequest } from '$lib/services/plant';
-  import { listControllerTemplates, listPluginsByType, validatePluginFile, registerPlugin } from '$lib/services/plugin';
+  import { createConfiguredController, listPluginsByType, validatePluginFile, registerPlugin } from '$lib/services/plugin';
   import { openFileDialog, readFileAsJSON, FILE_FILTERS } from '$lib/services/fileDialog';
-  import { generateId } from '$lib/utils/format';
+  import { validateControllersForPlant } from '$lib/utils/controllerAssignments';
+  import {
+    arePluginInstancesEqual,
+    buildDriverAutoConfig,
+    buildInitialPlantForm,
+    normalizeVariables,
+    syncDriverWithVariables,
+  } from '$lib/utils/plantEditor';
   import CreatePluginModal from './CreatePluginModal.svelte';
   import PluginInstanceConfigModal from './PluginInstanceConfigModal.svelte';
 
@@ -38,120 +45,34 @@
   let currentStep = $state<'info' | 'driver' | 'variables' | 'controllers'>('info');
 
   let availablePlugins = $state<PluginDefinition[]>([]);
-  let controllerTemplates = $state<Controller[]>([]);
+  let controllerTemplates = $state<PluginDefinition[]>([]);
   let driverSearch = $state('');
   let controllerSearch = $state('');
 
   let showCreatePlugin = $state(false);
   let showInstanceConfig = $state(false);
   let pluginToConfig = $state<PluginDefinition | null>(null);
+  let configTarget = $state<'driver' | 'controller' | null>(null);
   let importError = $state<string | null>(null);
   let hydratedFormKey = $state<string | null>(null);
 
-  function cloneVariable(variable: PlantVariable): PlantVariable {
-    return {
-      ...variable,
-      linkedSensorIds: variable.linkedSensorIds ? [...variable.linkedSensorIds] : undefined,
-    };
-  }
-
-  function cloneController(controller: Controller): Controller {
-    return {
-      ...controller,
-      params: Object.fromEntries(
-        Object.entries(controller.params ?? {}).map(([key, param]) => [key, { ...param }])
-      ),
-    };
-  }
-
-  function cloneDriver(instance: PluginInstance): PluginInstance {
-    return {
-      ...instance,
-      config: { ...instance.config },
-    };
-  }
-
-  function normalizeVariables(nextVariables: PlantVariable[]): PlantVariable[] {
-    const sensorIdMap = new Map<string, string>();
-
-    const normalized = nextVariables.map((variable, index) => {
-      const nextId = `var_${index}`;
-      if (variable.type === 'sensor') {
-        sensorIdMap.set(variable.id, nextId);
-      }
-
-      return {
-        ...variable,
-        id: nextId,
-        linkedSensorIds: variable.type === 'atuador' ? [...(variable.linkedSensorIds ?? [])] : undefined,
-      };
-    });
-
-    return normalized.map((variable) => {
-      if (variable.type !== 'atuador') {
-        return variable;
-      }
-
-      const linkedSensorIds = Array.from(
-        new Set(
-          (variable.linkedSensorIds ?? [])
-            .map((sensorId) => sensorIdMap.get(sensorId))
-            .filter((sensorId): sensorId is string => !!sensorId)
-        )
-      );
-
-      return {
-        ...variable,
-        linkedSensorIds,
-      };
-    });
-  }
-
-  function buildDriverAutoConfig(currentVariables: PlantVariable[]): Record<string, SchemaFieldValue> {
-    return {
-      num_sensors: currentVariables.filter((variable) => variable.type === 'sensor').length,
-      num_actuators: currentVariables.filter((variable) => variable.type === 'atuador').length,
-    };
-  }
-
-  function syncDriverWithVariables(instance: PluginInstance, currentVariables: PlantVariable[]): PluginInstance {
-    return {
-      ...instance,
-      config: {
-        ...instance.config,
-        ...buildDriverAutoConfig(currentVariables),
-      },
-    };
-  }
-
-  function createDriverPlaceholder(driverId: string, currentVariables: PlantVariable[]): PluginInstance {
-    const plugin = availablePlugins.find((entry) => entry.id === driverId);
-    return {
-      pluginId: driverId,
-      pluginName: plugin?.name ?? driverId,
-      pluginKind: plugin?.kind ?? 'driver',
-      config: buildDriverAutoConfig(currentVariables),
-    };
-  }
-
   function hydrateForm(plant: Plant | null) {
-    const nextVariables = normalizeVariables(
-      (plant?.variables ?? [createDefaultVariable(0, 'Variável 1')]).map(cloneVariable)
+    const initialForm = buildInitialPlantForm(
+      plant,
+      availablePlugins,
+      createDefaultVariable(0, 'Variável 1')
     );
 
-    plantName = plant?.name ?? '';
-    sampleTimeMs = Math.max(1, Math.round(plant?.sampleTimeMs ?? 100));
-    variables = nextVariables;
-    selectedControllers = (plant?.controllers ?? []).map(cloneController);
-    driverInstance = plant?.driver
-      ? syncDriverWithVariables(cloneDriver(plant.driver), nextVariables)
-      : plant?.driverId
-        ? createDriverPlaceholder(plant.driverId, nextVariables)
-        : null;
+    plantName = initialForm.plantName;
+    sampleTimeMs = initialForm.sampleTimeMs;
+    variables = initialForm.variables;
+    selectedControllers = initialForm.selectedControllers;
+    driverInstance = initialForm.driverInstance;
     currentStep = 'info';
     error = null;
     importError = null;
     pluginToConfig = null;
+    configTarget = null;
     showCreatePlugin = false;
     showInstanceConfig = false;
     driverSearch = '';
@@ -174,7 +95,7 @@
   const filteredTemplates = $derived(
     controllerTemplates.filter((controller) =>
       controller.name.toLowerCase().includes(controllerSearch.toLowerCase()) ||
-      controller.type.toLowerCase().includes(controllerSearch.toLowerCase())
+      controller.kind.toLowerCase().includes(controllerSearch.toLowerCase())
     )
   );
   const sensorVariables = $derived(
@@ -195,7 +116,7 @@
 
   async function loadPlugins() {
     availablePlugins = await listPluginsByType('driver');
-    controllerTemplates = await listControllerTemplates();
+    controllerTemplates = await listPluginsByType('controller');
   }
 
   onMount(loadPlugins);
@@ -231,7 +152,7 @@
       variables
     );
 
-    if (JSON.stringify(nextDriver) !== JSON.stringify(currentDriver)) {
+    if (!arePluginInstancesEqual(nextDriver, currentDriver)) {
       driverInstance = nextDriver;
     }
   });
@@ -261,6 +182,7 @@
 
       await loadPlugins();
       pluginToConfig = registration.plugin;
+      configTarget = 'driver';
       showInstanceConfig = true;
     } catch (exception) {
       importError = exception instanceof Error ? exception.message : 'Erro ao importar arquivo';
@@ -270,17 +192,46 @@
   function handlePluginCreated(plugin: PluginDefinition) {
     availablePlugins = [plugin, ...availablePlugins.filter((entry) => entry.id !== plugin.id)];
     pluginToConfig = plugin;
+    configTarget = 'driver';
     showInstanceConfig = true;
   }
 
   function handleSelectPlugin(plugin: PluginDefinition) {
     pluginToConfig = plugin;
+    configTarget = 'driver';
     showInstanceConfig = true;
   }
 
-  function handleInstanceConfigured(instance: PluginInstance) {
+  function handleInstanceConfigured(
+    instance: PluginInstance,
+    bindings?: { inputVariableIds: string[]; outputVariableIds: string[] }
+  ) {
+    if (!pluginToConfig) return;
+
+    if (configTarget === 'controller') {
+      const controller = createConfiguredController(pluginToConfig, instance.config, {
+        name: `${pluginToConfig.name} ${selectedControllers.length + 1}`,
+        active: true,
+      });
+      selectedControllers = [
+        ...selectedControllers,
+        {
+          ...controller,
+          inputVariableIds: bindings?.inputVariableIds ?? [],
+          outputVariableIds: bindings?.outputVariableIds ?? [],
+        },
+      ];
+      showInstanceConfig = false;
+      pluginToConfig = null;
+      configTarget = null;
+      return;
+    }
+
     driverInstance = syncDriverWithVariables(instance, variables);
     currentStep = 'variables';
+    showInstanceConfig = false;
+    pluginToConfig = null;
+    configTarget = null;
   }
 
   function setVariables(nextVariables: PlantVariable[]) {
@@ -345,14 +296,10 @@
     );
   }
 
-  function addController(template: Controller) {
-    const controller: Controller = {
-      ...cloneController(template),
-      id: generateId(),
-      name: `${template.name} ${selectedControllers.length + 1}`,
-      active: true,
-    };
-    selectedControllers = [...selectedControllers, controller];
+  function addController(template: PluginDefinition) {
+    pluginToConfig = template;
+    configTarget = 'controller';
+    showInstanceConfig = true;
   }
 
   function removeController(id: string) {
@@ -397,6 +344,10 @@
     if (currentStep === 'variables') {
       if (variables.length === 0) return 'Adicione pelo menos uma variável';
       return validateVariables();
+    }
+
+    if (currentStep === 'controllers') {
+      return validateControllersForPlant(selectedControllers, variables);
     }
 
     return null;
@@ -458,6 +409,13 @@
     if (variableError) {
       error = variableError;
       currentStep = 'variables';
+      return;
+    }
+
+    const controllerError = validateControllersForPlant(selectedControllers, variables);
+    if (controllerError) {
+      error = controllerError;
+      currentStep = 'controllers';
       return;
     }
 
@@ -893,20 +851,24 @@
               <div class="space-y-2">
                 <h4 class="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wide">Controladores Adicionados</h4>
                 {#each selectedControllers as controller (controller.id)}
-                  <div class="flex items-center gap-3 p-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b]">
-                    <div class="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                      <Settings size={16} class="text-emerald-600 dark:text-emerald-400" />
+                  <div class="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] p-3">
+                    <div class="flex items-center gap-3">
+                      <div class="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                        <Settings size={16} class="text-emerald-600 dark:text-emerald-400" />
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <div class="font-medium text-sm text-slate-800 dark:text-white truncate">{controller.name}</div>
+                        <div class="text-xs text-slate-500 dark:text-zinc-400">
+                          {controller.type} · {controller.inputVariableIds.length} entrada(s) · {controller.outputVariableIds.length} saída(s)
+                        </div>
+                      </div>
+                      <button
+                        onclick={() => removeController(controller.id)}
+                        class="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-600 transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
-                    <div class="flex-1 min-w-0">
-                      <div class="font-medium text-sm text-slate-800 dark:text-white truncate">{controller.name}</div>
-                      <div class="text-xs text-slate-500 dark:text-zinc-400">{controller.type}</div>
-                    </div>
-                    <button
-                      onclick={() => removeController(controller.id)}
-                      class="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-600 transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
                   </div>
                 {/each}
               </div>
@@ -935,7 +897,9 @@
                       <Settings size={14} class="text-slate-400" />
                       <span class="text-sm font-medium text-slate-800 dark:text-white">{template.name}</span>
                     </div>
-                    <span class="text-xs text-slate-500 dark:text-zinc-400">{template.type}</span>
+                    <span class="text-xs text-slate-500 dark:text-zinc-400">
+                      {template.schema.length} parâmetro(s) configurável(is)
+                    </span>
                   </button>
                 {/each}
               </div>
@@ -992,10 +956,20 @@
   <PluginInstanceConfigModal
     visible={showInstanceConfig}
     plugin={pluginToConfig}
-    existingConfig={driverInstance?.pluginId === pluginToConfig?.id ? (driverInstance?.config ?? driverAutoConfig) : driverAutoConfig}
+    existingConfig={configTarget === 'driver' && driverInstance?.pluginId === pluginToConfig?.id
+      ? driverInstance?.config
+      : undefined}
     lockedConfig={pluginToConfig?.kind === 'driver' ? driverAutoConfig : undefined}
     instanceLabel={pluginToConfig?.name}
-    onClose={() => { showInstanceConfig = false; pluginToConfig = null; }}
+    showVariableBindings={configTarget === 'controller'}
+    sensorVariables={variables.filter((variable) => variable.type === 'sensor')}
+    actuatorVariables={variables.filter((variable) => variable.type === 'atuador')}
+    submitLabel={configTarget === 'controller' ? 'Adicionar controlador' : 'Confirmar Configuração'}
+    onClose={() => {
+      showInstanceConfig = false;
+      pluginToConfig = null;
+      configTarget = null;
+    }}
     onConfigured={handleInstanceConfigured}
   />
 {/if}

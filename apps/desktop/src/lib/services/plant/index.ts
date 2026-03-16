@@ -10,6 +10,7 @@ export {
   resumePlant,
   openPlant,
   applyPlantTelemetryPacket,
+  saveControllerInstanceConfig,
 } from './plantService';
 
 export type {
@@ -22,4 +23,6 @@ export type {
   PlantTelemetryPacket,
   PlantDto,
   CreatePlantDto,
+  SaveControllerInstanceConfigRequest,
+  SaveControllerInstanceConfigResponse,
 } from './types';

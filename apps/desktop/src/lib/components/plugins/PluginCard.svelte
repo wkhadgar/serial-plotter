@@ -27,11 +27,20 @@
     menuOpen = !menuOpen;
   }
 
+  function handleWindowClick() {
+    menuOpen = false;
+  }
+
   function handleAction(action: () => void) {
     menuOpen = false;
     action();
   }
 </script>
+
+<svelte:window
+  onclick={handleWindowClick}
+  onkeydown={(event) => event.key === 'Escape' && (menuOpen = false)}
+/>
 
 <div
   class="group relative h-full rounded-[22px] border border-slate-200 bg-white p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md dark:border-white/5 dark:bg-zinc-900 dark:hover:border-white/10"
@@ -74,6 +83,10 @@
 
         {#if menuOpen}
           <div
+            onclick={(event) => event.stopPropagation()}
+            onkeydown={(event) => event.stopPropagation()}
+            role="menu"
+            tabindex="-1"
             class="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 rounded-lg shadow-lg py-1 z-50"
           >
             {#if onViewCode && plugin.sourceCode}
@@ -122,12 +135,3 @@
     </div>
   </div>
 </div>
-
-{#if menuOpen}
-  <button 
-    class="fixed inset-0 z-40" 
-    onclick={() => menuOpen = false}
-    onkeydown={(e) => e.key === 'Escape' && (menuOpen = false)}
-    aria-label="Fechar menu"
-  ></button>
-{/if}

@@ -1,6 +1,6 @@
 import type { Plant, PlantVariable } from '$lib/types/plant';
 import { createDefaultVariable } from '$lib/types/plant';
-import type { Controller, ControllerParam } from '$lib/types/controller';
+import { normalizeControllerParamValue, type Controller, type ControllerParam } from '$lib/types/controller';
 import type { TabKey } from '$lib/types/ui';
 import type { AppState } from '$lib/types/app';
 
@@ -14,6 +14,23 @@ class AppStore {
     showControllerPanel: false,
     plants: []
   });
+
+  private findPlant(plantId: string): Plant | undefined {
+    return this.state.plants.find((plant) => plant.id === plantId);
+  }
+
+  private withPlant<T>(plantId: string, updater: (plant: Plant) => T): T | undefined {
+    const plant = this.findPlant(plantId);
+    if (!plant) {
+      return undefined;
+    }
+
+    return updater(plant);
+  }
+
+  private findController(plant: Plant, controllerId: string): Controller | undefined {
+    return plant.controllers.find((controller) => controller.id === controllerId);
+  }
 
   setTheme(theme: 'dark' | 'light') {
     this.state.theme = theme;
@@ -81,81 +98,89 @@ class AppStore {
   }
 
   updatePlant(plantId: string, updates: Partial<Plant>) {
-    const plant = this.state.plants.find(p => p.id === plantId);
-    if (plant) Object.assign(plant, updates);
+    this.withPlant(plantId, (plant) => Object.assign(plant, updates));
   }
 
   toggleConnect(plantId: string) {
-    const plant = this.state.plants.find(p => p.id === plantId);
-    if (plant) plant.connected = !plant.connected;
+    this.withPlant(plantId, (plant) => {
+      plant.connected = !plant.connected;
+    });
   }
 
   togglePause(plantId: string) {
-    const plant = this.state.plants.find(p => p.id === plantId);
-    if (plant) plant.paused = !plant.paused;
+    this.withPlant(plantId, (plant) => {
+      plant.paused = !plant.paused;
+    });
   }
 
   addController(plantId: string, controller: Omit<Controller, 'id'>) {
-    const plant = this.state.plants.find(p => p.id === plantId);
-    if (plant) {
+    this.withPlant(plantId, (plant) => {
       plant.controllers.push({
         ...controller,
         id: crypto.randomUUID().substring(0, 9)
       });
-    }
+    });
   }
 
   deleteController(plantId: string, controllerId: string) {
-    const plant = this.state.plants.find(p => p.id === plantId);
-    if (plant) {
-      const idx = plant.controllers.findIndex(c => c.id === controllerId);
+    this.withPlant(plantId, (plant) => {
+      const idx = plant.controllers.findIndex((controller) => controller.id === controllerId);
       if (idx > -1) plant.controllers.splice(idx, 1);
-    }
+    });
   }
 
   updateControllerMeta(plantId: string, controllerId: string, field: string, value: any) {
-    const plant = this.state.plants.find(p => p.id === plantId);
-    if (plant) {
-      const ctrl = plant.controllers.find(c => c.id === controllerId);
-      if (ctrl) (ctrl as any)[field] = value;
-    }
+    this.withPlant(plantId, (plant) => {
+      const controller = this.findController(plant, controllerId);
+      if (controller) (controller as any)[field] = value;
+    });
   }
 
-  updateControllerParam(plantId: string, controllerId: string, paramKey: string, value: any) {
-    const plant = this.state.plants.find(p => p.id === plantId);
-    if (plant) {
-      const ctrl = plant.controllers.find(c => c.id === controllerId);
-      if (ctrl && ctrl.params) {
-        const param = (ctrl.params as Record<string, ControllerParam>)[paramKey];
-        if (param) param.value = value;
+  updateControllerParam(plantId: string, controllerId: string, paramKey: string, value: any): boolean {
+    return this.withPlant(plantId, (plant) => {
+      const controller = this.findController(plant, controllerId);
+      if (controller?.params) {
+        const param = (controller.params as Record<string, ControllerParam>)[paramKey];
+        if (!param) return false;
+
+        const normalizedValue = normalizeControllerParamValue(param, value);
+        if (normalizedValue === null) {
+          return false;
+        }
+
+        param.value = normalizedValue;
+        return true;
       }
-    }
+
+      return false;
+    }) ?? false;
   }
 
   updateVariableSetpoint(plantId: string, variableIndex: number, setpoint: number) {
-    const plant = this.state.plants.find(p => p.id === plantId);
-    if (plant && plant.variables[variableIndex]) {
-      plant.variables[variableIndex].setpoint = setpoint;
-    }
+    this.withPlant(plantId, (plant) => {
+      if (plant.variables[variableIndex]) {
+        plant.variables[variableIndex].setpoint = setpoint;
+      }
+    });
   }
 
   addVariable(plantId: string, variable?: Partial<PlantVariable>) {
-    const plant = this.state.plants.find(p => p.id === plantId);
-    if (plant) {
+    this.withPlant(plantId, (plant) => {
       const index = plant.variables.length;
       plant.variables.push({
         ...createDefaultVariable(index),
         ...variable,
         id: `var_${index}`,
       });
-    }
+    });
   }
 
   removeVariable(plantId: string, variableIndex: number) {
-    const plant = this.state.plants.find(p => p.id === plantId);
-    if (plant && plant.variables.length > 1) {
-      plant.variables.splice(variableIndex, 1);
-    }
+    this.withPlant(plantId, (plant) => {
+      if (plant.variables.length > 1) {
+        plant.variables.splice(variableIndex, 1);
+      }
+    });
   }
 }
 

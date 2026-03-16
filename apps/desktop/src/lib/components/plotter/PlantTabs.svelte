@@ -23,14 +23,14 @@
   let menuX = $state(0);
   let menuY = $state(0);
   let addButtonRef = $state<HTMLButtonElement | undefined>(undefined);
-  const EMPTY_TAB_ID = '__unamed__';
+  const EMPTY_TAB_ID = '__unnamed__';
 
   const tabItems = $derived.by<WorkspaceTabItem[]>(() => {
     if (plants.length === 0) {
       return [
         {
           id: EMPTY_TAB_ID,
-          name: 'Unamed',
+          name: 'Unnamed',
           closable: false,
           placeholder: true,
           indicatorClass: 'bg-slate-300 dark:bg-zinc-600',

@@ -1,5 +1,7 @@
 <script lang="ts">
   import { X, Plus, Trash2, Settings, AlertCircle, Check } from 'lucide-svelte';
+  import ControllerVariableBindings from '../controllers/ControllerVariableBindings.svelte';
+  import type { PlantVariable } from '$lib/types/plant';
   import type { PluginDefinition, PluginInstance, SchemaFieldValue } from '$lib/types/plugin';
   import { getDefaultValueForType, getPluginKindLabel, isAutoSchemaField, SCHEMA_FIELD_TYPE_LABELS, isFieldRequired } from '$lib/types/plugin';
   
@@ -14,8 +16,20 @@
     existingConfig?: Record<string, SchemaFieldValue>;
     lockedConfig?: Record<string, SchemaFieldValue>;
     instanceLabel?: string;
+    showVariableBindings?: boolean;
+    sensorVariables?: PlantVariable[];
+    actuatorVariables?: PlantVariable[];
+    initialInputVariableIds?: string[];
+    initialOutputVariableIds?: string[];
+    submitLabel?: string;
     onClose: () => void;
-    onConfigured: (instance: PluginInstance) => void;
+    onConfigured: (
+      instance: PluginInstance,
+      bindings?: {
+        inputVariableIds: string[];
+        outputVariableIds: string[];
+      }
+    ) => void;
   }
 
   let {
@@ -24,12 +38,20 @@
     existingConfig,
     lockedConfig,
     instanceLabel,
+    showVariableBindings = false,
+    sensorVariables = [],
+    actuatorVariables = [],
+    initialInputVariableIds = [],
+    initialOutputVariableIds = [],
+    submitLabel = 'Confirmar Configuração',
     onClose,
     onConfigured,
   }: Props = $props();
 
   let config = $state<Record<string, SchemaFieldValue>>({});
   let listInputs = $state<Record<string, string>>({});
+  let inputVariableIds = $state<string[]>([]);
+  let outputVariableIds = $state<string[]>([]);
   let isLoading = $state(false);
   let error = $state<string | null>(null);
 
@@ -47,6 +69,8 @@
       }
       config = initial;
       listInputs = {};
+      inputVariableIds = [...initialInputVariableIds];
+      outputVariableIds = [...initialOutputVariableIds];
       error = null;
     }
   });
@@ -121,13 +145,31 @@
       const result = await validatePluginInstanceConfig(plugin.id, config);
 
       if (result.success) {
+        if (showVariableBindings && inputVariableIds.length === 0) {
+          error = 'Selecione pelo menos uma variável de entrada';
+          return;
+        }
+
+        if (showVariableBindings && outputVariableIds.length === 0) {
+          error = 'Selecione pelo menos uma variável de saída';
+          return;
+        }
+
         const instance: PluginInstance = {
           pluginId: plugin.id,
           pluginName: plugin.name,
           pluginKind: plugin.kind,
           config,
         };
-        onConfigured(instance);
+        onConfigured(
+          instance,
+          showVariableBindings
+            ? {
+                inputVariableIds,
+                outputVariableIds,
+              }
+            : undefined
+        );
         onClose();
       } else {
         error = result.error || 'Erro na validação da configuração';
@@ -176,6 +218,37 @@
           <div class="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400 text-sm flex items-center gap-2">
             <AlertCircle size={16} class="shrink-0" />
             {error}
+          </div>
+        {/if}
+
+        {#if showVariableBindings}
+          <div class="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-4 dark:border-white/10 dark:bg-white/[0.03]">
+            <div>
+              <h3 class="text-sm font-semibold text-slate-800 dark:text-white">Vincular variáveis</h3>
+              <p class="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+                Defina quais sensores entram no controlador e quais atuadores ele comanda.
+              </p>
+            </div>
+
+            <ControllerVariableBindings
+              label="Entradas"
+              helper="Selecione um ou mais sensores."
+              variables={sensorVariables}
+              selectedIds={inputVariableIds}
+              emptyLabel="Adicione sensores na planta para vincular entradas."
+              tone="sensor"
+              onChange={(ids) => inputVariableIds = ids}
+            />
+
+            <ControllerVariableBindings
+              label="Saídas"
+              helper="Selecione um ou mais atuadores."
+              variables={actuatorVariables}
+              selectedIds={outputVariableIds}
+              emptyLabel="Adicione atuadores na planta para vincular saídas."
+              tone="atuador"
+              onChange={(ids) => outputVariableIds = ids}
+            />
           </div>
         {/if}
 
@@ -319,7 +392,7 @@
             Validando...
           {:else}
             <Check size={16} />
-            Confirmar Configuração
+            {submitLabel}
           {/if}
         </button>
       </div>

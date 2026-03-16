@@ -41,6 +41,8 @@ export const PLUGIN_RUNTIME_LABELS: Record<PluginRuntime, string> = {
   'rust-native': 'Rust Nativo',
 };
 
+export const PLUGIN_CREATION_RUNTIMES: readonly PluginRuntime[] = ['python'];
+
 export const SCHEMA_FIELD_TYPE_LABELS: Record<SchemaFieldType, string> = {
   bool: 'Boolean',
   int: 'Inteiro',
@@ -71,6 +73,10 @@ export type SchemaFieldValue = boolean | number | string | SchemaFieldValue[];
 
 export function isFieldRequired(field: PluginSchemaField): boolean {
   return field.defaultValue === undefined;
+}
+
+export function pluginNeedsInitialConfig(plugin: Pick<PluginDefinition, 'schema'>): boolean {
+  return plugin.schema.some(isFieldRequired);
 }
 
 export interface PluginDependency {

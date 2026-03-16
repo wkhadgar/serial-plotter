@@ -7,6 +7,15 @@ pub enum PluginType {
     Controller,
 }
 
+impl PluginType {
+    pub fn as_label(&self) -> &'static str {
+        match self {
+            Self::Driver => "driver",
+            Self::Controller => "controller",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginRuntime {
@@ -88,6 +97,38 @@ pub struct PluginRegistry {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreatePluginRequest {
+    pub name: String,
+
+    #[serde(rename = "type")]
+    pub plugin_type: PluginType,
+
+    pub runtime: PluginRuntime,
+
+    #[serde(default)]
+    pub schema: Vec<PluginSchemaField>,
+
+    #[serde(default)]
+    pub source_file: Option<String>,
+
+    #[serde(default)]
+    pub source_code: Option<String>,
+
+    #[serde(default)]
+    pub dependencies: Vec<PluginDependency>,
+
+    #[serde(default)]
+    pub description: Option<String>,
+
+    #[serde(default)]
+    pub version: Option<String>,
+
+    #[serde(default)]
+    pub author: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdatePluginRequest {
+    pub id: String,
     pub name: String,
 
     #[serde(rename = "type")]

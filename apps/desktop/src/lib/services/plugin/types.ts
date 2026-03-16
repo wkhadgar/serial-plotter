@@ -13,6 +13,10 @@ export interface CreatePluginDto {
   author?: string | null;
 }
 
+export interface UpdatePluginDto extends CreatePluginDto {
+  id: string;
+}
+
 export interface PluginSchemaFieldDto {
   name: string;
   type: string;
@@ -52,8 +56,16 @@ export interface CreatePluginRequest {
   author?: string;
 }
 
+export interface UpdatePluginRequest extends CreatePluginRequest {
+  id: string;
+}
+
 export interface CreatePluginResponse {
   success: boolean;
   plugin?: PluginDefinition;
   error?: string;
+}
+
+export interface GetPluginRequest {
+  id: string;
 }

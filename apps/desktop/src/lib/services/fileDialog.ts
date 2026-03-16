@@ -68,7 +68,7 @@ export function openFileDialog(options: OpenFileOptions = {}): Promise<FileResul
   });
 }
 
-function readFileAsText(file: File): Promise<string> {
+export function readFileAsText(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);

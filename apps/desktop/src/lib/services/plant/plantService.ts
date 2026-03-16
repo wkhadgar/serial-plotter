@@ -8,19 +8,28 @@ import {
   type PlantVariable,
   type VariableStats,
 } from '$lib/types/plant';
+import type { Controller, ControllerParam } from '$lib/types/controller';
+import type { PluginInstance } from '$lib/types/plugin';
 import type {
+  ControllerParamDto,
   CreatePlantDto,
   CreatePlantRequest,
   CreatePlantResponse,
   OpenPlantRequest,
   OpenPlantResponse,
   PlantActionResponse,
+  PlantControllerDto,
+  PlantDriverDto,
   PlantTelemetryPacket,
   PlantDto,
+  SaveControllerInstanceConfigRequest,
+  SaveControllerInstanceConfigResponse,
+  UpdatePlantDto,
   UpdatePlantRequest,
 } from './types';
 import { generateId } from '$lib/utils/format';
 import { validatePlantExportJSON } from '$lib/types/plantExport';
+import { loadWorkspaceState as loadStoredWorkspaceState, saveWorkspaceState as saveStoredWorkspaceState } from '$lib/utils/workspaceStorage';
 
 const STORAGE_KEY = 'senamby.desktop.plants.workspace';
 
@@ -44,31 +53,20 @@ function normalizeSampleTimeMs(sampleTimeMs: number | null | undefined, fallback
   return Math.max(1, Math.round(resolved));
 }
 
-function canUseStorage(): boolean {
-  return typeof window !== 'undefined' && typeof localStorage !== 'undefined';
-}
-
 function loadWorkspaceState(): PlantWorkspaceState {
-  if (!canUseStorage()) return structuredClone(DEFAULT_WORKSPACE_STATE);
+  return loadStoredWorkspaceState(STORAGE_KEY, DEFAULT_WORKSPACE_STATE, (parsed) => {
+    const state = parsed as PlantWorkspaceState;
 
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return structuredClone(DEFAULT_WORKSPACE_STATE);
-    const parsed = JSON.parse(raw) as PlantWorkspaceState;
     return {
-      workspacePlants: Array.isArray(parsed.workspacePlants) ? parsed.workspacePlants : [],
-      plantOverrides: parsed.plantOverrides ?? {},
-      deletedBackendPlantIds: Array.isArray(parsed.deletedBackendPlantIds) ? parsed.deletedBackendPlantIds : [],
+      workspacePlants: Array.isArray(state.workspacePlants) ? state.workspacePlants : [],
+      plantOverrides: state.plantOverrides ?? {},
+      deletedBackendPlantIds: Array.isArray(state.deletedBackendPlantIds) ? state.deletedBackendPlantIds : [],
     };
-  } catch (error) {
-    console.error('Erro ao carregar estado local de plantas:', error);
-    return structuredClone(DEFAULT_WORKSPACE_STATE);
-  }
+  });
 }
 
 function saveWorkspaceState(state: PlantWorkspaceState): void {
-  if (!canUseStorage()) return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  saveStoredWorkspaceState(STORAGE_KEY, state);
 }
 
 function normalizePlant(plant: Plant): Plant {
@@ -104,6 +102,38 @@ function mapVariableDtoToFrontend(variable: PlantDto['variables'][number], index
   };
 }
 
+function mapDriverDtoToFrontend(driver: PlantDriverDto): PluginInstance {
+  return {
+    pluginId: driver.plugin_id,
+    pluginName: driver.plugin_name,
+    pluginKind: 'driver',
+    config: driver.config ?? {},
+  };
+}
+
+function mapControllerParamDtoToFrontend(param: ControllerParamDto): ControllerParam {
+  return {
+    type: param.type,
+    value: param.value as ControllerParam['value'],
+    label: param.label,
+  };
+}
+
+function mapControllerDtoToFrontend(controller: PlantControllerDto): Controller {
+  return {
+    id: controller.id,
+    pluginId: controller.plugin_id,
+    name: controller.name,
+    type: controller.controller_type,
+    active: controller.active,
+    inputVariableIds: controller.input_variable_ids ?? [],
+    outputVariableIds: controller.output_variable_ids ?? [],
+    params: Object.fromEntries(
+      Object.entries(controller.params ?? {}).map(([key, param]) => [key, mapControllerParamDtoToFrontend(param)])
+    ),
+  };
+}
+
 function mapDtoToPlant(dto: PlantDto): Plant {
   const sampleTimeMs = normalizeSampleTimeMs(
     dto.sample_time_ms,
@@ -121,9 +151,9 @@ function mapDtoToPlant(dto: PlantDto): Plant {
       dt: dto.stats.dt > 0 ? dto.stats.dt : sampleTimeMs / 1000,
       uptime: dto.stats.uptime,
     },
-    controllers: [],
-    driverId: dto.driver_id ?? null,
-    driver: null,
+    controllers: (dto.controllers ?? []).map(mapControllerDtoToFrontend),
+    driverId: dto.driver.plugin_id,
+    driver: mapDriverDtoToFrontend(dto.driver),
     source: 'backend',
   };
 }
@@ -140,6 +170,29 @@ function mapVariableToDto(variable: PlantVariable): CreatePlantDto['variables'][
   };
 }
 
+function mapControllerParamToDto(param: ControllerParam): ControllerParamDto {
+  return {
+    type: param.type,
+    value: param.value,
+    label: param.label,
+  };
+}
+
+function mapControllerToDto(controller: Controller): CreatePlantDto['controllers'][number] {
+  return {
+    id: controller.id,
+    plugin_id: controller.pluginId ?? controller.id,
+    name: controller.name,
+    controller_type: controller.type,
+    active: controller.active,
+    input_variable_ids: controller.inputVariableIds ?? [],
+    output_variable_ids: controller.outputVariableIds ?? [],
+    params: Object.fromEntries(
+      Object.entries(controller.params ?? {}).map(([key, param]) => [key, mapControllerParamToDto(param)])
+    ),
+  };
+}
+
 function buildCreatePlantDto(request: CreatePlantRequest): CreatePlantDto {
   const sampleTimeMs = normalizeSampleTimeMs(request.sampleTimeMs);
 
@@ -147,8 +200,11 @@ function buildCreatePlantDto(request: CreatePlantRequest): CreatePlantDto {
     name: request.name.trim(),
     sample_time_ms: sampleTimeMs,
     variables: request.variables.map(mapVariableToDto),
-    driver_id: request.driver?.pluginId ?? null,
-    controller_ids: null,
+    driver: {
+      plugin_id: request.driver!.pluginId,
+      config: request.driver!.config ?? {},
+    },
+    controllers: request.controllers.map(mapControllerToDto),
   };
 }
 
@@ -276,9 +332,22 @@ async function listBackendPlants(): Promise<Plant[]> {
   }
 }
 
+async function getBackendPlant(id: string): Promise<Plant | null> {
+  try {
+    const response = await invoke<PlantDto>('get_plant', { id });
+    return mapDtoToPlant(response);
+  } catch {
+    return null;
+  }
+}
+
 export async function createPlant(request: CreatePlantRequest): Promise<CreatePlantResponse> {
   if (!request.name.trim()) {
     return { success: false, error: 'Nome da planta é obrigatório' };
+  }
+
+  if (!request.driver?.pluginId) {
+    return { success: false, error: 'Configure um driver de comunicação para a planta' };
   }
 
   const sampleTimeMs = normalizeSampleTimeMs(request.sampleTimeMs);
@@ -292,35 +361,14 @@ export async function createPlant(request: CreatePlantRequest): Promise<CreatePl
     const plant = savePlantOverride({
       ...mapDtoToPlant(response),
       sampleTimeMs,
-      driver: request.driver,
-      driverId: request.driver?.pluginId ?? response.driver_id ?? null,
-      controllers: request.controllers ?? [],
       source: 'backend',
     });
 
     return { success: true, plant };
   } catch (error) {
-    console.warn('Falha ao criar planta no backend, salvando no workspace:', error);
+    const message = error instanceof Error ? error.message : 'Erro ao criar planta no backend';
+    return { success: false, error: message };
   }
-
-  const plant = upsertWorkspacePlant({
-    id: generateId(),
-    name: request.name.trim(),
-    sampleTimeMs,
-    connected: false,
-    paused: false,
-    variables: request.variables,
-    controllers: request.controllers ?? [],
-    driver: request.driver,
-    driverId: request.driver?.pluginId ?? null,
-    stats: {
-      dt: sampleTimeMs / 1000,
-      uptime: 0,
-    },
-    source: 'workspace',
-  });
-
-  return { success: true, plant };
 }
 
 export async function updatePlant(request: UpdatePlantRequest): Promise<PlantActionResponse> {
@@ -353,10 +401,79 @@ export async function updatePlant(request: UpdatePlantRequest): Promise<PlantAct
   });
 
   if ((request.source ?? current.source) === 'backend') {
-    return { success: true, plant: savePlantOverride({ ...current, ...updatedPlant, source: 'backend' }) };
+    try {
+      const response = await invoke<PlantDto>('update_plant', {
+        request: {
+          id: request.id,
+          name: request.name.trim(),
+          sample_time_ms: sampleTimeMs,
+          variables: request.variables.map(mapVariableToDto),
+          driver: {
+            plugin_id: request.driver?.pluginId ?? current.driverId ?? '',
+            config: request.driver?.config ?? current.driver?.config ?? {},
+          },
+          controllers: request.controllers.map(mapControllerToDto),
+        } satisfies UpdatePlantDto,
+      });
+
+      return {
+        success: true,
+        plant: savePlantOverride({
+          ...mapDtoToPlant(response),
+          source: 'backend',
+        }),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao atualizar planta no backend';
+      return { success: false, error: message };
+    }
   }
 
   return { success: true, plant: upsertWorkspacePlant(updatedPlant) };
+}
+
+export async function saveControllerInstanceConfig(
+  request: SaveControllerInstanceConfigRequest
+): Promise<SaveControllerInstanceConfigResponse> {
+  if (!request.controller.id) {
+    return { success: false, error: 'Controlador não encontrado' };
+  }
+
+  if (request.source === 'backend') {
+    try {
+      await invoke('save_controller_instance_config', {
+        request: {
+          plant_id: request.plantId,
+          controller_id: request.controller.id,
+          plugin_id: request.controller.pluginId ?? null,
+          name: request.controller.name,
+          active: request.controller.active,
+          input_variable_ids: request.controller.inputVariableIds ?? [],
+          output_variable_ids: request.controller.outputVariableIds ?? [],
+          params: Object.entries(request.controller.params ?? {}).map(([key, param]) => ({
+            key,
+            type: param.type,
+            value: param.value,
+            label: param.label,
+          })),
+        },
+      });
+
+      return { success: true };
+    } catch (error) {
+      console.warn(
+        'Persistencia de instancia de controlador ainda nao esta disponivel no backend. Mantendo alteracoes localmente.',
+        error
+      );
+
+      return {
+        success: true,
+        deferred: true,
+      };
+    }
+  }
+
+  return { success: true };
 }
 
 export async function listPlants(): Promise<Plant[]> {
@@ -371,8 +488,21 @@ export async function listPlants(): Promise<Plant[]> {
 }
 
 export async function getPlant(id: string): Promise<Plant | null> {
-  const plants = await listPlants();
-  return plants.find((plant) => plant.id === id) ?? null;
+  const state = loadWorkspaceState();
+  const workspacePlant = state.workspacePlants.find((plant) => plant.id === id);
+
+  if (workspacePlant) {
+    return normalizePlant(workspacePlant);
+  }
+
+  const override = state.plantOverrides[id];
+  const backendPlant = await getBackendPlant(id);
+
+  if (!backendPlant || state.deletedBackendPlantIds.includes(id)) {
+    return override ? normalizePlant(override) : null;
+  }
+
+  return mergePlants(backendPlant, override);
 }
 
 export async function removePlant(id: string): Promise<PlantActionResponse> {

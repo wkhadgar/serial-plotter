@@ -1,13 +1,15 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Controller, ControllerParam, ControllerType } from '$lib/types/controller';
-import type { BuiltInPluginKind, PluginDefinition, PluginKind } from '$lib/types/plugin';
+import type { BuiltInPluginKind, PluginDefinition, PluginKind, SchemaFieldValue } from '$lib/types/plugin';
 import { getDefaultValueForType, isBuiltInPluginKind, normalizePluginKind, validatePluginJSON } from '$lib/types/plugin';
 import type {
   CreatePluginRequest,
   CreatePluginResponse,
   PluginRegistryDto,
+  UpdatePluginDto,
 } from './types';
 import { generateId } from '$lib/utils/format';
+import { loadWorkspaceState as loadStoredWorkspaceState, saveWorkspaceState as saveStoredWorkspaceState } from '$lib/utils/workspaceStorage';
 
 const STORAGE_KEY = 'senamby.desktop.plugins.workspace';
 
@@ -21,30 +23,19 @@ const DEFAULT_WORKSPACE_STATE: PluginWorkspaceState = {
   deletedPluginIds: [],
 };
 
-function canUseStorage(): boolean {
-  return typeof window !== 'undefined' && typeof localStorage !== 'undefined';
-}
-
 function loadWorkspaceState(): PluginWorkspaceState {
-  if (!canUseStorage()) return { ...DEFAULT_WORKSPACE_STATE };
+  return loadStoredWorkspaceState(STORAGE_KEY, DEFAULT_WORKSPACE_STATE, (parsed) => {
+    const state = parsed as PluginWorkspaceState;
 
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_WORKSPACE_STATE };
-    const parsed = JSON.parse(raw) as PluginWorkspaceState;
     return {
-      localPlugins: Array.isArray(parsed.localPlugins) ? parsed.localPlugins : [],
-      deletedPluginIds: Array.isArray(parsed.deletedPluginIds) ? parsed.deletedPluginIds : [],
+      localPlugins: Array.isArray(state.localPlugins) ? state.localPlugins : [],
+      deletedPluginIds: Array.isArray(state.deletedPluginIds) ? state.deletedPluginIds : [],
     };
-  } catch (error) {
-    console.error('Erro ao carregar estado local de plugins:', error);
-    return { ...DEFAULT_WORKSPACE_STATE };
-  }
+  });
 }
 
 function saveWorkspaceState(state: PluginWorkspaceState): void {
-  if (!canUseStorage()) return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  saveStoredWorkspaceState(STORAGE_KEY, state);
 }
 
 function normalizePlugin(plugin: PluginDefinition): PluginDefinition {
@@ -134,6 +125,15 @@ async function listBackendPluginsByType(kind: BuiltInPluginKind): Promise<Plugin
   }
 }
 
+async function getBackendPlugin(id: string): Promise<PluginDefinition | null> {
+  try {
+    const response = await invoke<PluginRegistryDto>('get_plugin', { id });
+    return mapDtoToPlugin(response);
+  } catch {
+    return null;
+  }
+}
+
 function mergePlugins(backendPlugins: PluginDefinition[], workspacePlugins: PluginDefinition[], deletedIds: string[]): PluginDefinition[] {
   const registry = new Map<string, PluginDefinition>();
 
@@ -186,14 +186,46 @@ function mapSchemaFieldToControllerParam(field: PluginDefinition['schema'][numbe
   };
 }
 
-function toControllerTemplate(plugin: PluginDefinition): Controller {
+export function toControllerTemplate(plugin: PluginDefinition): Controller {
   return {
     id: plugin.id,
+    pluginId: plugin.id,
     name: plugin.name,
     type: inferControllerType(plugin),
     active: false,
+    inputVariableIds: [],
+    outputVariableIds: [],
     params: Object.fromEntries(
       plugin.schema.map((field) => [field.name, mapSchemaFieldToControllerParam(field)])
+    ),
+  };
+}
+
+export function createConfiguredController(
+  plugin: PluginDefinition,
+  config: Record<string, SchemaFieldValue>,
+  options: {
+    id?: string;
+    name?: string;
+    active?: boolean;
+  } = {}
+): Controller {
+  return {
+    id: options.id ?? generateId(),
+    pluginId: plugin.id,
+    name: options.name ?? plugin.name,
+    type: inferControllerType(plugin),
+    active: options.active ?? true,
+    inputVariableIds: [],
+    outputVariableIds: [],
+    params: Object.fromEntries(
+      plugin.schema.map((field) => [
+        field.name,
+        mapSchemaFieldToControllerParam({
+          ...field,
+          defaultValue: config[field.name] ?? field.defaultValue,
+        }),
+      ])
     ),
   };
 }
@@ -232,7 +264,8 @@ export async function createPlugin(request: CreatePluginRequest): Promise<Create
 
       return { success: true, plugin: mapDtoToPlugin(response) };
     } catch (error) {
-      console.warn('Falha ao criar plugin no backend, salvando localmente:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Erro ao criar plugin no backend';
+      return { success: false, error: errorMessage };
     }
   }
 
@@ -258,6 +291,21 @@ export async function listPlugins(): Promise<PluginDefinition[]> {
   const state = loadWorkspaceState();
   const backendPlugins = await listBackendPlugins();
   return mergePlugins(backendPlugins, state.localPlugins, state.deletedPluginIds);
+}
+
+export async function getPlugin(id: string): Promise<PluginDefinition | null> {
+  const state = loadWorkspaceState();
+  const workspacePlugin = state.localPlugins.find((plugin) => plugin.id === id);
+
+  if (workspacePlugin) {
+    return normalizePlugin(workspacePlugin);
+  }
+
+  if (state.deletedPluginIds.includes(id)) {
+    return null;
+  }
+
+  return getBackendPlugin(id);
 }
 
 export async function listPluginsByType(kind: PluginKind): Promise<PluginDefinition[]> {
@@ -327,6 +375,34 @@ export async function registerPlugin(plugin: PluginDefinition): Promise<{ succes
 
 export async function updatePlugin(plugin: PluginDefinition): Promise<{ success: boolean; plugin?: PluginDefinition; error?: string }> {
   try {
+    if (plugin.source === 'backend' && isBuiltInPluginKind(normalizePluginKind(plugin.kind))) {
+      const response = await invoke<PluginRegistryDto>('update_plugin', {
+        request: {
+          id: plugin.id,
+          name: plugin.name.trim(),
+          type: normalizePluginKind(plugin.kind),
+          runtime: plugin.runtime,
+          schema: plugin.schema.map((field) => ({
+            name: field.name,
+            type: field.type,
+            default_value: field.defaultValue,
+            description: field.description ?? null,
+          })),
+          source_file: plugin.sourceFile ?? null,
+          source_code: plugin.sourceCode ?? null,
+          dependencies: (plugin.dependencies ?? []).map((dependency) => ({
+            name: dependency.name,
+            version: dependency.version,
+          })),
+          description: plugin.description ?? null,
+          version: plugin.version ?? null,
+          author: plugin.author ?? null,
+        } satisfies UpdatePluginDto,
+      });
+
+      return { success: true, plugin: mapDtoToPlugin(response) };
+    }
+
     const updated = upsertWorkspacePlugin(plugin);
     return { success: true, plugin: updated };
   } catch (error) {

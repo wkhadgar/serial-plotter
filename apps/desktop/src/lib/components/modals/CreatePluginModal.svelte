@@ -10,6 +10,7 @@
   } from '$lib/types/plugin';
   import {
     PLUGIN_KIND_LABELS,
+    PLUGIN_CREATION_RUNTIMES,
     PLUGIN_RUNTIME_LABELS,
     SCHEMA_FIELD_TYPE_LABELS,
     getPluginKindLabel,
@@ -26,7 +27,7 @@
   async function validateDriverSourceCode(_code: string, _runtime: string): Promise<{ success: boolean; errors?: string[] }> {
     return { success: true };
   }
-  import { openFileDialog } from '$lib/services/fileDialog';
+  import { openFileDialog, readFileAsText } from '$lib/services/fileDialog';
   import CodeEditorModal from './CodeEditorModal.svelte';
   import type { CodeEditorResult } from './CodeEditorModal.svelte';
 
@@ -74,7 +75,7 @@
   let fieldErrors = $state<Record<number, string>>({});
   let showCodeEditor = $state(false);
 
-  const runtimeExtension = $derived(runtime === 'python' ? '.py' : '.dll / .so');
+  const runtimeExtension = $derived('.py');
   const schemaValid = $derived(formFields.every((f, i) => !fieldErrors[i]));
   const isEditing = $derived(initialPlugin !== null);
   const resolvedKind = $derived.by(() => {
@@ -151,7 +152,7 @@
     if (initialPlugin) {
       pluginName = initialPlugin.name;
       applyKindPreset(forceKind ?? initialPlugin.kind);
-      runtime = initialPlugin.runtime;
+      runtime = 'python';
       sourceFileName = initialPlugin.sourceFile;
       sourceCode = initialPlugin.sourceCode ?? '';
       description = initialPlugin.description ?? '';
@@ -259,14 +260,13 @@
   }
 
   async function handlePickSourceFile() {
-    const ext = runtime === 'python' ? ['py'] : ['dll', 'so'];
     const result = await openFileDialog({
       title: 'Selecionar Código Fonte',
-      filters: [{ name: 'Plugin Source', extensions: ext }],
+      filters: [{ name: 'Python Source', extensions: ['py'] }],
     });
     if (result) {
       sourceFileName = result.name;
-      sourceCode = '';
+      sourceCode = await readFileAsText(result.file);
     }
   }
 
@@ -361,11 +361,11 @@
       const payload = {
         name: pluginName.trim(),
         kind: resolvedKind,
-        runtime,
-        sourceFile: sourceFileName || (runtime === 'python' ? 'main.py' : 'plugin.rs'),
+        runtime: 'python' as PluginRuntime,
+        sourceFile: sourceFileName || 'main.py',
         sourceCode: sourceCode || undefined,
         schema: buildSchema(),
-        dependencies: runtime === 'python' && dependencies.length > 0
+        dependencies: dependencies.length > 0
           ? dependencies.filter((dependency) => dependency.name.trim())
           : undefined,
         description: description.trim() || undefined,
@@ -482,17 +482,12 @@
               <option value={CUSTOM_KIND_VALUE} class="dark:bg-zinc-900">Personalizado</option>
             </select>
           </label>
-          <label class="block">
+          <div class="block">
             <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Runtime *</span>
-            <select
-              bind:value={runtime}
-              class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer"
-            >
-              {#each Object.entries(PLUGIN_RUNTIME_LABELS) as [value, label]}
-                <option {value} class="dark:bg-zinc-900">{label}</option>
-              {/each}
-            </select>
-          </label>
+            <div class="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600 dark:border-white/10 dark:bg-[#18181b] dark:text-zinc-300">
+              {PLUGIN_RUNTIME_LABELS[PLUGIN_CREATION_RUNTIMES[0]]}
+            </div>
+          </div>
         </div>
 
         {#if !forceKind && kindMode === 'custom'}
@@ -519,10 +514,12 @@
               class="flex items-center gap-3 p-3 rounded-lg border border-dashed border-slate-300 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 bg-slate-50 dark:bg-white/[0.02] transition-colors text-left"
             >
               <FileCode size={20} class="text-slate-400 shrink-0" />
-              {#if sourceFileName && !sourceCode}
+              {#if sourceFileName}
                 <div class="min-w-0">
                   <div class="text-sm font-medium text-slate-700 dark:text-zinc-300 truncate">{sourceFileName}</div>
-                  <div class="text-xs text-slate-400 dark:text-zinc-500">Upload de arquivo</div>
+                  <div class="text-xs text-slate-400 dark:text-zinc-500">
+                    {sourceCode ? `${sourceCode.split('\n').length} linhas carregadas` : 'Upload de arquivo'}
+                  </div>
                 </div>
               {:else}
                 <div class="text-sm text-slate-500 dark:text-zinc-400">Upload de arquivo</div>

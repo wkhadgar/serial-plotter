@@ -6,8 +6,8 @@ import type {
   PlantVariable,
   VariableStats,
 } from '$lib/types/plant';
-import type { Controller } from '$lib/types/controller';
-import type { PluginInstance } from '$lib/types/plugin';
+import type { Controller, ControllerParam, ParamType } from '$lib/types/controller';
+import type { PluginInstance, PluginRuntime, SchemaFieldValue } from '$lib/types/plugin';
 
 export interface CreatePlantVariableDto {
   name: string;
@@ -19,17 +19,63 @@ export interface CreatePlantVariableDto {
   linked_sensor_ids?: string[];
 }
 
+export interface ControllerParamDto {
+  type: ParamType;
+  value: SchemaFieldValue;
+  label: string;
+}
+
+export interface CreatePlantDriverDto {
+  plugin_id: string;
+  config: Record<string, SchemaFieldValue>;
+}
+
+export interface CreatePlantControllerDto {
+  id?: string | null;
+  plugin_id: string;
+  name: string;
+  controller_type: string;
+  active: boolean;
+  input_variable_ids: string[];
+  output_variable_ids: string[];
+  params: Record<string, ControllerParamDto>;
+}
+
 export interface CreatePlantDto {
   name: string;
   sample_time_ms: number;
   variables: CreatePlantVariableDto[];
-  driver_id?: string | null;
-  controller_ids?: string[] | null;
+  driver: CreatePlantDriverDto;
+  controllers: CreatePlantControllerDto[];
+}
+
+export interface UpdatePlantDto extends CreatePlantDto {
+  id: string;
 }
 
 export interface PlantStatsDto {
   dt: number;
   uptime: number;
+}
+
+export interface PlantDriverDto {
+  plugin_id: string;
+  plugin_name: string;
+  runtime: PluginRuntime;
+  source_file?: string | null;
+  source_code?: string | null;
+  config: Record<string, SchemaFieldValue>;
+}
+
+export interface PlantControllerDto {
+  id: string;
+  plugin_id: string;
+  name: string;
+  controller_type: string;
+  active: boolean;
+  input_variable_ids: string[];
+  output_variable_ids: string[];
+  params: Record<string, ControllerParamDto>;
 }
 
 export interface PlantDto {
@@ -40,8 +86,8 @@ export interface PlantDto {
   paused: boolean;
   variables: CreatePlantVariableDto[];
   stats: PlantStatsDto;
-  driver_id?: string | null;
-  controller_ids?: string[] | null;
+  driver: PlantDriverDto;
+  controllers: PlantControllerDto[];
 }
 
 export interface CreatePlantRequest {
@@ -109,6 +155,20 @@ export interface PlantActionResponse {
   error?: string;
 }
 
+export interface SaveControllerInstanceConfigRequest {
+  plantId: string;
+  controller: Controller;
+  source?: 'backend' | 'workspace';
+}
+
+export interface SaveControllerInstanceConfigResponse {
+  success: boolean;
+  deferred?: boolean;
+  error?: string;
+}
+
 export interface ListPlantsResponse {
   plants: import('$lib/types/plant').Plant[];
 }
+
+export type { ControllerParam };
