@@ -97,24 +97,24 @@
   const hasActuatorChart = $derived(mvSeries.length > 0);
 </script>
 
-<div class="flex flex-col h-full bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm">
-  <div class="px-3 py-2 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-zinc-900/50 flex items-center justify-between shrink-0">
-    <div class="flex items-center gap-3">
-      <h3 class="text-sm font-bold text-slate-700 dark:text-zinc-300">
+<div class="variable-card flex flex-col h-full bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm">
+  <div class="variable-card__header px-3 py-2 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-zinc-900/50 flex items-center justify-between gap-2 shrink-0">
+    <div class="flex min-w-0 items-center gap-2 sm:gap-3">
+      <h3 class="truncate text-sm font-bold text-slate-700 dark:text-zinc-300">
         {title}
         {#if unit}
           <span class="text-xs font-normal text-slate-400 dark:text-zinc-500">({unit})</span>
         {/if}
       </h3>
       {#if stats}
-        <div class="flex items-center gap-2 text-[10px] font-medium">
-          <div class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5">
+        <div class="variable-card__stats flex items-center gap-2 text-[10px] font-medium">
+          <div class="flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5">
             <span class="text-slate-400 dark:text-zinc-500">Erro:</span>
             <span class={stats.errorAvg < 3 ? 'text-emerald-600 dark:text-emerald-400' : stats.errorAvg < 10 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}>
               {stats.errorAvg.toFixed(2)}
             </span>
           </div>
-          <div class="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5">
+          <div class="flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5">
             <span class="text-slate-400 dark:text-zinc-500">Estab:</span>
             <span class={stats.stability > 90 ? 'text-emerald-600 dark:text-emerald-400' : stats.stability > 70 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}>
               {stats.stability.toFixed(0)}%
@@ -124,17 +124,17 @@
       {/if}
     </div>
     {#if showLegend}
-      <div class="flex items-center gap-3 text-[10px] font-medium">
-        <div class="flex items-center gap-1">
+      <div class="variable-card__legend flex max-w-full items-center gap-3 overflow-x-auto text-[10px] font-medium">
+        <div class="flex shrink-0 items-center gap-1">
           <div class="w-2 h-2 rounded-full" style="background-color: {pvStyle?.color ?? colors.pv}"></div>
           <span class="text-slate-500 dark:text-zinc-400">{pvLabel}</span>
         </div>
-        <div class="flex items-center gap-1">
+        <div class="flex shrink-0 items-center gap-1">
           <div class="w-2 h-2 rounded-full" style="background-color: {spStyle?.color ?? colors.sp}"></div>
           <span class="text-slate-500 dark:text-zinc-400">{spLabel}</span>
         </div>
         {#each actuators as act, idx}
-          <div class="flex items-center gap-1">
+          <div class="flex shrink-0 items-center gap-1">
             <div class="w-2 h-2 rounded-full" style="background-color: {lineStyles[act.dataKey]?.color || act.color || actuatorColors[idx % actuatorColors.length]}"></div>
             <span class="text-slate-500 dark:text-zinc-400">{lineStyles[act.dataKey]?.label ?? act.name}</span>
           </div>
@@ -164,3 +164,28 @@
     {/if}
   </div>
 </div>
+
+<style>
+  @media (max-height: 860px) {
+    .variable-card__header {
+      padding-top: 0.35rem;
+      padding-bottom: 0.35rem;
+    }
+
+    .variable-card__legend {
+      gap: 0.5rem;
+      font-size: 9px;
+    }
+
+    .variable-card__stats {
+      gap: 0.375rem;
+      font-size: 9px;
+    }
+  }
+
+  @media (max-height: 740px) {
+    .variable-card__stats {
+      display: none;
+    }
+  }
+</style>

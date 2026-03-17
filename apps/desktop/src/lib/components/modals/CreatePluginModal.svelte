@@ -687,7 +687,7 @@
             <input
               type="text"
               bind:value={pluginName}
-              placeholder="Ex: Conexão Modbus TCP"
+              placeholder="Ex: Driver Modbus TCP"
               class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
             />
           </label>

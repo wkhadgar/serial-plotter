@@ -20,7 +20,10 @@
   }
 </script>
 
-<div class={`${visible ? 'w-80 translate-x-0' : 'w-0 translate-x-full'} bg-white dark:bg-[#0c0c0e] border-l border-slate-200 dark:border-white/5 flex flex-col transition-all duration-300 ease-in-out shadow-xl relative z-30 print:hidden`}>
+<div class={`${visible
+  ? 'w-full max-h-[58vh] translate-y-0 md:w-80 md:max-h-none md:translate-y-0'
+  : 'w-full max-h-0 translate-y-2 md:w-0 md:max-h-none md:translate-y-0 md:translate-x-full'
+} bg-white dark:bg-[#0c0c0e] border-t md:border-t-0 md:border-l border-slate-200 dark:border-white/5 flex flex-col overflow-hidden transition-[width,max-height,transform] duration-300 ease-in-out shadow-xl relative z-30 print:hidden`}>
   <div class="h-14 border-b border-slate-100 dark:border-white/5 flex justify-between items-center px-5 bg-slate-50 dark:bg-white/[0.02]">
     <h3 class="font-bold text-slate-700 dark:text-white text-sm">Variáveis</h3>
     <button onclick={handleClose} class="text-slate-400 hover:text-slate-600 dark:hover:text-white" title="Recolher Painel">
@@ -28,7 +31,7 @@
     </button>
   </div>
 
-  <div class="flex-1 overflow-y-auto p-5 space-y-3 min-w-[320px]">
+  <div class="flex-1 overflow-y-auto p-4 space-y-3 sm:p-5">
     {#if variables.length === 0}
       <div class="text-center text-sm text-slate-500 dark:text-zinc-500 py-8">
         Nenhuma variável encontrada

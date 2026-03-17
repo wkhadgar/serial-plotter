@@ -120,9 +120,9 @@
   });
 </script>
 
-<div class="h-full flex flex-col bg-white dark:bg-zinc-900 border-r border-b border-slate-200 dark:border-white/5">
+<div class="variable-chart h-full flex flex-col bg-white dark:bg-zinc-900 border-r border-b border-slate-200 dark:border-white/5">
   <div class="flex-1 flex flex-col min-h-0">
-    <div class="flex-[3] min-h-0 bg-slate-50 dark:bg-[#09090b] border-b border-slate-200 dark:border-white/5">
+    <div class="variable-chart__sensor flex-[3] min-h-0 bg-slate-50 dark:bg-[#09090b] border-b border-slate-200 dark:border-white/5">
       <PlotlyChart
         series={sensorSeries}
         config={sensorConfig}
@@ -131,7 +131,7 @@
       />
     </div>
 
-    <div class="flex-[2] min-h-0 bg-slate-50 dark:bg-[#09090b]">
+    <div class="variable-chart__actuator flex-[2] min-h-0 bg-slate-50 dark:bg-[#09090b]">
       <PlotlyChart
         series={actuatorSeries}
         config={actuatorConfig}
@@ -141,3 +141,25 @@
     </div>
   </div>
 </div>
+
+<style>
+  @media (max-height: 820px) {
+    .variable-chart__sensor {
+      flex: 1 1 56%;
+    }
+
+    .variable-chart__actuator {
+      flex: 1 1 44%;
+    }
+  }
+
+  @media (max-height: 700px) {
+    .variable-chart__sensor {
+      flex: 1 1 52%;
+    }
+
+    .variable-chart__actuator {
+      flex: 1 1 48%;
+    }
+  }
+</style>

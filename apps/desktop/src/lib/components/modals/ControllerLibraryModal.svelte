@@ -73,14 +73,14 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 z-[72] flex items-center justify-center bg-black/60 px-4"
+    class="fixed inset-0 z-[72] flex items-start justify-center overflow-y-auto bg-black/60 px-3 py-4 sm:items-center sm:px-4 sm:py-0"
     onclick={handleClose}
   >
     <div
-      class="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#0c0c0e]"
+      class="my-2 flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#0c0c0e] sm:my-0 sm:max-h-[85vh]"
       onclick={(event) => event.stopPropagation()}
     >
-      <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-white/5">
+      <div class="flex items-center justify-between border-b border-slate-200 px-4 py-4 dark:border-white/5 sm:px-6">
         <div>
           <h2 class="text-lg font-bold text-slate-800 dark:text-white">Biblioteca de Controladores</h2>
           <p class="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">
@@ -96,7 +96,7 @@
         </button>
       </div>
 
-      <div class="flex-1 overflow-y-auto p-6">
+      <div class="flex-1 overflow-y-auto p-4 sm:p-6">
         <div class="relative mb-4">
           <Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input

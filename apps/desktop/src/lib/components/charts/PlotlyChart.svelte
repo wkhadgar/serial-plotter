@@ -483,8 +483,8 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   bind:this={wrapper}
-  class="w-full h-full uplot-wrapper"
-  style="min-height: 100px; background: {colors.bg};"
+  class="plotly-surface w-full h-full uplot-wrapper"
+  style="background: {colors.bg};"
   onwheel={handleWheel}
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
@@ -494,6 +494,10 @@
 </div>
 
 <style>
+  .plotly-surface {
+    min-height: 96px;
+  }
+
   .uplot-wrapper {
     position: relative;
   }
@@ -552,5 +556,17 @@
   :global(.chart-tooltip .tt-val) {
     font-weight: 600;
     color: #fafafa;
+  }
+
+  @media (max-height: 860px) {
+    .plotly-surface {
+      min-height: 72px;
+    }
+  }
+
+  @media (max-height: 700px) {
+    .plotly-surface {
+      min-height: 56px;
+    }
   }
 </style>

@@ -53,8 +53,8 @@
 
 <svelte:window onclick={handleClickOutside} />
 
-<div class="h-14 bg-white dark:bg-[#0c0c0e] border-b border-slate-200 dark:border-white/5 flex items-center justify-between px-6 shadow-sm z-20 print:hidden">
-  <div class="flex items-center gap-3">
+<div class="plotter-toolbar min-h-14 bg-white dark:bg-[#0c0c0e] border-b border-slate-200 dark:border-white/5 flex flex-wrap items-center justify-between gap-2 px-3 py-2 shadow-sm z-20 print:hidden sm:px-4 sm:py-1 lg:px-6">
+  <div class="plotter-toolbar__controls flex min-w-0 flex-1 items-center gap-2 overflow-x-auto sm:gap-3">
     <button
       onclick={onToggleConnect}
       class={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all border
@@ -63,9 +63,10 @@
           : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-900/30'}`}
     >
       <Power size={18} />
-      {plant?.connected ? 'DESLIGAR' : 'LIGAR'}
+      <span class="hidden sm:inline">{plant?.connected ? 'DESLIGAR' : 'LIGAR'}</span>
+      <span class="sm:hidden">{plant?.connected ? 'OFF' : 'ON'}</span>
     </button>
-    <div class="h-8 w-px bg-slate-200 dark:bg-white/10 mx-1"></div>
+    <div class="mx-1 hidden h-8 w-px bg-slate-200 dark:bg-white/10 sm:block"></div>
     <button
       onclick={onTogglePause}
       disabled={!plant?.connected}
@@ -115,8 +116,8 @@
     </button>
   </div>
 
-  <div class="flex items-center gap-6">
-    <div class="hidden md:flex items-center gap-4 mr-4">
+  <div class="plotter-toolbar__meta ml-auto flex shrink-0 items-center gap-3 sm:gap-6">
+    <div class="plotter-toolbar__timing hidden md:flex items-center gap-4 mr-4">
       {#if plant}
         <div class="flex flex-col items-end">
           <span class="text-[9px] font-bold text-slate-400 uppercase">Dt. Config.</span>
@@ -141,7 +142,7 @@
         </div>
       {/if}
     </div>
-    <div class="flex flex-col items-end mr-2">
+    <div class="plotter-toolbar__status hidden sm:flex flex-col items-end mr-1">
       <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</span>
       <div class="flex items-center gap-1.5">
         <span class={`w-2 h-2 rounded-full ${plant?.connected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
@@ -150,7 +151,7 @@
         </span>
       </div>
     </div>
-    <div class="h-8 w-px bg-slate-200 dark:bg-white/10"></div>
+    <div class="plotter-toolbar__meta-divider hidden h-8 w-px bg-slate-200 dark:bg-white/10 sm:block"></div>
     <button
       onclick={() => showControllerPanel = !showControllerPanel}
       class={`p-2 rounded-lg border shadow-sm transition-all ${showControllerPanel ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-[#18181b] text-slate-500 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'}`}
@@ -159,3 +160,34 @@
     </button>
   </div>
 </div>
+
+<style>
+  @media (max-height: 900px) {
+    .plotter-toolbar {
+      min-height: 2.75rem;
+      padding-top: 0.25rem;
+      padding-bottom: 0.25rem;
+      gap: 0.375rem;
+    }
+
+    .plotter-toolbar__timing {
+      display: none;
+    }
+  }
+
+  @media (max-height: 760px) {
+    .plotter-toolbar {
+      padding-left: 0.5rem;
+      padding-right: 0.5rem;
+    }
+
+    .plotter-toolbar__status,
+    .plotter-toolbar__meta-divider {
+      display: none;
+    }
+
+    .plotter-toolbar__controls {
+      gap: 0.35rem;
+    }
+  }
+</style>

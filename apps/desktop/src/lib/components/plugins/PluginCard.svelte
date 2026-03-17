@@ -108,9 +108,11 @@
           <span class={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${colors.bg} ${colors.text} ${colors.border}`}>
             {getPluginKindLabel(plugin.kind)}
           </span>
-          <span class="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-400">
-            {plugin.source === 'backend' ? 'Padrão' : 'Personalizado'}
-          </span>
+          {#if plugin.source === 'workspace'}
+            <span class="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-400">
+              Personalizado
+            </span>
+          {/if}
         </div>
 
         <div class="min-h-[46px]">

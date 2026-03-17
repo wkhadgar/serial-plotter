@@ -59,6 +59,7 @@
   };
 
   let chartStates: Record<string, ChartStateType> = $state({});
+  let manualRangesByPlant: Record<string, Record<number, { xMin: number; xMax: number }>> = $state({});
 
   function countSensors(variables: PlantVariable[]): number {
     let count = 0;
@@ -76,10 +77,15 @@
       } else if (chartStates[plant.id].variableCount !== sensorCount) {
         chartStates[plant.id].variableCount = sensorCount;
       }
+
+      if (!(plant.id in manualRangesByPlant)) {
+        manualRangesByPlant[plant.id] = {};
+      }
     }
   });
 
   const chartState = $derived(chartStates[activePlantId] ?? defaultChartState());
+  const activeManualRanges = $derived(manualRangesByPlant[activePlantId] ?? {});
 
   let seriesStyles = $state<Record<string, SeriesStyle>>({});
 
@@ -277,6 +283,9 @@
       if (result.success) {
         appStore.removePlant(removeModal.plantId);
         clearPlant(removeModal.plantId);
+        const remainingRanges = { ...manualRangesByPlant };
+        delete remainingRanges[removeModal.plantId];
+        manualRangesByPlant = remainingRanges;
       } else {
         alert(result.error || 'Erro ao remover planta');
       }
@@ -299,7 +308,7 @@
     if (result.success && result.plant) {
       appStore.upsertPlant(result.plant);
     } else {
-      alert(result.error || 'Erro ao atualizar conexão da planta');
+      alert(result.error || 'Erro ao atualizar driver da planta');
     }
     plantActionLoading = null;
   }
@@ -344,6 +353,10 @@
     chartState.yMax = 100;
     chartState.xMin = null;
     chartState.xMax = null;
+    manualRangesByPlant = {
+      ...manualRangesByPlant,
+      [activePlantId]: {},
+    };
   }
 
   let _displayTick = $state(0);
@@ -586,10 +599,17 @@
     showHover: true
   });
 
-  function handleRangeChange(xMin: number, xMax: number) {
+  function handleRangeChange(variableIndex: number, xMin: number, xMax: number) {
     chartState.xMin = xMin;
     chartState.xMax = xMax;
     chartState.xMode = 'manual';
+    manualRangesByPlant = {
+      ...manualRangesByPlant,
+      [activePlantId]: {
+        ...(manualRangesByPlant[activePlantId] ?? {}),
+        [variableIndex]: { xMin, xMax },
+      },
+    };
   }
 
   function hasDraggedFiles(event: DragEvent): boolean {
@@ -718,7 +738,7 @@
           </p>
         </div>
 
-        <div class="flex gap-3 mt-2">
+        <div class="mt-2 flex flex-wrap justify-center gap-3">
           <button
             type="button"
             onclick={handleCreateNew}
@@ -744,7 +764,7 @@
       </div>
     </div>
   {:else}
-  <div class="flex-1 flex overflow-hidden bg-slate-50 dark:bg-[#09090b] relative">
+  <div class="flex-1 flex flex-col md:flex-row overflow-hidden bg-slate-50 dark:bg-[#09090b] relative">
     <div class="flex-1 flex flex-col min-w-0 relative">
       <PlotterToolbar
         plant={activePlant}
@@ -763,7 +783,7 @@
 
       <div
         bind:this={graphContainerRef}
-        class="flex-1 flex flex-col p-3 gap-3 overflow-hidden relative cursor-crosshair"
+        class="plotter-graph-area flex-1 flex flex-col p-3 gap-3 overflow-hidden relative cursor-crosshair"
         oncontextmenu={handleContextMenu}
         ondblclick={resetZoom}
         role="application"
@@ -792,6 +812,7 @@
             focusedIndex={chartState.focusedVariableIndex}
             lineStyles={seriesStyles}
             variableStats={variableStatsArray}
+            xRangeByVariableIndex={activeManualRanges}
             onRangeChange={handleRangeChange}
           />
         {/if}
@@ -881,3 +902,19 @@
     onClose={() => editPlantModal = false}
   />
 </div>
+
+<style>
+  @media (max-height: 900px) {
+    .plotter-graph-area {
+      padding: 0.5rem;
+      gap: 0.5rem;
+    }
+  }
+
+  @media (max-height: 760px) {
+    .plotter-graph-area {
+      padding: 0.375rem;
+      gap: 0.375rem;
+    }
+  }
+</style>

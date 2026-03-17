@@ -195,14 +195,17 @@
   });
 </script>
 
-<div class={`${visible ? 'w-80 translate-x-0' : 'w-0 translate-x-full'} bg-white dark:bg-[#0c0c0e] border-l border-slate-200 dark:border-white/5 flex flex-col transition-all duration-300 ease-in-out shadow-xl relative z-30 print:hidden`}>
+<div class={`${visible
+  ? 'w-full max-h-[58vh] translate-y-0 md:w-80 md:max-h-none md:translate-y-0'
+  : 'w-full max-h-0 translate-y-2 md:w-0 md:max-h-none md:translate-y-0 md:translate-x-full'
+} bg-white dark:bg-[#0c0c0e] border-t md:border-t-0 md:border-l border-slate-200 dark:border-white/5 flex flex-col overflow-hidden transition-[width,max-height,transform] duration-300 ease-in-out shadow-xl relative z-30 print:hidden`}>
   <div class="h-14 border-b border-slate-100 dark:border-white/5 flex justify-between items-center px-5 bg-slate-50 dark:bg-white/[0.02]">
     <h3 class="font-bold text-slate-700 dark:text-white text-sm">Malhas de Controle</h3>
     <button onclick={() => visible = false} class="text-slate-400 hover:text-slate-600 dark:hover:text-white" title="Recolher Painel">
       <ChevronsRight size={20} />
     </button>
   </div>
-  <div class="flex-1 overflow-y-auto p-5 space-y-6 min-w-[320px]">
+  <div class="flex-1 overflow-y-auto p-4 space-y-5 sm:p-5 sm:space-y-6">
     {#if plant}
       <div class="bg-slate-50 dark:bg-[#121215] rounded-xl border border-slate-200 dark:border-white/5 shadow-sm overflow-hidden">
         <button 

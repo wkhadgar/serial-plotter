@@ -14,7 +14,8 @@
     focusedIndex: number;
     lineStyles?: Record<string, { color: string; visible: boolean; label?: string }>;
     variableStats?: VariableStats[];
-    onRangeChange?: (xMin: number, xMax: number) => void;
+    xRangeByVariableIndex?: Record<number, { xMin: number; xMax: number }>;
+    onRangeChange?: (variableIndex: number, xMin: number, xMax: number) => void;
   }
 
   interface LinkedActuatorEntry {
@@ -44,6 +45,7 @@
     focusedIndex,
     lineStyles = {},
     variableStats = [],
+    xRangeByVariableIndex = {},
     onRangeChange,
   }: Props = $props();
 
@@ -109,15 +111,28 @@
   function getColorSet(index: number) {
     return variableColors[index % variableColors.length];
   }
+
+  function getVariableChartConfig(baseConfig: ChartConfig, variableIndex: number): ChartConfig {
+    if (baseConfig.xMode !== 'manual') return baseConfig;
+
+    const range = xRangeByVariableIndex[variableIndex];
+    return {
+      ...baseConfig,
+      xMin: range?.xMin ?? null,
+      xMax: range?.xMax ?? null,
+    };
+  }
 </script>
 
-<div 
-  class="w-full h-full overflow-y-auto p-2 {viewMode === 'single' ? '' : 'grid gap-2 ' + gridCols}"
+<div
+  class="variable-grid-container w-full h-full overflow-y-auto p-2 {viewMode === 'single' ? '' : 'grid gap-2 ' + gridCols}"
   class:flex={viewMode === 'single'}
   class:items-stretch={viewMode === 'single'}
 >
   {#each visibleSensors as sensorEntry, displayIdx (sensorEntry.variable.id)}
-    <div class={viewMode === 'single' ? 'w-full h-full' : 'min-h-[300px]'} data-sensor-index={displayIdx}>
+    {@const cardPvConfig = getVariableChartConfig(pvConfig, sensorEntry.originalIndex)}
+    {@const cardMvConfig = getVariableChartConfig(mvConfig, sensorEntry.originalIndex)}
+    <div class={viewMode === 'single' ? 'w-full h-full' : 'sensor-card-shell min-h-[300px]'} data-sensor-index={displayIdx}>
       <VariableCard
         title={sensorEntry.variable.name}
         unit={sensorEntry.variable.unit}
@@ -126,20 +141,22 @@
         pvKey={sensorEntry.pvKey}
         spKey={sensorEntry.spKey}
         actuators={sensorEntry.actuators}
-        {pvConfig}
-        {mvConfig}
+        pvConfig={cardPvConfig}
+        mvConfig={cardMvConfig}
         {theme}
         colors={getColorSet(displayIdx)}
         {lineStyles}
         stats={variableStats[sensorEntry.originalIndex]}
-        {onRangeChange}
+        onRangeChange={onRangeChange
+          ? (xMin: number, xMax: number) => onRangeChange(sensorEntry.originalIndex, xMin, xMax)
+          : undefined}
       />
     </div>
   {/each}
 </div>
 
 {#if viewMode === 'single' && sensorEntries.length > 1}
-  <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2">
+  <div class="sensor-view-hint absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2">
     <span class="text-xs text-white/80 font-medium">
       {sensorEntries[focusedIndex]?.variable.name ?? 'Sensor'} ({focusedIndex + 1}/{sensorEntries.length})
     </span>
@@ -148,3 +165,40 @@
     </span>
   </div>
 {/if}
+
+<style>
+  @media (max-height: 900px) {
+    .variable-grid-container {
+      padding: 0.375rem;
+    }
+
+    .sensor-card-shell {
+      min-height: 250px;
+    }
+  }
+
+  @media (max-height: 760px) {
+    .variable-grid-container {
+      padding: 0.25rem;
+    }
+
+    .sensor-card-shell {
+      min-height: 210px;
+    }
+
+    .sensor-view-hint {
+      bottom: 0.5rem;
+      padding: 0.375rem 0.625rem;
+    }
+  }
+
+  @media (max-height: 680px) {
+    .sensor-card-shell {
+      min-height: 180px;
+    }
+
+    .sensor-view-hint {
+      display: none;
+    }
+  }
+</style>

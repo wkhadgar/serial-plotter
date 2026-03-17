@@ -357,7 +357,7 @@
     onRemove={handleRemoveTab}
   />
 
-  <div class="flex-1 flex overflow-hidden bg-slate-50 dark:bg-[#09090b] relative">
+  <div class="flex-1 flex flex-col md:flex-row overflow-hidden bg-slate-50 dark:bg-[#09090b] relative">
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       bind:this={graphContainerRef}
@@ -388,8 +388,8 @@
         onClose={closeContextMenu}
       />
 
-      <div class="h-14 shrink-0 border-b border-slate-200 bg-white/90 px-5 backdrop-blur dark:border-white/5 dark:bg-[#0c0c0e]/90">
-        <div class="flex h-full items-center justify-between gap-3">
+      <div class="analyzer-toolbar min-h-14 shrink-0 border-b border-slate-200 bg-white/90 px-3 py-2 backdrop-blur dark:border-white/5 dark:bg-[#0c0c0e]/90 sm:px-5 sm:py-0">
+        <div class="flex min-h-10 flex-wrap items-center justify-between gap-2 sm:gap-3">
           <div class="flex min-w-0 items-center gap-2">
           {#if activeTab}
             <span class="truncate text-sm font-medium text-slate-700 dark:text-zinc-300">
@@ -403,14 +403,15 @@
           {/if}
           </div>
           <div class="flex items-center gap-2">
-            <button
-              onclick={() => fileInput?.click()}
-              disabled={isProcessing}
-              class="flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
-            >
-              <Upload size={14} />
-              {isProcessing ? 'Processando...' : 'Carregar JSON'}
-            </button>
+              <button
+                onclick={() => fileInput?.click()}
+                disabled={isProcessing}
+                class="flex items-center gap-2 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
+              >
+                <Upload size={14} />
+                <span class="hidden sm:inline">{isProcessing ? 'Processando...' : 'Carregar JSON'}</span>
+                <span class="sm:hidden">{isProcessing ? '...' : 'JSON'}</span>
+              </button>
             {#if hasProcessedVariables}
               <button
                 onclick={() => analyzerStore.toggleVariablePanel()}
@@ -432,7 +433,7 @@
         class="hidden"
       />
 
-      <div class="flex-1 overflow-auto p-3">
+      <div class="analyzer-chart-scroll flex-1 overflow-auto p-3">
         {#if isProcessing}
           <div class="h-full flex items-center justify-center">
             <div class="text-center">
@@ -446,8 +447,8 @@
             </div>
           </div>
         {:else if analyzerStore.isActiveTabEmpty}
-          <div class="h-full flex items-center justify-center p-8">
-            <div class="flex flex-col items-center justify-center gap-6 p-12 border-2 border-dashed border-slate-300 dark:border-zinc-700 rounded-2xl bg-slate-50/50 dark:bg-zinc-900/50 max-w-lg w-full transition-colors hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50/30 dark:hover:bg-blue-900/10">
+          <div class="h-full flex items-center justify-center p-4 sm:p-8">
+            <div class="flex w-full max-w-lg flex-col items-center justify-center gap-5 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50/50 p-6 transition-colors hover:border-blue-400 hover:bg-blue-50/30 dark:border-zinc-700 dark:bg-zinc-900/50 dark:hover:border-blue-500 dark:hover:bg-blue-900/10 sm:gap-6 sm:p-12">
               <div class="w-20 h-20 rounded-2xl bg-slate-100 dark:bg-zinc-800 flex items-center justify-center">
                 <Upload size={40} class="text-slate-400 dark:text-zinc-500" />
               </div>
@@ -481,16 +482,16 @@
             </div>
           </div>
         {:else}
-          <div class="h-full relative {isSingleView ? 'flex items-stretch' : 'grid gap-3'}" style={isSingleView ? '' : 'grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); grid-auto-rows: 1fr;'}>
+          <div class="analyzer-grid h-full relative {isSingleView ? 'flex items-stretch' : 'grid gap-3'}" style={isSingleView ? '' : 'grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); grid-auto-rows: 1fr;'}>
             {#each visibleVariables as processedVar, vi (processedVar.variable.index)}
               {@const currentSeriesStyles = variableSeriesStyles.get(processedVar.variable.index) ?? {}}
-              <div class="bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm flex flex-col {isSingleView ? 'w-full h-full' : ''}" data-var-index={isSingleView ? analyzerStore.chartState.focusedVariableIndex : vi}>
-                <div class="px-3 py-2 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-zinc-900/50 flex items-center justify-between shrink-0">
+              <div class="analyzer-card bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm flex flex-col {isSingleView ? 'w-full h-full' : ''}" data-var-index={isSingleView ? analyzerStore.chartState.focusedVariableIndex : vi}>
+                <div class="analyzer-card__header px-3 py-2 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-zinc-900/50 flex flex-wrap items-center justify-between gap-2 shrink-0">
                   <h3 class="text-sm font-bold text-slate-700 dark:text-zinc-300">
                     {processedVar.variable.sensorName}
                     <span class="text-[10px] font-normal text-slate-400 dark:text-zinc-500 ml-1">({processedVar.variable.sensorUnit})</span>
                   </h3>
-                  <div class="flex items-center gap-3 text-[10px] font-medium">
+                  <div class="analyzer-card__legend flex flex-wrap items-center gap-2 text-[10px] font-medium sm:gap-3">
                     <div class="flex items-center gap-1">
                       <div class="w-2 h-2 rounded-full bg-blue-500"></div>
                       <span class="text-slate-500 dark:text-zinc-400">Sensor</span>
@@ -520,7 +521,7 @@
             {/each}
             
             {#if isSingleView && selectedVariables.length > 1}
-              <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-20">
+              <div class="analyzer-view-hint absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-20">
                 <span class="text-xs text-white/80 font-medium">
                   {selectedVariables[analyzerStore.chartState.focusedVariableIndex]?.variable.sensorName ?? 'Variável'} ({analyzerStore.chartState.focusedVariableIndex + 1}/{selectedVariables.length})
                 </span>
@@ -544,6 +545,48 @@
     {/if}
   </div>
 </div>
+
+<style>
+  @media (max-height: 900px) {
+    .analyzer-toolbar {
+      min-height: 2.75rem;
+      padding-top: 0.25rem;
+      padding-bottom: 0.25rem;
+    }
+
+    .analyzer-chart-scroll {
+      padding: 0.5rem;
+    }
+
+    .analyzer-grid {
+      gap: 0.5rem !important;
+    }
+
+    .analyzer-card__header {
+      padding-top: 0.35rem;
+      padding-bottom: 0.35rem;
+    }
+  }
+
+  @media (max-height: 760px) {
+    .analyzer-chart-scroll {
+      padding: 0.375rem;
+    }
+
+    .analyzer-grid {
+      gap: 0.375rem !important;
+    }
+
+    .analyzer-card__legend {
+      gap: 0.5rem;
+      font-size: 9px;
+    }
+
+    .analyzer-view-hint {
+      display: none;
+    }
+  }
+</style>
 
 <GenericModal
   visible={showErrorModal}

@@ -73,14 +73,14 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 z-[72] flex items-center justify-center bg-black/60 px-4"
+    class="fixed inset-0 z-[72] flex items-start justify-center overflow-y-auto bg-black/60 px-3 py-4 sm:items-center sm:px-4 sm:py-0"
     onclick={handleClose}
   >
     <div
-      class="flex max-h-[85vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#0c0c0e]"
+      class="my-2 flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#0c0c0e] sm:my-0 sm:max-h-[85vh]"
       onclick={(event) => event.stopPropagation()}
     >
-      <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-white/5">
+      <div class="flex items-center justify-between border-b border-slate-200 px-4 py-4 dark:border-white/5 sm:px-6">
         <div>
           <h2 class="text-lg font-bold text-slate-800 dark:text-white">Editar vínculos de {controllerName}</h2>
           <p class="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">
@@ -96,7 +96,7 @@
         </button>
       </div>
 
-      <div class="flex-1 overflow-y-auto p-6 space-y-4">
+      <div class="flex-1 overflow-y-auto p-4 space-y-4 sm:p-6">
         {#if error}
           <div class="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-400">
             <AlertCircle size={16} class="shrink-0" />
@@ -125,7 +125,7 @@
         />
       </div>
 
-      <div class="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-6 py-4 dark:border-white/5 dark:bg-white/[0.02]">
+      <div class="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-4 dark:border-white/5 dark:bg-white/[0.02] sm:px-6">
         <button
           type="button"
           onclick={handleClose}

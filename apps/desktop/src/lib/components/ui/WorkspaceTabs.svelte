@@ -89,7 +89,7 @@
     <div bind:this={tabsTrackRef} class="flex min-w-max items-end gap-1">
       <div bind:this={tabsItemsRef} class="flex min-w-max items-end gap-1">
         {#each items as item (item.id)}
-          <div class="group relative flex h-9 min-w-[112px] max-w-[180px] items-center">
+          <div class="group relative flex h-9 min-w-[88px] max-w-[180px] items-center sm:min-w-[112px]">
             <button
               onclick={() => !item.placeholder && onSelect(item.id)}
               class={`flex h-full w-full items-center gap-2 rounded-t-xl border-x border-t px-2.5 pr-7 text-xs font-semibold transition-all ${
@@ -107,7 +107,7 @@
             {#if item.closable && onRemove}
               <button
                 onclick={(event: MouseEvent) => { event.stopPropagation(); onRemove(item.id); }}
-                class="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 opacity-0 transition-all hover:bg-red-100 hover:text-red-600 group-hover:opacity-100 dark:hover:bg-red-900/30"
+                class="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 opacity-100 transition-all hover:bg-red-100 hover:text-red-600 sm:opacity-0 sm:group-hover:opacity-100 dark:hover:bg-red-900/30"
                 aria-label={`Fechar ${item.name}`}
               >
                 <X size={12} strokeWidth={2.5} />

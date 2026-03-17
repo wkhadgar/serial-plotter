@@ -370,7 +370,7 @@
     }
 
     if (currentStep === 'driver') {
-      return driverInstance ? null : 'Configure a conexão da planta';
+      return driverInstance ? null : 'Configure o driver da planta';
     }
 
     if (currentStep === 'variables') {
@@ -426,7 +426,7 @@
     }
 
     if (!driverInstance) {
-      error = 'Configure a conexão da planta';
+      error = 'Configure o driver da planta';
       currentStep = 'driver';
       return;
     }
@@ -531,7 +531,7 @@
           onclick={() => goToStep('driver')}
           class="shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'driver' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
         >
-          Conexão
+          Driver
           {#if driverInstance}
             <span class="ml-1.5 w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
           {/if}
@@ -560,7 +560,7 @@
           </span>
           {#if driverInstance}
             <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-              Conexão pronta
+              Driver pronto
             </span>
           {/if}
         </div>
@@ -613,7 +613,7 @@
                   <div class="flex-1">
                     <div class="font-medium text-slate-800 dark:text-white">{driverInstance.pluginName}</div>
                     <div class="text-xs text-slate-500 dark:text-zinc-400">
-                      Conexão pronta · {sensorCount} sensor(es) · {actuatorCount} atuador(es) · {normalizedSampleTimeMs > 0 ? `${normalizedSampleTimeMs} ms` : 'sem amostragem'}
+                      Driver pronto · {sensorCount} sensor(es) · {actuatorCount} atuador(es) · {normalizedSampleTimeMs > 0 ? `${normalizedSampleTimeMs} ms` : 'sem amostragem'}
                     </div>
                   </div>
                   <button
@@ -630,7 +630,7 @@
                 class="w-full p-4 rounded-xl border-2 border-dashed border-slate-200 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 transition-colors text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400"
               >
                 <Cpu size={24} class="mx-auto mb-2 opacity-50" />
-                <div class="text-sm font-medium">Selecionar conexão da planta</div>
+                <div class="text-sm font-medium">Selecionar driver da planta</div>
               </button>
             {/if}
           </div>
@@ -644,7 +644,7 @@
             {/if}
 
             <div class="rounded-xl border border-blue-200 dark:border-blue-900/40 bg-blue-50/80 dark:bg-blue-900/10 px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
-              A conexão usa automaticamente a quantidade de sensores e atuadores da planta. Você não precisa preencher isso manualmente.
+              O driver usa automaticamente a quantidade de sensores e atuadores da planta. Você não precisa preencher isso manualmente.
             </div>
 
             {#if driverInstance}
@@ -674,7 +674,7 @@
               <input
                 type="text"
                 bind:value={driverSearch}
-                placeholder="Buscar opção de conexão..."
+                placeholder="Buscar driver..."
                 class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
               />
             </div>
@@ -710,7 +710,7 @@
               {#if filteredPlugins.length === 0}
                 <div class="text-center py-8 text-slate-400 dark:text-zinc-500">
                   <Cpu size={32} class="mx-auto mb-2 opacity-50" />
-                  <p class="text-sm">Nenhuma opção de conexão encontrada</p>
+                  <p class="text-sm">Nenhum driver encontrado</p>
                 </div>
               {/if}
             </div>
@@ -738,7 +738,7 @@
             <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-white/[0.03]">
               <div>
                 <div class="text-sm font-medium text-slate-700 dark:text-zinc-200">Variáveis da planta</div>
-                <div class="text-xs text-slate-500 dark:text-zinc-400">Cada alteração atualiza automaticamente os dados da conexão.</div>
+                <div class="text-xs text-slate-500 dark:text-zinc-400">Cada alteração atualiza automaticamente os dados do driver.</div>
               </div>
               <button
                 onclick={addVariable}

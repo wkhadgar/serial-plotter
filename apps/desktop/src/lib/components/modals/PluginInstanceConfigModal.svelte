@@ -191,14 +191,14 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
+    class="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-black/60 px-3 py-4 sm:items-center sm:px-4 sm:py-0"
     onclick={handleClose}
   >
     <div
-      class="bg-white dark:bg-[#0c0c0e] rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-white/10"
+      class="my-2 bg-white dark:bg-[#0c0c0e] rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] sm:max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-white/10 sm:my-0"
       onclick={(e) => e.stopPropagation()}
     >
-      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-white/5 shrink-0">
+      <div class="flex items-center justify-between px-4 py-4 border-b border-slate-200 dark:border-white/5 shrink-0 sm:px-6">
         <div>
           <h2 class="text-lg font-bold text-slate-800 dark:text-white">Configurar {pluginLabel}</h2>
           <p class="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
@@ -213,7 +213,7 @@
         </button>
       </div>
 
-      <div class="flex-1 overflow-y-auto p-6 space-y-4">
+      <div class="flex-1 overflow-y-auto p-4 space-y-4 sm:p-6">
         {#if error}
           <div class="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400 text-sm flex items-center gap-2">
             <AlertCircle size={16} class="shrink-0" />

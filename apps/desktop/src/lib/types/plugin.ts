@@ -8,7 +8,7 @@ export type SchemaFieldType = 'bool' | 'int' | 'float' | 'string' | 'list';
 export const BUILTIN_PLUGIN_KINDS: BuiltInPluginKind[] = ['driver', 'controller'];
 
 export const PLUGIN_KIND_LABELS: Record<BuiltInPluginKind, string> = {
-  driver: 'Conexão',
+  driver: 'Driver',
   controller: 'Controlador',
 };
 
@@ -52,8 +52,8 @@ export const SCHEMA_FIELD_TYPE_LABELS: Record<SchemaFieldType, string> = {
 };
 
 export const AUTO_SCHEMA_FIELDS: PluginSchemaField[] = [
-  { name: 'num_sensors', type: 'int', description: 'Quantidade de sensores usada na conexão' },
-  { name: 'num_actuators', type: 'int', description: 'Quantidade de atuadores usada na conexão' },
+  { name: 'num_sensors', type: 'int', description: 'Quantidade de sensores usada no driver' },
+  { name: 'num_actuators', type: 'int', description: 'Quantidade de atuadores usada no driver' },
 ];
 
 export const RESERVED_FIELD_NAMES = AUTO_SCHEMA_FIELDS.map(f => f.name);
