@@ -1,30 +1,33 @@
-use std::fs;
+use std::fs::{self, remove_dir_all};
 use std::path::PathBuf;
 
 use crate::core::error::{AppError, AppResult};
-use crate::core::models::plugin::PluginRegistry;
+use crate::core::models::plugin::{PluginRegistry, PluginType};
 
 const APP_WORKSPACE_DIR: &str = "Senamby/workspace";
 const DRIVERS_DIR: &str = "drivers";
+const CONTROLLERS_DIR: &str = "controllers";
 const DRIVER_REGISTRY_FILE: &str = "registry.json";
 const DRIVER_SOURCE_FILE: &str = "main.py";
 
 pub struct WorkspaceService;
 
 impl WorkspaceService {
-    pub fn save_driver_registry(plugin: &PluginRegistry, source_code: &str) -> AppResult<()> {
-        let driver_dir = Self::driver_directory(&plugin.name)?;
-        fs::create_dir_all(&driver_dir).map_err(|error| {
+    pub fn save_plugin_registry(plugin: &PluginRegistry, source_code: &str) -> AppResult<()> {
+        let plugin_dir = Self::plugin_directory(&plugin.name, plugin.plugin_type)?;
+        fs::create_dir_all(&plugin_dir).map_err(|error| {
             AppError::IoError(format!(
-                "Falha ao criar diretório do driver '{}': {}",
-                plugin.name, error
+                "Falha ao criar diretório do {:?} '{1}': {2}",
+                plugin.plugin_type, plugin.name, error
             ))
         })?;
 
-        let source_path = driver_dir.join(DRIVER_SOURCE_FILE);
+        let source_path = plugin_dir.join(DRIVER_SOURCE_FILE);
         fs::write(&source_path, source_code).map_err(|error| {
             AppError::IoError(format!(
-                "Falha ao salvar código fonte do driver em '{}': {}",
+                "Falha ao salvar código fonte do {:?} '{}' em '{}': {}",
+                plugin.plugin_type,
+                plugin.name,
                 source_path.display(),
                 error
             ))
@@ -32,15 +35,17 @@ impl WorkspaceService {
 
         let registry_payload = serde_json::to_string_pretty(plugin).map_err(|error| {
             AppError::IoError(format!(
-                "Falha ao serializar registro do driver '{}': {}",
-                plugin.name, error
+                "Falha ao serializar registro do {:?} '{1}': {2}",
+                plugin.plugin_type, plugin.name, error
             ))
         })?;
 
-        let registry_path = driver_dir.join(DRIVER_REGISTRY_FILE);
+        let registry_path = plugin_dir.join(DRIVER_REGISTRY_FILE);
         fs::write(&registry_path, registry_payload).map_err(|error| {
             AppError::IoError(format!(
-                "Falha ao salvar registro do driver em '{}': {}",
+                "Falha ao salvar registro do {:?} '{}' em '{}': {}",
+                plugin.plugin_type,
+                plugin.name,
                 registry_path.display(),
                 error
             ))
@@ -49,9 +54,53 @@ impl WorkspaceService {
         Ok(())
     }
 
-    fn driver_directory(plugin_name: &str) -> AppResult<PathBuf> {
+    pub fn update_plugin_registry(
+        plugin: &PluginRegistry,
+        source_code: &str,
+        previous_plugin_name: &str,
+        previous_plugin_type: PluginType,
+    ) -> AppResult<()> {
+        let previous_dir = Self::plugin_directory(previous_plugin_name, previous_plugin_type)?;
+        let next_dir = Self::plugin_directory(&plugin.name, plugin.plugin_type)?;
+
+        if previous_dir != next_dir && previous_dir.exists() {
+            remove_dir_all(&previous_dir).map_err(|error| {
+                AppError::IoError(format!(
+                    "Falha ao remover diretório antigo do plugin '{}': {}",
+                    previous_dir.display(),
+                    error
+                ))
+            })?;
+        }
+
+        Self::save_plugin_registry(plugin, source_code)?;
+
+        Ok(())
+    }
+
+    pub fn read_plugin_source(plugin_name: &str, plugin_type: PluginType) -> AppResult<String> {
+        let source_path = Self::plugin_source_path(plugin_name, plugin_type)?;
+
+        fs::read_to_string(&source_path).map_err(|error| {
+            AppError::IoError(format!(
+                "Falha ao ler código fonte do plugin em '{}': {}",
+                source_path.display(),
+                error
+            ))
+        })
+    }
+
+    fn plugin_directory(plugin_name: &str, plugin_type: PluginType) -> AppResult<PathBuf> {
         let workspace_root = Self::workspace_root()?;
-        Ok(workspace_root.join(DRIVERS_DIR).join(plugin_name))
+
+        match plugin_type {
+            PluginType::Driver => Ok(workspace_root.join(DRIVERS_DIR).join(plugin_name)),
+            PluginType::Controller => Ok(workspace_root.join(CONTROLLERS_DIR).join(plugin_name)),
+        }
+    }
+
+    fn plugin_source_path(plugin_name: &str, plugin_type: PluginType) -> AppResult<PathBuf> {
+        Ok(Self::plugin_directory(plugin_name, plugin_type)?.join(DRIVER_SOURCE_FILE))
     }
 
     #[cfg(not(test))]

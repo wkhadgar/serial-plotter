@@ -86,6 +86,7 @@
   const runtimeExtension = $derived('.py');
   const schemaValid = $derived(formFields.every((f, i) => !fieldErrors[i]));
   const isEditing = $derived(initialPlugin !== null);
+  const isKindLocked = $derived(!!forceKind || isEditing);
   const resolvedKind = $derived.by(() => {
     if (forceKind) return normalizePluginKind(forceKind);
     if (kindMode === 'custom') {
@@ -200,6 +201,8 @@
   });
 
   function handleKindSelectChange(value: string) {
+    if (isKindLocked) return;
+
     if (value === CUSTOM_KIND_VALUE) {
       kindMode = 'custom';
       if (!customKind.trim()) {
@@ -215,6 +218,7 @@
   }
 
   function updateCustomKind(value: string) {
+    if (isKindLocked) return;
     customKind = value;
   }
 
@@ -461,8 +465,7 @@
     return null;
   }
 
-  function buildSchema(): PluginSchemaField[] {
-    const pluginKind = resolvedKind;
+  function buildSchema(pluginKind: PluginKind): PluginSchemaField[] {
     const userFields: PluginSchemaField[] = formFields.map((f) => {
       const field: PluginSchemaField = { name: f.name, type: f.type };
       if (f.hasDefault) {
@@ -494,7 +497,7 @@
   }
 
   function handleOpenCodeEditor() {
-    if (!sourceCode && isDriverKind && runtime === 'python') {
+    if (!sourceCode && !isEditing && isDriverKind && runtime === 'python') {
       sourceCode = generateDriverTemplate(pluginName);
     }
     showCodeEditor = true;
@@ -524,13 +527,16 @@
 
   async function handleSubmit() {
     error = null;
+    const effectiveKind = initialPlugin
+      ? normalizePluginKind(initialPlugin.kind)
+      : resolvedKind;
 
     if (!pluginName.trim()) {
       error = 'Nome do plugin é obrigatório';
       return;
     }
 
-    if (!resolvedKind) {
+    if (!effectiveKind) {
       error = 'Defina um tipo de plugin válido';
       return;
     }
@@ -540,7 +546,7 @@
       return;
     }
 
-    if (sourceCode && resolvedKind === 'driver' && runtime === 'python') {
+    if (sourceCode && effectiveKind === 'driver' && runtime === 'python') {
       const expectedClass = toDriverClassName(pluginName);
       const codeValidation = await validateDriverSourceCode(sourceCode, expectedClass);
       if (!codeValidation.success && codeValidation.errors) {
@@ -589,11 +595,11 @@
     try {
       const payload = {
         name: pluginName.trim(),
-        kind: resolvedKind,
+        kind: effectiveKind,
         runtime: 'python' as PluginRuntime,
         sourceFile: sourceFileName || 'main.py',
         sourceCode: sourceCode || undefined,
-        schema: buildSchema(),
+        schema: buildSchema(effectiveKind),
         dependencies: dependencies.length > 0
           ? dependencies.filter((dependency) => dependency.name.trim())
           : undefined,
@@ -702,7 +708,7 @@
             <select
               value={kindSelectValue}
               onchange={(e) => handleKindSelectChange((e.target as HTMLSelectElement).value)}
-              disabled={!!forceKind}
+              disabled={isKindLocked}
               class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 cursor-pointer disabled:opacity-60"
             >
               {#each Object.entries(PLUGIN_KIND_LABELS) as [value, label]}
@@ -719,7 +725,7 @@
           </div>
         </div>
 
-        {#if !forceKind && kindMode === 'custom'}
+        {#if !isKindLocked && kindMode === 'custom'}
           <label class="block">
             <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Tipo Personalizado *</span>
             <input

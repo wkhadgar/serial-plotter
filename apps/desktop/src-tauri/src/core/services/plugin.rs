@@ -1,6 +1,6 @@
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plugin::{
-    CreatePluginRequest, PluginRegistry, PluginRuntime, PluginType, UpdatePluginRequest,
+    CreatePluginRequest, PluginRegistry, PluginRuntime, UpdatePluginRequest,
 };
 use crate::core::services::workspace::WorkspaceService;
 use crate::state::PluginStore;
@@ -29,9 +29,7 @@ impl PluginService {
             .unwrap_or_default();
         let plugin = Self::build_plugin(request);
 
-        if plugin.plugin_type == PluginType::Driver {
-            WorkspaceService::save_driver_registry(&plugin, &source_code)?;
-        }
+        WorkspaceService::save_plugin_registry(&plugin, &source_code)?;
 
         store.insert(plugin.clone())?;
 
@@ -39,7 +37,10 @@ impl PluginService {
     }
 
     pub fn get(store: &PluginStore, id: &str) -> AppResult<PluginRegistry> {
-        store.get(id)
+        let mut plugin = store.get(id)?;
+        let source_code = WorkspaceService::read_plugin_source(&plugin.name, plugin.plugin_type)?;
+        plugin.source_code = Some(source_code);
+        Ok(plugin)
     }
 
     pub fn list(store: &PluginStore) -> Vec<PluginRegistry> {
@@ -63,9 +64,23 @@ impl PluginService {
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
 
+        let current = store.get(request.id.as_str())?;
+        let previous_name = current.name.trim().to_string();
+        let previous_type = current.plugin_type;
+
+        if request.plugin_type != previous_type {
+            return Err(AppError::InvalidArgument(
+                "Tipo do plugin não pode ser alterado".into(),
+            ));
+        }
+
+        let resolved_source_code = match source_code {
+            Some(code) => code,
+            None => WorkspaceService::read_plugin_source(previous_name.as_str(), previous_type)?,
+        };
+
         let updated = store.update(&request.id, |plugin| {
             plugin.name = request.name.trim().to_string();
-            plugin.plugin_type = request.plugin_type;
             plugin.runtime = request.runtime;
             plugin.schema = request.schema;
             plugin.source_file = Some(PYTHON_SOURCE_FILE_NAME.to_string());
@@ -76,11 +91,12 @@ impl PluginService {
             plugin.author = request.author.map(|value| value.trim().to_string());
         })?;
 
-        if updated.plugin_type == PluginType::Driver {
-            if let Some(code) = source_code.as_deref() {
-                WorkspaceService::save_driver_registry(&updated, code)?;
-            }
-        }
+        WorkspaceService::update_plugin_registry(
+            &updated,
+            resolved_source_code.as_str(),
+            previous_name.as_str(),
+            previous_type,
+        )?;
 
         Ok(updated)
     }
@@ -298,6 +314,91 @@ mod tests {
 
         assert_eq!(updated.name, "updated_driver");
         assert_eq!(updated.source_file.as_deref(), Some("main.py"));
+        assert_eq!(updated.source_code, None);
+    }
+
+    #[test]
+    fn test_update_plugin_should_fail_when_type_changes() {
+        let store = PluginStore::new();
+        let created = PluginService::create(&store, create_valid_request()).unwrap();
+
+        let result = PluginService::update(
+            &store,
+            UpdatePluginRequest {
+                id: created.id.clone(),
+                name: "updated_driver".to_string(),
+                plugin_type: PluginType::Controller,
+                runtime: PluginRuntime::Python,
+                schema: vec![],
+                source_file: Some("main.py".to_string()),
+                source_code: Some("class UpdatedDriver:\n    pass".to_string()),
+                dependencies: vec![],
+                description: Some("updated".to_string()),
+                version: None,
+                author: None,
+            },
+        );
+
+        assert!(matches!(
+            result,
+            Err(AppError::InvalidArgument(message))
+            if message == "Tipo do plugin não pode ser alterado"
+        ));
+    }
+
+    #[test]
+    fn test_get_plugin_returns_source_code_from_disk() {
+        let store = PluginStore::new();
+        let created = PluginService::create(&store, create_valid_request()).unwrap();
+
+        let retrieved = PluginService::get(&store, &created.id).unwrap();
+        assert_eq!(
+            retrieved.source_code.as_deref(),
+            Some("class TestDriver:\n    pass")
+        );
+    }
+
+    #[test]
+    fn test_update_plugin_without_source_code_keeps_existing_file_contents() {
+        let store = PluginStore::new();
+        let created = PluginService::create(&store, create_valid_request()).unwrap();
+        let updated_name = format!("updated_driver_{}", Uuid::new_v4().simple());
+
+        let original_source_path = std::env::temp_dir()
+            .join("Senamby/workspace")
+            .join("drivers")
+            .join(&created.name)
+            .join("main.py");
+        let original_source = fs::read_to_string(&original_source_path).unwrap();
+
+        let updated = PluginService::update(
+            &store,
+            UpdatePluginRequest {
+                id: created.id.clone(),
+                name: updated_name.clone(),
+                plugin_type: PluginType::Driver,
+                runtime: PluginRuntime::Python,
+                schema: vec![],
+                source_file: Some("main.py".to_string()),
+                source_code: None,
+                dependencies: vec![],
+                description: Some("updated".to_string()),
+                version: None,
+                author: None,
+            },
+        )
+        .unwrap();
+
+        let updated_source_path = std::env::temp_dir()
+            .join("Senamby/workspace")
+            .join("drivers")
+            .join(&updated_name)
+            .join("main.py");
+        let updated_source = fs::read_to_string(&updated_source_path).unwrap();
+
+        assert_eq!(updated.name, updated_name);
+        assert_eq!(updated_source.trim(), original_source.trim());
+        assert!(!original_source_path.exists());
         assert_eq!(updated.source_code, None);
     }
 }

@@ -8,7 +8,7 @@
   import CreatePluginModal from '$lib/components/modals/CreatePluginModal.svelte';
   import CodeEditorModal from '$lib/components/modals/CodeEditorModal.svelte';
   import GenericModal from '$lib/components/modals/GenericModal.svelte';
-  import { deletePlugin, listPlugins, registerPlugin, validatePluginFile } from '$lib/services/plugin';
+  import { deletePlugin, getPlugin, listPlugins, registerPlugin, validatePluginFile } from '$lib/services/plugin';
   import { FILE_FILTERS, openFileDialog, readFileAsJSON } from '$lib/services/fileDialog';
 
   interface Props {
@@ -97,8 +97,15 @@
     showCodeViewer = true;
   }
 
-  function handleEditPlugin(plugin: PluginDefinition) {
-    selectedPlugin = plugin;
+  async function handleEditPlugin(plugin: PluginDefinition) {
+    loadError = null;
+    const pluginFromStore = await getPlugin(plugin.id);
+    if (!pluginFromStore) {
+      loadError = 'Não foi possível carregar os dados mais recentes do plugin';
+      return;
+    }
+
+    selectedPlugin = pluginFromStore;
     createModalInitialKind = undefined;
     showCreateModal = true;
   }
