@@ -7,7 +7,9 @@ use crate::commands::plants::{
     connect_plant, create_plant, disconnect_plant, get_plant, list_plants, pause_plant,
     remove_plant, resume_plant, update_plant,
 };
-use crate::commands::plugins::{create_plugin, get_plugin, list_plugins, list_plugins_by_type, update_plugin};
+use crate::commands::plugins::{
+    create_plugin, get_plugin, list_plugins, list_plugins_by_type, update_plugin,
+};
 use crate::core::error::{AppError, ErrorDto};
 use crate::state::AppState;
 

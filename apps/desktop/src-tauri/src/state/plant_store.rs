@@ -98,7 +98,9 @@ impl PlantStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::plant::{Plant, PlantController, PlantDriver, PlantStats, PlantVariable, VariableType};
+    use crate::core::models::plant::{
+        Plant, PlantController, PlantDriver, PlantStats, PlantVariable, VariableType,
+    };
     use crate::core::models::plugin::PluginRuntime;
     use std::collections::HashMap;
 

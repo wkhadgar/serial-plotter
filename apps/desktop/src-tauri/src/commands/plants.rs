@@ -9,7 +9,8 @@ pub fn create_plant(
     state: State<'_, AppState>,
     request: CreatePlantRequest,
 ) -> Result<PlantResponse, ErrorDto> {
-    let plant = PlantService::create(state.plants(), state.plugins(), request).map_err(ErrorDto::from)?;
+    let plant =
+        PlantService::create(state.plants(), state.plugins(), request).map_err(ErrorDto::from)?;
     Ok(PlantResponse::from(&plant))
 }
 
@@ -18,7 +19,8 @@ pub fn update_plant(
     state: State<'_, AppState>,
     request: UpdatePlantRequest,
 ) -> Result<PlantResponse, ErrorDto> {
-    let plant = PlantService::update(state.plants(), state.plugins(), request).map_err(ErrorDto::from)?;
+    let plant =
+        PlantService::update(state.plants(), state.plugins(), request).map_err(ErrorDto::from)?;
     Ok(PlantResponse::from(&plant))
 }
 

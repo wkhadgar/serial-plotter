@@ -12,7 +12,11 @@ use uuid::Uuid;
 pub struct PlantService;
 
 impl PlantService {
-    pub fn create(store: &PlantStore, plugins: &PluginStore, request: CreatePlantRequest) -> AppResult<Plant> {
+    pub fn create(
+        store: &PlantStore,
+        plugins: &PluginStore,
+        request: CreatePlantRequest,
+    ) -> AppResult<Plant> {
         Self::validate_payload(
             None,
             &request.name,
@@ -30,7 +34,11 @@ impl PlantService {
         Ok(plant)
     }
 
-    pub fn update(store: &PlantStore, plugins: &PluginStore, request: UpdatePlantRequest) -> AppResult<Plant> {
+    pub fn update(
+        store: &PlantStore,
+        plugins: &PluginStore,
+        request: UpdatePlantRequest,
+    ) -> AppResult<Plant> {
         Self::validate_payload(
             Some(request.id.as_str()),
             &request.name,
@@ -42,7 +50,8 @@ impl PlantService {
             plugins,
         )?;
 
-        let driver_plugin = Self::resolve_plugin(plugins, &request.driver.plugin_id, PluginType::Driver)?;
+        let driver_plugin =
+            Self::resolve_plugin(plugins, &request.driver.plugin_id, PluginType::Driver)?;
         let next_variables = Self::build_variables(request.variables);
         let next_driver = Self::build_driver(request.driver, &driver_plugin);
         let next_controllers = request
@@ -68,7 +77,8 @@ impl PlantService {
     fn build_plant(request: CreatePlantRequest, plugins: &PluginStore) -> AppResult<Plant> {
         let plant_id = format!("plant_{}", Uuid::new_v4());
         let sample_time_ms = request.sample_time_ms;
-        let driver_plugin = Self::resolve_plugin(plugins, &request.driver.plugin_id, PluginType::Driver)?;
+        let driver_plugin =
+            Self::resolve_plugin(plugins, &request.driver.plugin_id, PluginType::Driver)?;
         let variables = Self::build_variables(request.variables);
         let controllers = request
             .controllers
@@ -501,7 +511,8 @@ mod tests {
     fn test_update_plant_success() {
         let store = PlantStore::new();
         let plugins = create_plugin_store();
-        let created = PlantService::create(&store, &plugins, create_valid_request("Planta 1")).unwrap();
+        let created =
+            PlantService::create(&store, &plugins, create_valid_request("Planta 1")).unwrap();
 
         let updated = PlantService::update(
             &store,

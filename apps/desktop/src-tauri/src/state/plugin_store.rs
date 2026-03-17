@@ -47,7 +47,10 @@ impl PluginStore {
         self.registries.read().values().cloned().collect()
     }
 
-    pub fn list_by_type(&self, plugin_type: crate::core::models::plugin::PluginType) -> Vec<PluginRegistry> {
+    pub fn list_by_type(
+        &self,
+        plugin_type: crate::core::models::plugin::PluginType,
+    ) -> Vec<PluginRegistry> {
         self.registries
             .read()
             .values()

@@ -1,7 +1,8 @@
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plugin::{
-    CreatePluginRequest, PluginRegistry, PluginRuntime, UpdatePluginRequest,
+    CreatePluginRequest, PluginRegistry, PluginRuntime, PluginType, UpdatePluginRequest,
 };
+use crate::core::services::workspace::WorkspaceService;
 use crate::state::PluginStore;
 use uuid::Uuid;
 
@@ -19,6 +20,11 @@ impl PluginService {
         )?;
 
         let plugin = Self::build_plugin(request);
+
+        if plugin.plugin_type == PluginType::Driver {
+            WorkspaceService::save_driver_registry(&plugin)?;
+        }
+
         store.insert(plugin.clone())?;
 
         Ok(plugin)
@@ -105,7 +111,10 @@ impl PluginService {
             ));
         }
 
-        if source_code.map(|code| code.trim().is_empty()).unwrap_or(true) {
+        if source_code
+            .map(|code| code.trim().is_empty())
+            .unwrap_or(true)
+        {
             return Err(AppError::InvalidArgument(
                 "Código fonte Python é obrigatório".into(),
             ));

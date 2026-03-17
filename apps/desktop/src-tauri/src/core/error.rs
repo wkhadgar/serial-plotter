@@ -4,7 +4,7 @@ use thiserror::Error;
 pub type AppResult<T> = Result<T, AppError>;
 
 #[derive(Debug, Error)]
-pub enum AppError{
+pub enum AppError {
     #[error("invalid argument: {0}")]
     InvalidArgument(String),
 
@@ -19,14 +19,14 @@ pub enum AppError{
 }
 
 #[derive(Debug, Serialize)]
-pub struct ErrorDto{
+pub struct ErrorDto {
     pub code: String,
     pub message: String,
 }
 
-impl From<AppError> for ErrorDto{
+impl From<AppError> for ErrorDto {
     fn from(err: AppError) -> Self {
-        let(code, message) = match err {
+        let (code, message) = match err {
             AppError::InvalidArgument(msg) => ("INVALID_ARGUMENT", msg),
             AppError::NotFound(msg) => ("NOT_FOUND", msg),
             AppError::IoError(msg) => ("IO_ERROR", msg),
