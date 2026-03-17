@@ -15,7 +15,7 @@
 
   let wrapper: HTMLDivElement;
   let chart: uPlot | null = null;
-  let renderTimer: number | null = null;
+  let renderPollTimer: number | null = null;
   let prevDataSignature = '';
   let _mounted = false;
   let _panning = false;
@@ -61,6 +61,10 @@
 
     return `${source.length}:${source[0]?.time ?? 0}:${source[source.length - 1]?.time ?? 0}`;
   }
+
+  const seriesVisualSignature = $derived.by(() =>
+    series.map((s) => `${s.key}:${s.visible ? 1 : 0}:${s.color}:${s.label}`).join('|')
+  );
 
   function findLowerBound(data: typeof series[number]['data'], target: number): number {
     let low = 0;
@@ -405,7 +409,7 @@
     }
   }
 
-  function renderLoop() {
+  function pollDataUpdates() {
     if (chart && wrapper) {
       const signature = getDataSignature();
       if (signature !== prevDataSignature) {
@@ -413,13 +417,12 @@
         updateChart();
       }
     }
-    renderTimer = requestAnimationFrame(renderLoop);
   }
 
   onMount(() => {
     initChart();
     _mounted = true;
-    renderTimer = requestAnimationFrame(renderLoop);
+    renderPollTimer = window.setInterval(pollDataUpdates, 75);
 
     let resizeRaf: number | null = null;
     const ro = new ResizeObserver(() => {
@@ -448,7 +451,7 @@
   });
 
   onDestroy(() => {
-    if (renderTimer) cancelAnimationFrame(renderTimer);
+    if (renderPollTimer) window.clearInterval(renderPollTimer);
     if (chart) {
       chart.destroy();
       chart = null;
@@ -456,12 +459,7 @@
   });
 
   $effect(() => {
-    const _ = [
-      config.yMode,
-      config.showGrid,
-      theme,
-      ...series.map((s) => `${s.visible}|${s.color}|${s.label}`),
-    ];
+    const _ = [config.yMode, config.showGrid, theme, seriesVisualSignature];
     untrack(() => {
       if (_mounted && chart) initChart();
     });

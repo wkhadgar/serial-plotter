@@ -30,9 +30,19 @@ class AnalyzerStore {
   get selectedVariables(): ProcessedVariableData[] {
     const tab = this.activeTab;
     if (!tab) return [];
-    return tab.processedVariables.filter(pv => 
-      tab.selectedVariablesIndexes.includes(pv.variable.index)
-    );
+
+    if (tab.selectedVariablesIndexes.length === 0) return [];
+
+    const selectedIndexes = new Set(tab.selectedVariablesIndexes);
+    const selected: ProcessedVariableData[] = [];
+
+    for (const variable of tab.processedVariables) {
+      if (selectedIndexes.has(variable.variable.index)) {
+        selected.push(variable);
+      }
+    }
+
+    return selected;
   }
 
   addTab(id: string, name: string, processedVariables: ProcessedVariableData[]): void {

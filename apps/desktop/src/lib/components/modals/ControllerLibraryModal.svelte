@@ -1,7 +1,7 @@
 <script lang="ts">
   import { AlertCircle, Plus, Search, Settings, X } from 'lucide-svelte';
   import { listPluginsByType } from '$lib/services/plugin';
-  import type { PluginDefinition } from '$lib/types/plugin';
+  import { getPluginKindLabel, type PluginDefinition } from '$lib/types/plugin';
 
   interface Props {
     visible: boolean;
@@ -84,7 +84,7 @@
         <div>
           <h2 class="text-lg font-bold text-slate-800 dark:text-white">Biblioteca de Controladores</h2>
           <p class="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">
-            Selecione um controlador já cadastrado na biblioteca de plugins.
+            Escolha um controlador da sua biblioteca.
           </p>
         </div>
         <button
@@ -127,7 +127,7 @@
               Nenhum controlador encontrado
             </div>
             <p class="mt-1 text-xs text-slate-500 dark:text-zinc-400">
-              Cadastre plugins do tipo `controller` no módulo Plugins para usá-los aqui.
+              Adicione controladores no módulo Plugins para usá-los aqui.
             </p>
           </div>
         {:else}
@@ -144,12 +144,12 @@
                   </div>
                   <div class="min-w-0">
                     <div class="truncate text-sm font-semibold text-slate-800 dark:text-white">{template.name}</div>
-                    <div class="text-xs text-slate-500 dark:text-zinc-400">{template.kind}</div>
+                    <div class="text-xs text-slate-500 dark:text-zinc-400">{getPluginKindLabel(template.kind)}</div>
                   </div>
                 </div>
 
                 <div class="mb-3 text-xs text-slate-500 dark:text-zinc-400">
-                  {template.schema.length} parâmetro(s) configurável(is)
+                  {template.schema.length} ajuste(s) disponível(is)
                 </div>
 
                 <div class="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300">

@@ -29,18 +29,39 @@
   let showErrorModal = $state(false);
   let errorMessage = $state('');
 
+  const activeTab = $derived(analyzerStore.activeTab);
+  const activeProcessedVariables = $derived(activeTab?.processedVariables ?? []);
+  const selectedVariables = $derived(analyzerStore.selectedVariables);
+  const hasProcessedVariables = $derived(activeProcessedVariables.length > 0);
+  const isSingleView = $derived(analyzerStore.chartState.viewMode === 'single');
+  const visibleVariables = $derived.by(() => {
+    if (isSingleView) {
+      const focused = selectedVariables[analyzerStore.chartState.focusedVariableIndex];
+      return focused ? [focused] : [];
+    }
+    return selectedVariables;
+  });
+  const selectorVariables = $derived.by(() => {
+    if (!activeTab) return [];
+
+    const selectedIndexes = new Set(activeTab.selectedVariablesIndexes);
+    return activeTab.processedVariables.map((pv) => ({
+      ...pv.variable,
+      selected: selectedIndexes.has(pv.variable.index),
+    }));
+  });
+
   function sKey(varIndex: number, seriesKey: string) {
     return `${varIndex}_${seriesKey}`;
   }
 
   $effect(() => {
-    const tab = analyzerStore.activeTab;
-    if (!tab || tab.processedVariables.length === 0) return;
+    if (!activeTab || activeProcessedVariables.length === 0) return;
 
     const current = untrack(() => seriesStyles);
     const next: Record<string, SeriesStyle> = {};
 
-    tab.processedVariables.forEach((pv) => {
+    activeProcessedVariables.forEach((pv) => {
       const vi = pv.variable.index;
       next[sKey(vi, 'sensor')] = current[sKey(vi, 'sensor')] ?? {
         color: SENSOR_COLOR,
@@ -65,10 +86,9 @@
   });
 
   const contextVariable = $derived.by(() => {
-    const vars = analyzerStore.selectedVariables;
-    if (vars.length === 0) return null;
-    const safe = Math.max(0, Math.min(contextVarIndex, vars.length - 1));
-    return vars[safe];
+    if (selectedVariables.length === 0) return null;
+    const safe = Math.max(0, Math.min(contextVarIndex, selectedVariables.length - 1));
+    return selectedVariables[safe];
   });
 
   const contextSeriesControls = $derived.by(() => {
@@ -109,6 +129,38 @@
     contextVariable ? `Linhas - ${contextVariable.variable.sensorName}` : 'Linhas'
   );
 
+  const variableSeriesStyles = $derived.by(() => {
+    const byVariable = new Map<number, Record<string, SeriesStyle>>();
+
+    for (const processedVar of selectedVariables) {
+      const variableIndex = processedVar.variable.index;
+      const styles: Record<string, SeriesStyle> = {
+        sensor: seriesStyles[sKey(variableIndex, 'sensor')] ?? {
+          color: SENSOR_COLOR,
+          visible: true,
+          label: 'Sensor',
+        },
+        setpoint: seriesStyles[sKey(variableIndex, 'setpoint')] ?? {
+          color: SETPOINT_COLOR,
+          visible: true,
+          label: 'Setpoint',
+        },
+      };
+
+      for (const [actuatorIndex, actuator] of processedVar.variable.actuators.entries()) {
+        styles[actuator.id] = seriesStyles[sKey(variableIndex, actuator.id)] ?? {
+          color: ACTUATOR_PALETTE[actuatorIndex % ACTUATOR_PALETTE.length],
+          visible: true,
+          label: actuator.name,
+        };
+      }
+
+      byVariable.set(variableIndex, styles);
+    }
+
+    return byVariable;
+  });
+
   function toggleSeriesVisibility(key: string) {
     const cur = seriesStyles[key];
     if (!cur) return;
@@ -119,16 +171,6 @@
     const cur = seriesStyles[key];
     if (!cur) return;
     seriesStyles = { ...seriesStyles, [key]: { ...cur, color } };
-  }
-
-  function getVarSeriesStyles(varIndex: number, pv: import('$lib/types/analyzer').ProcessedVariableData): Record<string, SeriesStyle> {
-    const result: Record<string, SeriesStyle> = {};
-    result['sensor'] = seriesStyles[sKey(varIndex, 'sensor')] ?? { color: SENSOR_COLOR, visible: true, label: 'Sensor' };
-    result['setpoint'] = seriesStyles[sKey(varIndex, 'setpoint')] ?? { color: SETPOINT_COLOR, visible: true, label: 'Setpoint' };
-    pv.variable.actuators.forEach((act, ai) => {
-      result[act.id] = seriesStyles[sKey(varIndex, act.id)] ?? { color: ACTUATOR_PALETTE[ai % ACTUATOR_PALETTE.length], visible: true, label: act.name };
-    });
-    return result;
   }
 
   function handleAddTab() {
@@ -212,9 +254,26 @@
   }
 
   function hasDraggedFiles(event: DragEvent): boolean {
-    const types = Array.from(event.dataTransfer?.types ?? []);
-    const itemKinds = Array.from(event.dataTransfer?.items ?? []).map((item) => item.kind);
-    return types.includes('Files') || itemKinds.includes('file') || (event.dataTransfer?.files?.length ?? 0) > 0;
+    const transfer = event.dataTransfer;
+    if (!transfer) return false;
+
+    if ((transfer.files?.length ?? 0) > 0) {
+      return true;
+    }
+
+    for (let index = 0; index < transfer.types.length; index += 1) {
+      if (transfer.types[index] === 'Files') {
+        return true;
+      }
+    }
+
+    for (let index = 0; index < transfer.items.length; index += 1) {
+      if (transfer.items[index]?.kind === 'file') {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   function handleDragEnter(e: DragEvent) {
@@ -332,13 +391,13 @@
       <div class="h-14 shrink-0 border-b border-slate-200 bg-white/90 px-5 backdrop-blur dark:border-white/5 dark:bg-[#0c0c0e]/90">
         <div class="flex h-full items-center justify-between gap-3">
           <div class="flex min-w-0 items-center gap-2">
-          {#if analyzerStore.activeTab}
+          {#if activeTab}
             <span class="truncate text-sm font-medium text-slate-700 dark:text-zinc-300">
-              {analyzerStore.activeTab.name}
+              {activeTab.name}
             </span>
-            {#if analyzerStore.activeTab.processedVariables.length > 0}
+            {#if hasProcessedVariables}
               <span class="shrink-0 rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
-                {analyzerStore.activeTab.processedVariables.length} variáveis
+                {activeProcessedVariables.length} variáveis
               </span>
             {/if}
           {/if}
@@ -352,7 +411,7 @@
               <Upload size={14} />
               {isProcessing ? 'Processando...' : 'Carregar JSON'}
             </button>
-            {#if analyzerStore.activeTab?.processedVariables && analyzerStore.activeTab.processedVariables.length > 0}
+            {#if hasProcessedVariables}
               <button
                 onclick={() => analyzerStore.toggleVariablePanel()}
                 class={`p-2 rounded-xl border transition-all ${analyzerStore.showVariablePanel ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-[#18181b] text-slate-500 border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-white/5'}`}
@@ -382,7 +441,7 @@
                 Processando arquivo...
               </h2>
               <p class="text-sm text-slate-500 dark:text-zinc-500">
-                Aguarde enquanto o backend processa os dados
+                Aguarde enquanto processamos os dados
               </p>
             </div>
           </div>
@@ -409,7 +468,7 @@
               </button>
             </div>
           </div>
-        {:else if analyzerStore.selectedVariables.length === 0}
+        {:else if selectedVariables.length === 0}
           <div class="h-full flex items-center justify-center">
             <div class="text-center">
               <div class="text-6xl mb-4">📊</div>
@@ -422,14 +481,10 @@
             </div>
           </div>
         {:else}
-          {@const visibleVariables = analyzerStore.chartState.viewMode === 'single' 
-            ? [analyzerStore.selectedVariables[analyzerStore.chartState.focusedVariableIndex]]
-            : analyzerStore.selectedVariables}
-          {@const isSingleView = analyzerStore.chartState.viewMode === 'single'}
-          
           <div class="h-full relative {isSingleView ? 'flex items-stretch' : 'grid gap-3'}" style={isSingleView ? '' : 'grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); grid-auto-rows: 1fr;'}>
-            {#each visibleVariables.filter(Boolean) as processedVar, vi (processedVar.variable.index)}
-              <div class="bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm flex flex-col {isSingleView ? 'w-full h-full' : ''}" data-var-index={vi}>
+            {#each visibleVariables as processedVar, vi (processedVar.variable.index)}
+              {@const currentSeriesStyles = variableSeriesStyles.get(processedVar.variable.index) ?? {}}
+              <div class="bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm flex flex-col {isSingleView ? 'w-full h-full' : ''}" data-var-index={isSingleView ? analyzerStore.chartState.focusedVariableIndex : vi}>
                 <div class="px-3 py-2 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-zinc-900/50 flex items-center justify-between shrink-0">
                   <h3 class="text-sm font-bold text-slate-700 dark:text-zinc-300">
                     {processedVar.variable.sensorName}
@@ -457,17 +512,17 @@
                     processedData={processedVar}
                     {theme}
                     chartState={analyzerStore.chartState}
-                    seriesStyles={getVarSeriesStyles(processedVar.variable.index, processedVar)}
+                    seriesStyles={currentSeriesStyles}
                     onRangeChange={handleRangeChange}
                   />
                 </div>
               </div>
             {/each}
             
-            {#if isSingleView && analyzerStore.selectedVariables.length > 1}
+            {#if isSingleView && selectedVariables.length > 1}
               <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2 z-20">
                 <span class="text-xs text-white/80 font-medium">
-                  {analyzerStore.selectedVariables[analyzerStore.chartState.focusedVariableIndex]?.variable.sensorName ?? 'Variável'} ({analyzerStore.chartState.focusedVariableIndex + 1}/{analyzerStore.selectedVariables.length})
+                  {selectedVariables[analyzerStore.chartState.focusedVariableIndex]?.variable.sensorName ?? 'Variável'} ({analyzerStore.chartState.focusedVariableIndex + 1}/{selectedVariables.length})
                 </span>
                 <span class="text-[10px] text-white/50">
                   [Space] próxima • [H] grid
@@ -479,14 +534,11 @@
       </div>
     </div>
 
-    {#if analyzerStore.activeTab?.processedVariables && analyzerStore.activeTab.processedVariables.length > 0}
+    {#if hasProcessedVariables}
       <VariableSelectorPanel
         visible={analyzerStore.showVariablePanel}
         onVisibleChange={(v) => analyzerStore.showVariablePanel = v}
-        variables={analyzerStore.activeTab.processedVariables.map(pv => ({
-          ...pv.variable,
-          selected: analyzerStore.activeTab!.selectedVariablesIndexes.includes(pv.variable.index)
-        }))}
+        variables={selectorVariables}
         onToggleVariable={(index) => analyzerStore.toggleVariable(index)}
       />
     {/if}

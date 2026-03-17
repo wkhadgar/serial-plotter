@@ -560,7 +560,7 @@
 
     for (let i = 0; i < formFields.length; i++) {
       if (!formFields[i].name.trim()) {
-        error = `Campo de schema #${i + 1} precisa de um nome`;
+        error = `Campo #${i + 1} precisa de um nome`;
         return;
       }
       if (!isValidFieldName(formFields[i].name)) {
@@ -580,7 +580,7 @@
     }
 
     if (!schemaValid) {
-      error = 'Corrija os erros nos campos do schema';
+      error = 'Corrija os erros dos campos de configuração';
       return;
     }
 
@@ -645,11 +645,11 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
+    class="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:items-center sm:p-6"
     onclick={handleClose}
   >
     <div
-      class="bg-white dark:bg-[#0c0c0e] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-white/10"
+      class="my-4 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#0c0c0e] sm:my-0"
       onclick={(e) => e.stopPropagation()}
     >
       <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-white/5 shrink-0">
@@ -667,7 +667,7 @@
         </button>
       </div>
 
-      <div class="flex-1 overflow-y-auto p-6 space-y-5">
+      <div class="flex-1 space-y-5 overflow-y-auto p-5 sm:p-6">
         {#if error}
           <div class="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-400 text-sm flex items-center gap-2">
             <AlertCircle size={16} class="shrink-0" />
@@ -681,7 +681,7 @@
             <input
               type="text"
               bind:value={pluginName}
-              placeholder="Ex: Modbus TCP Driver"
+              placeholder="Ex: Conexão Modbus TCP"
               class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
             />
           </label>
@@ -696,7 +696,7 @@
           </label>
         </div>
 
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <label class="block">
             <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Tipo *</span>
             <select
@@ -712,7 +712,7 @@
             </select>
           </label>
           <div class="block">
-            <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Runtime *</span>
+            <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Linguagem *</span>
             <div class="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600 dark:border-white/10 dark:bg-[#18181b] dark:text-zinc-300">
               {PLUGIN_RUNTIME_LABELS[PLUGIN_CREATION_RUNTIMES[0]]}
             </div>
@@ -737,7 +737,7 @@
 
         <div>
           <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Código Fonte * ({runtimeExtension})</span>
-          <div class="grid grid-cols-2 gap-2">
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button
               onclick={handlePickSourceFile}
               class="flex items-center gap-3 p-3 rounded-lg border border-dashed border-slate-300 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 bg-slate-50 dark:bg-white/[0.02] transition-colors text-left"
@@ -780,7 +780,7 @@
 
             <div class="space-y-1.5">
               {#each dependencies as dep, i (i)}
-                <div class="flex items-center gap-2">
+                <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
                   <input
                     type="text"
                     value={dep.name}
@@ -793,7 +793,7 @@
                     value={dep.version}
                     oninput={(e) => updateDependencyVersion(i, (e.target as HTMLInputElement).value)}
                     placeholder=">=1.0.0"
-                    class="w-28 h-9 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-mono"
+                    class="h-9 w-full rounded border border-slate-200 bg-white px-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/50 dark:border-white/10 dark:bg-[#18181b] sm:w-28"
                   />
                   <button
                     onclick={() => removeDependency(i)}
@@ -818,9 +818,9 @@
         <div>
           <div class="flex items-center justify-between mb-2">
             <div>
-              <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase">Schema de Configuração</span>
+              <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase">Campos de Configuração</span>
               {#if isDriverKind}
-                <span class="text-[10px] text-slate-400 dark:text-zinc-500 ml-2">(num_sensors e num_actuators são adicionados automaticamente)</span>
+                <span class="text-[10px] text-slate-400 dark:text-zinc-500 ml-2">(sensores e atuadores são preenchidos automaticamente)</span>
               {/if}
             </div>
             <span class="text-[10px] text-slate-400 dark:text-zinc-500">{formFields.length} campo(s)</span>
@@ -830,7 +830,7 @@
             {#each formFields as field, i (i)}
               <div class="p-3 rounded-lg border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] space-y-2">
                 <div class="flex items-start gap-2">
-                  <div class="flex-1 grid grid-cols-[1fr_120px] gap-2 items-start">
+                  <div class="flex-1 grid grid-cols-1 gap-2 items-start sm:grid-cols-[1fr_140px]">
                     <div>
                       <input
                         type="text"
@@ -883,6 +883,7 @@
                       {/if}
                       <div class="space-y-1.5">
                         {#each field.defaultListValues as item, itemIndex (itemIndex)}
+                          {@const itemError = getListDefaultItemTypeError(item)}
                           <div class="flex items-start gap-2">
                             <div class="flex-1 space-y-1">
                               {#if item.type === 'bool'}
@@ -926,8 +927,8 @@
                                   class="w-full h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-mono"
                                 />
                               {/if}
-                              {#if getListDefaultItemTypeError(item)}
-                                <p class="text-[10px] text-red-500">{getListDefaultItemTypeError(item)}</p>
+                              {#if itemError}
+                                <p class="text-[10px] text-red-500">{itemError}</p>
                               {/if}
                             </div>
                             <select
@@ -1019,17 +1020,17 @@
         </div>
       </div>
 
-      <div class="flex items-center justify-between px-6 py-4 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] shrink-0">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4 dark:border-white/5 dark:bg-white/[0.02] sm:px-6 shrink-0">
         <button
           onclick={handleClose}
-          class="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors"
+          class="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-200 dark:text-zinc-400 dark:hover:bg-white/10"
         >
           Cancelar
         </button>
         <button
           onclick={handleSubmit}
           disabled={isLoading}
-          class="px-6 py-2 rounded-lg text-sm font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white transition-colors flex items-center gap-2"
+          class="flex min-w-[170px] items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-700 disabled:bg-blue-400"
         >
           {#if isLoading}
             <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>

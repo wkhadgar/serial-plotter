@@ -3,7 +3,7 @@
   import ControllerVariableBindings from '../controllers/ControllerVariableBindings.svelte';
   import type { PlantVariable } from '$lib/types/plant';
   import type { PluginDefinition, PluginInstance, SchemaFieldValue } from '$lib/types/plugin';
-  import { getDefaultValueForType, getPluginKindLabel, isAutoSchemaField, SCHEMA_FIELD_TYPE_LABELS, isFieldRequired } from '$lib/types/plugin';
+  import { getDefaultValueForType, isAutoSchemaField, SCHEMA_FIELD_TYPE_LABELS, isFieldRequired } from '$lib/types/plugin';
   
   // TODO: Implementar no backend
   async function validatePluginInstanceConfig(_pluginId: string, _config: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
@@ -202,7 +202,7 @@
         <div>
           <h2 class="text-lg font-bold text-slate-800 dark:text-white">Configurar {pluginLabel}</h2>
           <p class="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
-            {plugin.schema.length} parâmetro(s) · {getPluginKindLabel(plugin.kind)} · {plugin.runtime === 'python' ? 'Python' : 'Rust'}
+            {plugin.schema.length} ajuste(s) para preencher
           </p>
         </div>
         <button
@@ -254,7 +254,7 @@
 
         {#if plugin.schema.length === 0}
           <div class="text-center py-8 text-sm text-slate-400 dark:text-zinc-500">
-            Este plugin não requer configuração.
+            Este item não precisa de ajustes adicionais.
           </div>
         {:else}
           {#each plugin.schema as field (field.name)}

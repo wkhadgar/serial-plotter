@@ -46,11 +46,31 @@
 
   let { plants, activePlantId, theme, active = true, showControllerPanel = $bindable(false) } = $props();
 
+  interface ActiveVariableGroups {
+    sensorEntries: Array<{ variable: PlantVariable; index: number }>;
+    sensorVariables: PlantVariable[];
+    actuatorVariables: PlantVariable[];
+  }
+
+  const EMPTY_VARIABLE_GROUPS: ActiveVariableGroups = {
+    sensorEntries: [],
+    sensorVariables: [],
+    actuatorVariables: [],
+  };
+
   let chartStates: Record<string, ChartStateType> = $state({});
+
+  function countSensors(variables: PlantVariable[]): number {
+    let count = 0;
+    for (const variable of variables) {
+      if (variable.type === 'sensor') count += 1;
+    }
+    return count;
+  }
 
   $effect(() => {
     for (const plant of plants) {
-      const sensorCount = plant.variables.filter((v: any) => v.type === 'sensor').length;
+      const sensorCount = countSensors(plant.variables);
       if (!(plant.id in chartStates)) {
         chartStates[plant.id] = defaultChartState(sensorCount);
       } else if (chartStates[plant.id].variableCount !== sensorCount) {
@@ -94,17 +114,28 @@
     }
   });
 
-  const sensorVariables = $derived(
-    activePlant?.variables
-      .map((variable: PlantVariable, index: number) => ({ variable, index }))
-      .filter(({ variable }: { variable: PlantVariable; index: number }) => variable.type === 'sensor') ?? []
-  );
-  const controllerSensorVariables = $derived(
-    activePlant?.variables.filter((variable: PlantVariable) => variable.type === 'sensor') ?? []
-  );
-  const controllerActuatorVariables = $derived(
-    activePlant?.variables.filter((variable: PlantVariable) => variable.type === 'atuador') ?? []
-  );
+  const activeVariableGroups = $derived.by<ActiveVariableGroups>(() => {
+    if (!activePlant) return EMPTY_VARIABLE_GROUPS;
+
+    const sensorEntries: ActiveVariableGroups['sensorEntries'] = [];
+    const sensorVariables: PlantVariable[] = [];
+    const actuatorVariables: PlantVariable[] = [];
+
+    for (const [index, variable] of activePlant.variables.entries()) {
+      if (variable.type === 'sensor') {
+        sensorEntries.push({ variable, index });
+        sensorVariables.push(variable);
+      } else if (variable.type === 'atuador') {
+        actuatorVariables.push(variable);
+      }
+    }
+
+    return { sensorEntries, sensorVariables, actuatorVariables };
+  });
+
+  const sensorVariables = $derived(activeVariableGroups.sensorEntries);
+  const controllerSensorVariables = $derived(activeVariableGroups.sensorVariables);
+  const controllerActuatorVariables = $derived(activeVariableGroups.actuatorVariables);
 
   const activeSeriesCatalog = $derived.by(() => {
     _displayTick;
@@ -562,9 +593,26 @@
   }
 
   function hasDraggedFiles(event: DragEvent): boolean {
-    const types = Array.from(event.dataTransfer?.types ?? []);
-    const itemKinds = Array.from(event.dataTransfer?.items ?? []).map((item) => item.kind);
-    return types.includes('Files') || itemKinds.includes('file') || (event.dataTransfer?.files?.length ?? 0) > 0;
+    const transfer = event.dataTransfer;
+    if (!transfer) return false;
+
+    if ((transfer.files?.length ?? 0) > 0) {
+      return true;
+    }
+
+    for (let index = 0; index < transfer.types.length; index += 1) {
+      if (transfer.types[index] === 'Files') {
+        return true;
+      }
+    }
+
+    for (let index = 0; index < transfer.items.length; index += 1) {
+      if (transfer.items[index]?.kind === 'file') {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   function handleDragEnter(event: DragEvent) {

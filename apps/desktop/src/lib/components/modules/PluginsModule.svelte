@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { Plus, Search, Puzzle, Upload, RefreshCw } from 'lucide-svelte';
   import type { PluginDefinition, PluginKind } from '$lib/types/plugin';
-  import { BUILTIN_PLUGIN_KINDS, getPluginKindLabel, isBuiltInPluginKind } from '$lib/types/plugin';
+  import { BUILTIN_PLUGIN_KINDS, getPluginKindLabel } from '$lib/types/plugin';
   import PluginCard from '$lib/components/plugins/PluginCard.svelte';
   import PluginCategoryTabs, { type PluginCategoryTab } from '$lib/components/plugins/PluginCategoryTabs.svelte';
   import CreatePluginModal from '$lib/components/modals/CreatePluginModal.svelte';
@@ -31,8 +31,6 @@
   let selectedPlugin = $state<PluginDefinition | null>(null);
   let createModalInitialKind = $state<PluginKind | undefined>(undefined);
 
-  const drivers = $derived(plugins.filter(p => p.kind === 'driver'));
-  const controllers = $derived(plugins.filter(p => p.kind === 'controller'));
   const pluginCategories = $derived.by<PluginCategoryTab[]>(() => {
     const counts = new Map<PluginKind, number>();
 
@@ -47,17 +45,20 @@
     return Array.from(counts.entries()).map(([key, count]) => ({ key, count }));
   });
 
-  const filteredPlugins = $derived(() => {
-    const categoryPlugins = plugins.filter((plugin) => plugin.kind === activeCategory);
-    if (!searchQuery.trim()) return categoryPlugins;
-    const query = searchQuery.toLowerCase();
-    return categoryPlugins.filter(p => 
-      p.name.toLowerCase().includes(query) || 
-      p.description?.toLowerCase().includes(query)
-    );
+  const normalizedSearchQuery = $derived(searchQuery.trim().toLowerCase());
+  const filteredPlugins = $derived.by(() => {
+    const query = normalizedSearchQuery;
+    return plugins.filter((plugin) => {
+      if (plugin.kind !== activeCategory) return false;
+      if (!query) return true;
+      return (
+        plugin.name.toLowerCase().includes(query) ||
+        plugin.description?.toLowerCase().includes(query)
+      );
+    });
   });
 
-  const isEmpty = $derived(filteredPlugins().length === 0);
+  const isEmpty = $derived(filteredPlugins.length === 0);
   const pluginCount = $derived(plugins.length);
   const activeCategoryLabel = $derived(getPluginKindLabel(activeCategory));
 
@@ -75,7 +76,7 @@
     try {
       plugins = await listPlugins();
     } catch (error) {
-      loadError = error instanceof Error ? error.message : 'Erro ao carregar catálogo de plugins';
+      loadError = error instanceof Error ? error.message : 'Erro ao carregar os plugins';
     } finally {
       isLoading = false;
     }
@@ -126,6 +127,34 @@
     selectedPlugin = null;
   }
 
+  function applyImportedPlugin(plugin: PluginDefinition) {
+    plugins = [plugin, ...plugins.filter((entry) => entry.id !== plugin.id)];
+    activeCategory = plugin.kind;
+  }
+
+  async function importPluginFromFile(file: File): Promise<{ success: boolean; error?: string }> {
+    try {
+      const json = await readFileAsJSON(file);
+      const validation = await validatePluginFile(json);
+      if (!validation.success || !validation.plugin) {
+        return { success: false, error: validation.error || 'Não foi possível validar o plugin' };
+      }
+
+      const registration = await registerPlugin(validation.plugin);
+      if (!registration.success || !registration.plugin) {
+        return { success: false, error: registration.error || 'Não foi possível salvar o plugin' };
+      }
+
+      applyImportedPlugin(registration.plugin);
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Erro ao importar plugin',
+      };
+    }
+  }
+
   async function handleImportPlugin() {
     loadError = null;
 
@@ -137,21 +166,12 @@
 
       if (!result) return;
 
-      const json = await readFileAsJSON(result.file);
-      const validation = await validatePluginFile(json);
-      if (!validation.success || !validation.plugin) {
-        loadError = validation.error || 'Não foi possível importar o arquivo selecionado';
+      const importResult = await importPluginFromFile(result.file);
+      if (!importResult.success) {
+        loadError = importResult.error || 'Não foi possível importar o arquivo selecionado';
         return;
       }
 
-      const registration = await registerPlugin(validation.plugin);
-      if (!registration.success || !registration.plugin) {
-        loadError = registration.error || 'Não foi possível salvar o plugin importado';
-        return;
-      }
-
-      plugins = [registration.plugin, ...plugins.filter((entry) => entry.id !== registration.plugin?.id)];
-      activeCategory = registration.plugin.kind;
       showImportModal = false;
     } catch (error) {
       loadError = error instanceof Error ? error.message : 'Erro ao importar plugin';
@@ -179,28 +199,20 @@
   async function handleDrop(e: DragEvent) {
     e.preventDefault();
     dragOver = false;
+    loadError = null;
+
     const files = e.dataTransfer?.files;
-    if (files && files.length > 0) {
-      const file = files[0];
-      if (!file.name.endsWith('.json')) {
-        loadError = 'Apenas arquivos .json são aceitos para importação de plugins';
-        return;
-      }
-      const json = await readFileAsJSON(file);
-      const validation = await validatePluginFile(json);
-      if (!validation.success || !validation.plugin) {
-        loadError = validation.error || 'Não foi possível importar o plugin';
-        return;
-      }
+    if (!files || files.length === 0) return;
 
-      const registration = await registerPlugin(validation.plugin);
-      if (!registration.success || !registration.plugin) {
-        loadError = registration.error || 'Não foi possível salvar o plugin';
-        return;
-      }
+    const file = files[0];
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      loadError = 'Apenas arquivos .json são aceitos para importação de plugins';
+      return;
+    }
 
-      plugins = [registration.plugin, ...plugins.filter((entry) => entry.id !== registration.plugin?.id)];
-      activeCategory = registration.plugin.kind;
+    const importResult = await importPluginFromFile(file);
+    if (!importResult.success) {
+      loadError = importResult.error || 'Não foi possível importar o plugin';
     }
   }
 </script>
@@ -218,9 +230,9 @@
       <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div class="flex min-w-0 flex-wrap items-center gap-4">
           <div class="flex items-center gap-3">
-            <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-sky-500 via-blue-500 to-indigo-600 flex items-center justify-center shadow-md shadow-blue-500/20">
-            <Puzzle class="w-5 h-5 text-white" />
-          </div>
+            <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-500 via-blue-500 to-indigo-600 shadow-md shadow-blue-500/20">
+              <Puzzle class="h-5 w-5 text-white" />
+            </div>
             <div>
               <div class="flex flex-wrap items-center gap-2">
                 <h1 class="text-lg font-semibold text-slate-800 dark:text-white">Plugins</h1>
@@ -228,7 +240,7 @@
                   {pluginCount} itens
                 </span>
               </div>
-              <p class="text-xs text-slate-500 dark:text-zinc-400">Biblioteca híbrida para drivers, controladores e tipos personalizados</p>
+              <p class="text-xs text-slate-500 dark:text-zinc-400">Encontre, edite e organize seus plugins em um só lugar.</p>
             </div>
           </div>
         </div>
@@ -240,14 +252,14 @@
               type="text"
               placeholder="Buscar plugins..."
               bind:value={searchQuery}
-              class="w-full pl-10 pr-4 py-2.5 text-sm bg-slate-100 dark:bg-zinc-800 border border-transparent focus:border-blue-500 dark:focus:border-blue-500 rounded-xl text-slate-700 dark:text-zinc-200 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none transition-colors"
+              class="h-10 w-full rounded-xl border border-transparent bg-slate-100 py-2.5 pl-10 pr-4 text-sm text-slate-700 placeholder:text-slate-400 transition-colors focus:border-blue-500 focus:outline-none dark:bg-zinc-800 dark:text-zinc-200 dark:placeholder:text-zinc-500 dark:focus:border-blue-500"
             />
           </div>
 
           <div class="flex flex-wrap items-center gap-3">
             <button
               onclick={() => showImportModal = true}
-              class="flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+              class="flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
             >
               <Upload class="w-4 h-4" />
               <span>Importar</span>
@@ -255,7 +267,7 @@
 
             <button
               onclick={() => openCreateModal(activeCategory)}
-              class="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl shadow-sm transition-colors"
+              class="flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
             >
               <Plus class="w-4 h-4" />
               <span>Novo Plugin</span>
@@ -263,7 +275,7 @@
 
             <button
               onclick={loadCatalog}
-              class="flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium rounded-xl border border-slate-200 bg-white text-slate-700 transition-colors hover:bg-slate-50 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
+              class="flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
             >
               <RefreshCw class={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               <span>Atualizar</span>
@@ -297,7 +309,7 @@
         <div class="mb-4 flex items-center justify-between gap-3 px-1">
           <div>
             <h2 class="text-sm font-semibold text-slate-700 dark:text-zinc-200">Biblioteca</h2>
-            <p class="text-xs text-slate-500 dark:text-zinc-400">Lista filtrada por categoria, pronta para editar, importar e instanciar.</p>
+            <p class="text-xs text-slate-500 dark:text-zinc-400">Use os filtros para encontrar, editar ou adicionar plugins rapidamente.</p>
           </div>
         </div>
 
@@ -326,7 +338,7 @@
                 Nenhum plugin do tipo {activeCategoryLabel} cadastrado
               </h2>
               <p class="mx-auto max-w-md text-sm text-slate-500 dark:text-zinc-400">
-                Crie um novo item, troque o tipo dentro do modal ou importe um JSON para montar sua biblioteca.
+                Crie um novo plugin ou importe um arquivo JSON para começar sua biblioteca.
               </p>
             </div>
             <div class="flex flex-wrap items-center justify-center gap-3">
@@ -364,8 +376,8 @@
             </button>
           </div>
         {:else}
-          <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {#each filteredPlugins() as plugin (plugin.id)}
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-2 md:auto-rows-fr xl:grid-cols-3 2xl:grid-cols-4">
+            {#each filteredPlugins as plugin (plugin.id)}
               <PluginCard
                 {plugin}
                 onEdit={handleEditPlugin}
@@ -418,7 +430,7 @@
   visible={showImportModal}
   type="info"
   title="Importar plugin"
-  message="Selecione um arquivo JSON com a definição do plugin para adicioná-lo à biblioteca."
+  message="Selecione um arquivo JSON para adicionar um novo plugin à biblioteca."
   confirmLabel="Selecionar arquivo"
   onConfirm={handleImportPlugin}
   onClose={() => showImportModal = false}

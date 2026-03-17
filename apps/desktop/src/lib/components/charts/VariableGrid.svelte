@@ -17,6 +17,23 @@
     onRangeChange?: (xMin: number, xMax: number) => void;
   }
 
+  interface LinkedActuatorEntry {
+    id: string;
+    name: string;
+    dataKey: string;
+    color: string;
+  }
+
+  interface SensorEntry {
+    variable: PlantVariable;
+    originalIndex: number;
+    pvKey: string;
+    spKey: string;
+    actuators: LinkedActuatorEntry[];
+  }
+
+  const ACTUATOR_COLORS = ['#10b981', '#06b6d4', '#8b5cf6', '#f97316', '#ec4899', '#14b8a6'];
+
   let {
     variables,
     data,
@@ -30,36 +47,45 @@
     onRangeChange,
   }: Props = $props();
 
-  const sensorVariables = $derived(
-    variables
-      .map((v, idx) => ({ variable: v, originalIndex: idx }))
-      .filter(({ variable }) => variable.type === 'sensor')
-  );
+  const sensorEntries = $derived.by<SensorEntry[]>(() => {
+    const entries: SensorEntry[] = [];
+    const bySensorId = new Map<string, LinkedActuatorEntry[]>();
 
-  const variablesById = $derived(
-    new Map(variables.map((v, idx) => [v.id, { variable: v, index: idx }]))
-  );
+    for (const [index, variable] of variables.entries()) {
+      if (variable.type !== 'sensor') continue;
 
-  function getLinkedActuators(sensorId: string) {
-    const actuators: { id: string; name: string; dataKey: string; color: string }[] = [];
-    const actuatorColors = ['#10b981', '#06b6d4', '#8b5cf6', '#f97316', '#ec4899', '#14b8a6'];
-    
-    variables.forEach((v, idx) => {
-      if (v.type === 'atuador' && v.linkedSensorIds?.includes(sensorId)) {
-        actuators.push({
-          id: v.id,
-          name: v.name,
-          dataKey: getVariableKeys(idx).pv,
-          color: actuatorColors[actuators.length % actuatorColors.length],
+      const keys = getVariableKeys(index);
+      const actuators: LinkedActuatorEntry[] = [];
+      entries.push({
+        variable,
+        originalIndex: index,
+        pvKey: keys.pv,
+        spKey: keys.sp,
+        actuators,
+      });
+      bySensorId.set(variable.id, actuators);
+    }
+
+    for (const [index, variable] of variables.entries()) {
+      if (variable.type !== 'atuador' || !variable.linkedSensorIds?.length) continue;
+
+      for (const sensorId of variable.linkedSensorIds) {
+        const actuatorList = bySensorId.get(sensorId);
+        if (!actuatorList) continue;
+        actuatorList.push({
+          id: variable.id,
+          name: variable.name,
+          dataKey: getVariableKeys(index).pv,
+          color: ACTUATOR_COLORS[actuatorList.length % ACTUATOR_COLORS.length],
         });
       }
-    });
-    
-    return actuators;
-  }
+    }
+
+    return entries;
+  });
 
   const gridCols = $derived.by(() => {
-    const count = sensorVariables.length;
+    const count = sensorEntries.length;
     if (count <= 1) return 'grid-cols-1';
     if (count <= 2) return 'grid-cols-1 lg:grid-cols-2';
     if (count <= 4) return 'grid-cols-1 md:grid-cols-2';
@@ -67,10 +93,10 @@
   });
 
   const visibleSensors = $derived.by(() => {
-    if (viewMode === 'single' && focusedIndex >= 0 && focusedIndex < sensorVariables.length) {
-      return [sensorVariables[focusedIndex]];
+    if (viewMode === 'single' && focusedIndex >= 0 && focusedIndex < sensorEntries.length) {
+      return [sensorEntries[focusedIndex]];
     }
-    return sensorVariables;
+    return sensorEntries;
   });
 
   const variableColors = [
@@ -90,32 +116,32 @@
   class:flex={viewMode === 'single'}
   class:items-stretch={viewMode === 'single'}
 >
-  {#each visibleSensors as { variable, originalIndex }, displayIdx (variable.id)}
+  {#each visibleSensors as sensorEntry, displayIdx (sensorEntry.variable.id)}
     <div class={viewMode === 'single' ? 'w-full h-full' : 'min-h-[300px]'} data-sensor-index={displayIdx}>
       <VariableCard
-        title={variable.name}
-        unit={variable.unit}
+        title={sensorEntry.variable.name}
+        unit={sensorEntry.variable.unit}
         pvData={data}
         mvData={data}
-        pvKey={getVariableKeys(originalIndex).pv}
-        spKey={getVariableKeys(originalIndex).sp}
-        actuators={getLinkedActuators(variable.id)}
+        pvKey={sensorEntry.pvKey}
+        spKey={sensorEntry.spKey}
+        actuators={sensorEntry.actuators}
         {pvConfig}
         {mvConfig}
         {theme}
         colors={getColorSet(displayIdx)}
         {lineStyles}
-        stats={variableStats[originalIndex]}
+        stats={variableStats[sensorEntry.originalIndex]}
         {onRangeChange}
       />
     </div>
   {/each}
 </div>
 
-{#if viewMode === 'single' && sensorVariables.length > 1}
+{#if viewMode === 'single' && sensorEntries.length > 1}
   <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 dark:bg-white/10 backdrop-blur-sm rounded-full px-4 py-2">
     <span class="text-xs text-white/80 font-medium">
-      {sensorVariables[focusedIndex]?.variable.name ?? 'Sensor'} ({focusedIndex + 1}/{sensorVariables.length})
+      {sensorEntries[focusedIndex]?.variable.name ?? 'Sensor'} ({focusedIndex + 1}/{sensorEntries.length})
     </span>
     <span class="text-[10px] text-white/50">
       [Space] próxima • [H] grid

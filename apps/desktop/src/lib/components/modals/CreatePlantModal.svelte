@@ -1,6 +1,5 @@
 <script lang="ts">
   import { X, Search, Plus, Trash2, Check, Settings, Cpu, Gauge, Zap, Link, Upload, Code, ArrowLeft, ArrowRight } from 'lucide-svelte';
-  import { onMount } from 'svelte';
   import type { Plant, PlantVariable, VariableType } from '$lib/types/plant';
   import type { Controller } from '$lib/types/controller';
   import type { PluginDefinition, PluginInstance } from '$lib/types/plugin';
@@ -56,6 +55,20 @@
   let importError = $state<string | null>(null);
   let hydratedFormKey = $state<string | null>(null);
 
+  interface VariableGroups {
+    sensors: PlantVariable[];
+    actuators: PlantVariable[];
+    sensorCount: number;
+    actuatorCount: number;
+  }
+
+  const EMPTY_VARIABLE_GROUPS: VariableGroups = {
+    sensors: [],
+    actuators: [],
+    sensorCount: 0,
+    actuatorCount: 0,
+  };
+
   function hydrateForm(plant: Plant | null) {
     const initialForm = buildInitialPlantForm(
       plant,
@@ -81,31 +94,52 @@
 
   const isEditing = $derived(!!initialPlant);
   const driverAutoConfig = $derived(buildDriverAutoConfig(variables));
-  const sensorCount = $derived(Number(driverAutoConfig.num_sensors ?? 0));
-  const actuatorCount = $derived(Number(driverAutoConfig.num_actuators ?? 0));
+  const variableGroups = $derived.by<VariableGroups>(() => {
+    if (variables.length === 0) return EMPTY_VARIABLE_GROUPS;
+
+    const sensors: PlantVariable[] = [];
+    const actuators: PlantVariable[] = [];
+    let sensorCount = 0;
+    let actuatorCount = 0;
+
+    for (const variable of variables) {
+      if (variable.type === 'sensor') {
+        sensors.push(variable);
+        sensorCount += 1;
+      } else if (variable.type === 'atuador') {
+        actuators.push(variable);
+        actuatorCount += 1;
+      }
+    }
+
+    return { sensors, actuators, sensorCount, actuatorCount };
+  });
+  const sensorCount = $derived(variableGroups.sensorCount);
+  const actuatorCount = $derived(variableGroups.actuatorCount);
+  const normalizedDriverSearch = $derived(driverSearch.trim().toLowerCase());
+  const normalizedControllerSearch = $derived(controllerSearch.trim().toLowerCase());
   const normalizedSampleTimeMs = $derived(
     Number.isFinite(sampleTimeMs) && sampleTimeMs > 0 ? Math.round(sampleTimeMs) : 0
   );
   const filteredPlugins = $derived(
     availablePlugins.filter((definition) =>
-      definition.name.toLowerCase().includes(driverSearch.toLowerCase()) ||
-      PLUGIN_RUNTIME_LABELS[definition.runtime].toLowerCase().includes(driverSearch.toLowerCase())
+      definition.name.toLowerCase().includes(normalizedDriverSearch) ||
+      PLUGIN_RUNTIME_LABELS[definition.runtime].toLowerCase().includes(normalizedDriverSearch)
     )
   );
   const filteredTemplates = $derived(
     controllerTemplates.filter((controller) =>
-      controller.name.toLowerCase().includes(controllerSearch.toLowerCase()) ||
-      controller.kind.toLowerCase().includes(controllerSearch.toLowerCase())
+      controller.name.toLowerCase().includes(normalizedControllerSearch) ||
+      controller.kind.toLowerCase().includes(normalizedControllerSearch)
     )
   );
-  const sensorVariables = $derived(
-    variables.filter((variable) => variable.type === 'sensor')
-  );
+  const sensorVariables = $derived(variableGroups.sensors);
+  const actuatorVariables = $derived(variableGroups.actuators);
   const modalTitle = $derived(isEditing ? 'Editar Planta' : 'Criar Nova Planta');
   const modalDescription = $derived(
     isEditing
-      ? 'Atualize os parâmetros da planta selecionada'
-      : 'Configure os parâmetros da nova unidade de controle'
+      ? 'Atualize as informações da planta selecionada'
+      : 'Preencha as informações da nova planta'
   );
   const submitLabel = $derived(isEditing ? 'Salvar Alterações' : 'Criar Planta');
   const formKey = $derived(visible ? initialPlant?.id ?? '__new__' : null);
@@ -118,8 +152,6 @@
     availablePlugins = await listPluginsByType('driver');
     controllerTemplates = await listPluginsByType('controller');
   }
-
-  onMount(loadPlugins);
 
   $effect(() => {
     if (visible) {
@@ -338,7 +370,7 @@
     }
 
     if (currentStep === 'driver') {
-      return driverInstance ? null : 'Configure um driver de comunicação';
+      return driverInstance ? null : 'Configure a conexão da planta';
     }
 
     if (currentStep === 'variables') {
@@ -394,7 +426,7 @@
     }
 
     if (!driverInstance) {
-      error = 'Configure um driver de comunicação';
+      error = 'Configure a conexão da planta';
       currentStep = 'driver';
       return;
     }
@@ -462,11 +494,11 @@
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+    class="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 sm:items-center sm:p-6"
     onclick={handleClose}
   >
     <div
-      class="bg-white dark:bg-[#0c0c0e] rounded-2xl shadow-2xl w-full max-w-2xl h-[85vh] max-h-[85vh] flex flex-col overflow-hidden border border-slate-200 dark:border-white/10"
+      class="my-4 flex h-[85vh] max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-white/10 dark:bg-[#0c0c0e] sm:my-0"
       onclick={(event) => event.stopPropagation()}
     >
       <div class="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-white/5 shrink-0">
@@ -482,31 +514,31 @@
         </button>
       </div>
 
-      <div class="flex border-b border-slate-200 dark:border-white/5 px-6 shrink-0">
+      <div class="flex items-center gap-1 overflow-x-auto border-b border-slate-200 px-4 py-1 dark:border-white/5 shrink-0 sm:px-6">
         <button
           onclick={() => goToStep('info')}
-          class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'info' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
+          class="shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'info' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
         >
           Informações
         </button>
         <button
           onclick={() => goToStep('variables')}
-          class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'variables' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
+          class="shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'variables' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
         >
           Variáveis ({variables.length})
         </button>
         <button
           onclick={() => goToStep('driver')}
-          class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'driver' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
+          class="shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'driver' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
         >
-          Driver
+          Conexão
           {#if driverInstance}
             <span class="ml-1.5 w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
           {/if}
         </button>
         <button
           onclick={() => goToStep('controllers')}
-          class="px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'controllers' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
+          class="shrink-0 px-4 py-3 text-sm font-medium border-b-2 transition-colors {currentStep === 'controllers' ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-zinc-300'}"
         >
           Controladores ({selectedControllers.length})
         </button>
@@ -528,7 +560,7 @@
           </span>
           {#if driverInstance}
             <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
-              Driver pronto
+              Conexão pronta
             </span>
           {/if}
         </div>
@@ -581,7 +613,7 @@
                   <div class="flex-1">
                     <div class="font-medium text-slate-800 dark:text-white">{driverInstance.pluginName}</div>
                     <div class="text-xs text-slate-500 dark:text-zinc-400">
-                      Configurado · {sensorCount} sensor(es) · {actuatorCount} atuador(es) · {normalizedSampleTimeMs > 0 ? `${normalizedSampleTimeMs} ms` : 'sem amostragem'}
+                      Conexão pronta · {sensorCount} sensor(es) · {actuatorCount} atuador(es) · {normalizedSampleTimeMs > 0 ? `${normalizedSampleTimeMs} ms` : 'sem amostragem'}
                     </div>
                   </div>
                   <button
@@ -598,7 +630,7 @@
                 class="w-full p-4 rounded-xl border-2 border-dashed border-slate-200 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 transition-colors text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400"
               >
                 <Cpu size={24} class="mx-auto mb-2 opacity-50" />
-                <div class="text-sm font-medium">Selecionar Driver de Comunicação</div>
+                <div class="text-sm font-medium">Selecionar conexão da planta</div>
               </button>
             {/if}
           </div>
@@ -612,7 +644,7 @@
             {/if}
 
             <div class="rounded-xl border border-blue-200 dark:border-blue-900/40 bg-blue-50/80 dark:bg-blue-900/10 px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
-              O driver recebe <strong class="font-semibold">num_sensors</strong> e <strong class="font-semibold">num_actuators</strong> automaticamente a partir das variáveis da planta. Esses campos ficam bloqueados na configuração e são atualizados em tempo real.
+              A conexão usa automaticamente a quantidade de sensores e atuadores da planta. Você não precisa preencher isso manualmente.
             </div>
 
             {#if driverInstance}
@@ -642,7 +674,7 @@
               <input
                 type="text"
                 bind:value={driverSearch}
-                placeholder="Buscar plugin driver..."
+                placeholder="Buscar opção de conexão..."
                 class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
               />
             </div>
@@ -662,7 +694,7 @@
                     <div class="flex-1 min-w-0">
                       <div class="font-medium text-slate-800 dark:text-white truncate">{plugin.name}</div>
                       <div class="text-xs text-slate-500 dark:text-zinc-400">
-                        {PLUGIN_RUNTIME_LABELS[plugin.runtime]} · {plugin.schema.length} parâmetro(s)
+                        {plugin.schema.length} ajuste(s) disponível(is)
                       </div>
                     </div>
                     {#if driverInstance?.pluginId === plugin.id}
@@ -678,12 +710,12 @@
               {#if filteredPlugins.length === 0}
                 <div class="text-center py-8 text-slate-400 dark:text-zinc-500">
                   <Cpu size={32} class="mx-auto mb-2 opacity-50" />
-                  <p class="text-sm">Nenhum plugin driver encontrado</p>
+                  <p class="text-sm">Nenhuma opção de conexão encontrada</p>
                 </div>
               {/if}
             </div>
 
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <button
                 onclick={handleImportPlugin}
                 class="p-3 rounded-xl border-2 border-dashed border-slate-200 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 transition-colors text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 flex items-center justify-center gap-2"
@@ -706,7 +738,7 @@
             <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 dark:border-white/10 dark:bg-white/[0.03]">
               <div>
                 <div class="text-sm font-medium text-slate-700 dark:text-zinc-200">Variáveis da planta</div>
-                <div class="text-xs text-slate-500 dark:text-zinc-400">Cada alteração atualiza automaticamente a configuração reservada do driver.</div>
+                <div class="text-xs text-slate-500 dark:text-zinc-400">Cada alteração atualiza automaticamente os dados da conexão.</div>
               </div>
               <button
                 onclick={addVariable}
@@ -728,7 +760,7 @@
                     {/if}
                   </div>
                   <div class="flex-1 space-y-4">
-                    <div class="grid grid-cols-[120px_1fr] gap-3">
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-[120px_1fr]">
                       <label class="block">
                         <span class="text-[10px] text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Tipo</span>
                         <select
@@ -752,7 +784,7 @@
                         />
                       </label>
                     </div>
-                    <div class={`grid gap-3 ${variable.type === 'sensor' ? 'grid-cols-4' : 'grid-cols-3'}`}>
+                    <div class={`grid gap-3 ${variable.type === 'sensor' ? 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4' : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-3'}`}>
                       <label class="block">
                         <span class="text-[10px] text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Unidade</span>
                         <input
@@ -875,19 +907,19 @@
             {/if}
 
             <div>
-              <h4 class="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wide mb-2">Templates Disponíveis</h4>
+              <h4 class="text-xs font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wide mb-2">Controladores disponíveis</h4>
 
               <div class="relative mb-3">
                 <Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
                   bind:value={controllerSearch}
-                  placeholder="Buscar template..."
+                  placeholder="Buscar controlador..."
                   class="w-full pl-9 pr-4 py-2 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
                 />
               </div>
 
-              <div class="grid grid-cols-2 gap-2">
+              <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
                 {#each filteredTemplates as template (template.id)}
                   <button
                     onclick={() => addController(template)}
@@ -898,7 +930,7 @@
                       <span class="text-sm font-medium text-slate-800 dark:text-white">{template.name}</span>
                     </div>
                     <span class="text-xs text-slate-500 dark:text-zinc-400">
-                      {template.schema.length} parâmetro(s) configurável(is)
+                      {template.schema.length} ajuste(s) disponível(is)
                     </span>
                   </button>
                 {/each}
@@ -908,7 +940,7 @@
         {/if}
       </div>
 
-      <div class="flex items-center justify-between px-6 py-4 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] shrink-0">
+      <div class="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/[0.02] shrink-0">
         <div class="flex items-center gap-2">
           <button
             onclick={handleClose}
@@ -926,35 +958,39 @@
             </button>
           {/if}
         </div>
-        <button
-          onclick={handleNextStep}
-          disabled={isLoading}
-          class="px-6 py-2 rounded-lg text-sm font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white transition-colors flex items-center gap-2"
-        >
-          {#if isLoading}
-            <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-            Salvando...
-          {:else if isLastStep}
-            <Check size={16} />
-            {submitLabel}
-          {:else}
-            Continuar
-            <ArrowRight size={16} />
+        <div class="ml-auto flex items-center gap-2">
+          {#if !isLastStep}
+            <button
+              onclick={handleSubmit}
+              disabled={isLoading}
+              class="px-5 py-2 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white transition-colors flex items-center gap-2"
+            >
+              {#if isLoading}
+                <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                Salvando...
+              {:else}
+                <Check size={16} />
+                Salvar agora
+              {/if}
+            </button>
           {/if}
-        </button>
-        <button
-          onclick={handleSubmit}
-          disabled={isLoading}
-          class="px-6 py-2 rounded-lg text-sm font-bold bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white transition-colors flex items-center gap-2"
-        >
-          {#if isLoading}
-            <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-            Salvando...
-          {:else}
-            <Check size={16} />
-            {submitLabel}
-          {/if}
-        </button>
+          <button
+            onclick={handleNextStep}
+            disabled={isLoading}
+            class="px-6 py-2 rounded-lg text-sm font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white transition-colors flex items-center gap-2"
+          >
+            {#if isLoading}
+              <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              Salvando...
+            {:else if isLastStep}
+              <Check size={16} />
+              {submitLabel}
+            {:else}
+              Continuar
+              <ArrowRight size={16} />
+            {/if}
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -975,8 +1011,8 @@
     lockedConfig={pluginToConfig?.kind === 'driver' ? driverAutoConfig : undefined}
     instanceLabel={pluginToConfig?.name}
     showVariableBindings={configTarget === 'controller'}
-    sensorVariables={variables.filter((variable) => variable.type === 'sensor')}
-    actuatorVariables={variables.filter((variable) => variable.type === 'atuador')}
+    sensorVariables={sensorVariables}
+    actuatorVariables={actuatorVariables}
     submitLabel={configTarget === 'controller' ? 'Adicionar controlador' : 'Confirmar Configuração'}
     onClose={() => {
       showInstanceConfig = false;

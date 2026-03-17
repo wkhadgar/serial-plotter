@@ -112,12 +112,12 @@
           ? {
               tone: result.deferred ? 'warning' : 'success',
               message: result.deferred
-                ? 'Alteracoes salvas localmente. Sincronizacao com backend pendente.'
-                : 'Configuracoes salvas.',
+                ? 'Alteracoes salvas no aplicativo. Sincronizacao em andamento.'
+                : 'Ajustes salvos.',
             }
           : {
               tone: 'error',
-              message: result.error || 'Nao foi possivel salvar as configuracoes.',
+              message: result.error || 'Nao foi possivel salvar os ajustes.',
             },
       };
     } finally {
@@ -325,7 +325,7 @@
                     {#if isControllerDirty(ctrl)}
                       <div class="flex items-center justify-between gap-2">
                         <span class="text-[11px] text-slate-500 dark:text-zinc-400">
-                          Alteracoes pendentes nesta instancia.
+                          Voce ainda nao salvou estas alteracoes.
                         </span>
                         <button
                           type="button"
@@ -338,7 +338,7 @@
                             Salvando...
                           {:else}
                             <Save size={12} />
-                            Salvar configuracoes
+                            Salvar ajustes
                           {/if}
                         </button>
                       </div>
