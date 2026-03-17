@@ -7,7 +7,7 @@ fn default_sample_time_ms() -> u64 {
 }
 
 fn default_controller_active() -> bool {
-    true
+    false
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -109,6 +109,7 @@ pub struct CreatePlantControllerRequest {
     pub plugin_id: String,
     pub name: String,
     pub controller_type: String,
+    #[allow(dead_code)]
     #[serde(default = "default_controller_active")]
     pub active: bool,
     #[serde(default)]

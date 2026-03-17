@@ -217,8 +217,6 @@ impl PlantService {
             })?;
         }
 
-        Self::validate_active_controller_outputs(controllers, variables)?;
-
         Ok(())
     }
 
@@ -321,33 +319,6 @@ impl PlantService {
         Ok(())
     }
 
-    fn validate_active_controller_outputs(
-        controllers: &[CreatePlantControllerRequest],
-        variables: &[CreatePlantVariableRequest],
-    ) -> AppResult<()> {
-        let variable_names = Self::build_variable_name_map(variables);
-        let mut active_outputs: HashMap<&str, &str> = HashMap::new();
-
-        for controller in controllers.iter().filter(|controller| controller.active) {
-            for output_id in &controller.output_variable_ids {
-                if let Some(existing_controller) =
-                    active_outputs.insert(output_id.as_str(), controller.name.as_str())
-                {
-                    let variable_name = variable_names
-                        .get(output_id)
-                        .map(String::as_str)
-                        .unwrap_or(output_id);
-                    return Err(AppError::InvalidArgument(format!(
-                        "O atuador '{}' já está associado ao controlador ativo '{}'",
-                        variable_name, existing_controller
-                    )));
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     fn build_variable_type_map(
         variables: &[CreatePlantVariableRequest],
     ) -> HashMap<String, VariableType> {
@@ -355,16 +326,6 @@ impl PlantService {
             .iter()
             .enumerate()
             .map(|(idx, variable)| (format!("var_{}", idx), variable.var_type))
-            .collect()
-    }
-
-    fn build_variable_name_map(
-        variables: &[CreatePlantVariableRequest],
-    ) -> HashMap<String, String> {
-        variables
-            .iter()
-            .enumerate()
-            .map(|(idx, variable)| (format!("var_{}", idx), variable.name.clone()))
             .collect()
     }
 
@@ -411,7 +372,7 @@ impl PlantService {
             plugin_id: plugin.id,
             name: request.name.trim().to_string(),
             controller_type: request.controller_type.trim().to_string(),
-            active: request.active,
+            active: false,
             input_variable_ids: request.input_variable_ids,
             output_variable_ids: request.output_variable_ids,
             params: request.params,
@@ -727,10 +688,11 @@ mod tests {
         assert_eq!(plant.sample_time_ms, 250);
         assert_eq!(plant.driver.plugin_id, "driver_plugin");
         assert_eq!(plant.controllers.len(), 1);
+        assert!(!plant.controllers[0].active);
     }
 
     #[test]
-    fn test_create_plant_rejects_duplicate_active_controller_output() {
+    fn test_create_plant_always_starts_controllers_disabled() {
         let store = PlantStore::new();
         let plugins = create_plugin_store();
         let var1 = create_test_variable("Temperatura");
@@ -771,7 +733,14 @@ mod tests {
         };
 
         let result = PlantService::create(&store, &plugins, request);
-        assert!(result.is_err());
+        assert!(result.is_ok());
+
+        let plant = result.unwrap();
+        assert_eq!(plant.controllers.len(), 2);
+        assert!(plant
+            .controllers
+            .iter()
+            .all(|controller| !controller.active));
     }
 
     #[test]

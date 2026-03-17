@@ -215,7 +215,7 @@ export function createConfiguredController(
     pluginId: plugin.id,
     name: options.name ?? plugin.name,
     type: inferControllerType(plugin),
-    active: options.active ?? true,
+    active: options.active ?? false,
     inputVariableIds: [],
     outputVariableIds: [],
     params: Object.fromEntries(

@@ -243,7 +243,7 @@
     if (configTarget === 'controller') {
       const controller = createConfiguredController(pluginToConfig, instance.config, {
         name: `${pluginToConfig.name} ${selectedControllers.length + 1}`,
-        active: true,
+        active: false,
       });
       selectedControllers = [
         ...selectedControllers,

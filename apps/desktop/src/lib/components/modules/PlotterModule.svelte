@@ -412,7 +412,7 @@
       instance.config,
       {
         name: `${controllerPluginToConfig.name} ${activePlant.controllers.length + 1}`,
-        active: true,
+        active: false,
       }
     );
 

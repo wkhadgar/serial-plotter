@@ -158,6 +158,7 @@ pub struct UpdatePluginRequest {
     pub author: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginInstanceStatus {
@@ -167,6 +168,7 @@ pub enum PluginInstanceStatus {
     Error,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginInstance {
     pub id: String,
