@@ -5,6 +5,7 @@ use crate::core::models::plant::{
     UpdatePlantRequest, VariableType,
 };
 use crate::core::models::plugin::{PluginRegistry, PluginType};
+use crate::core::services::workspace::WorkspaceService;
 use crate::state::{PlantStore, PluginStore};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -31,6 +32,8 @@ impl PlantService {
         let plant = Self::build_plant(request, plugins)?;
 
         store.insert(plant.clone())?;
+        WorkspaceService::save_plant_registry(&plant)?;
+
         Ok(plant)
     }
 
