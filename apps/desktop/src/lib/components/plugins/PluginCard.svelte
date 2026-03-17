@@ -13,6 +13,7 @@
   let { plugin, onEdit, onDelete, onViewCode }: Props = $props();
 
   let menuOpen = $state(false);
+  let closeMenuTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const kindColors: Record<PluginKind, { bg: string; text: string; border: string }> = {
     driver: { bg: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-500/20' },
@@ -34,6 +35,29 @@
   function handleAction(action: () => void) {
     menuOpen = false;
     action();
+  }
+
+  function cancelScheduledClose() {
+    if (closeMenuTimeout) {
+      clearTimeout(closeMenuTimeout);
+      closeMenuTimeout = null;
+    }
+  }
+
+  function scheduleMenuClose() {
+    cancelScheduledClose();
+    closeMenuTimeout = setTimeout(() => {
+      menuOpen = false;
+      closeMenuTimeout = null;
+    }, 180);
+  }
+
+  function handleMenuMouseEnter() {
+    cancelScheduledClose();
+  }
+
+  function handleMenuMouseLeave() {
+    scheduleMenuClose();
   }
 </script>
 
@@ -73,7 +97,13 @@
         </div>
       </div>
 
-      <div class="relative">
+      <div
+        class="relative"
+        role="group"
+        aria-label="Ações do plugin"
+        onmouseenter={handleMenuMouseEnter}
+        onmouseleave={handleMenuMouseLeave}
+      >
         <button
           onclick={handleMenuToggle}
           class="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100"
@@ -82,40 +112,42 @@
         </button>
 
         {#if menuOpen}
-          <div
-            onclick={(event) => event.stopPropagation()}
-            onkeydown={(event) => event.stopPropagation()}
-            role="menu"
-            tabindex="-1"
-            class="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 rounded-lg shadow-lg py-1 z-50"
-          >
-            {#if onViewCode && plugin.sourceCode}
-              <button
-                onclick={() => handleAction(() => onViewCode?.(plugin))}
-                class="w-full px-3 py-2 text-left text-sm text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2"
-              >
-                <Code class="w-4 h-4" />
-                Ver código
-              </button>
-            {/if}
-            {#if onEdit}
-              <button
-                onclick={() => handleAction(() => onEdit?.(plugin))}
-                class="w-full px-3 py-2 text-left text-sm text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2"
-              >
-                <Settings class="w-4 h-4" />
-                Editar
-              </button>
-            {/if}
-            {#if onDelete}
-              <button
-                onclick={() => handleAction(() => onDelete?.(plugin))}
-                class="w-full px-3 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 flex items-center gap-2"
-              >
-                <Trash2 class="w-4 h-4" />
-                Excluir
-              </button>
-            {/if}
+          <div class="absolute right-0 top-full pt-1 z-50">
+            <div
+              onclick={(event) => event.stopPropagation()}
+              onkeydown={(event) => event.stopPropagation()}
+              role="menu"
+              tabindex="-1"
+              class="w-40 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-white/10 rounded-lg shadow-lg py-1"
+            >
+              {#if onViewCode && plugin.sourceCode}
+                <button
+                  onclick={() => handleAction(() => onViewCode?.(plugin))}
+                  class="w-full px-3 py-2 text-left text-sm text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2"
+                >
+                  <Code class="w-4 h-4" />
+                  Ver código
+                </button>
+              {/if}
+              {#if onEdit}
+                <button
+                  onclick={() => handleAction(() => onEdit?.(plugin))}
+                  class="w-full px-3 py-2 text-left text-sm text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-white/5 flex items-center gap-2"
+                >
+                  <Settings class="w-4 h-4" />
+                  Editar
+                </button>
+              {/if}
+              {#if onDelete}
+                <button
+                  onclick={() => handleAction(() => onDelete?.(plugin))}
+                  class="w-full px-3 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 flex items-center gap-2"
+                >
+                  <Trash2 class="w-4 h-4" />
+                  Excluir
+                </button>
+              {/if}
+            </div>
           </div>
         {/if}
       </div>
