@@ -1,6 +1,5 @@
 use crate::core::error::{AppError, AppResult};
 
-use crate::core::models::plugin::PluginInstance;
 use crate::core::models::plugin::PluginRegistry;
 
 use parking_lot::RwLock;
@@ -9,14 +8,12 @@ use std::collections::HashMap;
 #[derive(Debug, Default)]
 pub struct PluginStore {
     registries: RwLock<HashMap<String, PluginRegistry>>,
-    instances: RwLock<HashMap<String, PluginInstance>>,
 }
 
 impl PluginStore {
     pub fn new() -> Self {
         Self {
             registries: RwLock::new(HashMap::new()),
-            instances: RwLock::new(HashMap::new()),
         }
     }
 
@@ -43,6 +40,18 @@ impl PluginStore {
             .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))
     }
 
+    pub fn with_registry<R, F>(&self, id: &str, reader: F) -> AppResult<R>
+    where
+        F: FnOnce(&PluginRegistry) -> R,
+    {
+        let plugins = self.registries.read();
+        let plugin = plugins
+            .get(id)
+            .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))?;
+
+        Ok(reader(plugin))
+    }
+
     pub fn list(&self) -> Vec<PluginRegistry> {
         self.registries.read().values().cloned().collect()
     }
@@ -59,18 +68,14 @@ impl PluginStore {
             .collect()
     }
 
-    pub fn update<F>(&self, id: &str, updater: F) -> AppResult<PluginRegistry>
-    where
-        F: FnOnce(&mut PluginRegistry),
-    {
+    pub fn replace(&self, id: &str, registry: PluginRegistry) -> AppResult<()> {
         let mut plugins = self.registries.write();
-
-        let plugin = plugins
+        let slot = plugins
             .get_mut(id)
             .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))?;
 
-        updater(plugin);
-        Ok(plugin.clone())
+        *slot = registry;
+        Ok(())
     }
 
     pub fn exists_by_name(&self, name: &str) -> bool {

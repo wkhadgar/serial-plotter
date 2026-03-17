@@ -41,5 +41,5 @@ pub fn list_plugins_by_type(
     state: State<'_, AppState>,
     pluginType: PluginType,
 ) -> Vec<PluginRegistry> {
-    state.plugins().list_by_type(pluginType)
+    PluginService::list_by_type(state.plugins(), pluginType)
 }

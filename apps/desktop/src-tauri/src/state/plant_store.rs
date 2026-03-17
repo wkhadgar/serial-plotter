@@ -38,6 +38,18 @@ impl PlantStore {
             .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))
     }
 
+    pub fn with_plant<R, F>(&self, id: &str, reader: F) -> AppResult<R>
+    where
+        F: FnOnce(&Plant) -> R,
+    {
+        let plants = self.plants.read();
+        let plant = plants
+            .get(id)
+            .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
+
+        Ok(reader(plant))
+    }
+
     pub fn list(&self) -> Vec<Plant> {
         let plants = self.plants.read();
         plants.values().cloned().collect()
@@ -65,6 +77,17 @@ impl PlantStore {
         Ok(plant.clone())
     }
 
+    pub fn replace(&self, id: &str, next_plant: Plant) -> AppResult<()> {
+        let mut plants = self.plants.write();
+        let plant = plants
+            .get_mut(id)
+            .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
+
+        *plant = next_plant;
+        Ok(())
+    }
+
+    #[cfg(test)]
     pub fn exists(&self, id: &str) -> bool {
         let plants = self.plants.read();
         plants.contains_key(id)
@@ -84,14 +107,10 @@ impl PlantStore {
             .any(|plant| plant.id != id && plant.name == name)
     }
 
+    #[cfg(test)]
     pub fn count(&self) -> usize {
         let plants = self.plants.read();
         plants.len()
-    }
-
-    pub fn clear(&self) {
-        let mut plants = self.plants.write();
-        plants.clear();
     }
 }
 

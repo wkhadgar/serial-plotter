@@ -14,6 +14,7 @@ pub enum AppError {
     #[error("io error: {0}")]
     IoError(String),
 
+    #[allow(dead_code)]
     #[error("internal error")]
     InternalError,
 }

@@ -1,0 +1,49 @@
+#[cfg(not(test))]
+use crate::core::error::AppError;
+use crate::core::error::AppResult;
+use crate::core::models::plugin::PluginType;
+use std::path::PathBuf;
+
+const APP_WORKSPACE_DIR: &str = "Senamby/workspace";
+const DRIVERS_DIR: &str = "drivers";
+const CONTROLLERS_DIR: &str = "controllers";
+const PLANTS_DIR: &str = "plants";
+pub(super) const REGISTRY_FILE: &str = "registry.json";
+pub(super) const SOURCE_FILE: &str = "main.py";
+
+pub(super) fn plugin_directory(plugin_name: &str, plugin_type: PluginType) -> AppResult<PathBuf> {
+    let workspace_root = workspace_root()?;
+    let plugin_name =
+        crate::core::services::workspace::ensure_non_empty_name(plugin_name, "plugin")?;
+
+    let parent_dir = match plugin_type {
+        PluginType::Driver => DRIVERS_DIR,
+        PluginType::Controller => CONTROLLERS_DIR,
+    };
+
+    Ok(workspace_root.join(parent_dir).join(plugin_name))
+}
+
+pub(super) fn plugin_source_path(plugin_name: &str, plugin_type: PluginType) -> AppResult<PathBuf> {
+    Ok(plugin_directory(plugin_name, plugin_type)?.join(SOURCE_FILE))
+}
+
+pub(super) fn plant_directory(plant_name: &str) -> AppResult<PathBuf> {
+    let workspace_root = workspace_root()?;
+    let plant_name = crate::core::services::workspace::ensure_non_empty_name(plant_name, "planta")?;
+    Ok(workspace_root.join(PLANTS_DIR).join(plant_name))
+}
+
+#[cfg(not(test))]
+pub(super) fn workspace_root() -> AppResult<PathBuf> {
+    let documents_dir = dirs::document_dir().ok_or_else(|| {
+        AppError::IoError("Não foi possível localizar o diretório Documentos".into())
+    })?;
+
+    Ok(documents_dir.join(APP_WORKSPACE_DIR))
+}
+
+#[cfg(test)]
+pub(super) fn workspace_root() -> AppResult<PathBuf> {
+    Ok(std::env::temp_dir().join(APP_WORKSPACE_DIR))
+}

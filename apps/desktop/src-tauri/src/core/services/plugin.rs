@@ -1,6 +1,6 @@
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plugin::{
-    CreatePluginRequest, PluginRegistry, PluginRuntime, UpdatePluginRequest,
+    CreatePluginRequest, PluginRegistry, PluginRuntime, PluginType, UpdatePluginRequest,
 };
 use crate::core::services::workspace::WorkspaceService;
 use crate::state::PluginStore;
@@ -9,6 +9,12 @@ use uuid::Uuid;
 const PYTHON_SOURCE_FILE_NAME: &str = "main.py";
 
 pub struct PluginService;
+
+#[derive(Debug, Clone)]
+struct ExistingPluginMeta {
+    name: String,
+    plugin_type: PluginType,
+}
 
 impl PluginService {
     pub fn create(store: &PluginStore, request: CreatePluginRequest) -> AppResult<PluginRegistry> {
@@ -22,16 +28,16 @@ impl PluginService {
             true,
         )?;
 
-        let source_code = request
-            .source_code
-            .as_ref()
-            .map(|value| value.trim().to_string())
-            .unwrap_or_default();
+        let source_code = Self::normalize_source_code(request.source_code.as_deref())
+            .ok_or_else(|| AppError::InvalidArgument("Código fonte Python é obrigatório".into()))?;
         let plugin = Self::build_plugin(request);
 
         WorkspaceService::save_plugin_registry(&plugin, &source_code)?;
 
-        store.insert(plugin.clone())?;
+        if let Err(error) = store.insert(plugin.clone()) {
+            let _ = WorkspaceService::delete_plugin_registry(&plugin.name, plugin.plugin_type);
+            return Err(error);
+        }
 
         Ok(plugin)
     }
@@ -47,6 +53,10 @@ impl PluginService {
         store.list()
     }
 
+    pub fn list_by_type(store: &PluginStore, plugin_type: PluginType) -> Vec<PluginRegistry> {
+        store.list_by_type(plugin_type)
+    }
+
     pub fn update(store: &PluginStore, request: UpdatePluginRequest) -> AppResult<PluginRegistry> {
         Self::validate_request(
             store,
@@ -58,47 +68,46 @@ impl PluginService {
             false,
         )?;
 
-        let source_code = request
-            .source_code
-            .as_ref()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
+        let existing = store.with_registry(&request.id, |plugin| ExistingPluginMeta {
+            name: plugin.name.clone(),
+            plugin_type: plugin.plugin_type,
+        })?;
 
-        let current = store.get(request.id.as_str())?;
-        let previous_name = current.name.trim().to_string();
-        let previous_type = current.plugin_type;
-
-        if request.plugin_type != previous_type {
+        if request.plugin_type != existing.plugin_type {
             return Err(AppError::InvalidArgument(
                 "Tipo do plugin não pode ser alterado".into(),
             ));
         }
 
-        let resolved_source_code = match source_code {
+        let resolved_source_code = match Self::normalize_source_code(request.source_code.as_deref())
+        {
             Some(code) => code,
-            None => WorkspaceService::read_plugin_source(previous_name.as_str(), previous_type)?,
+            None => WorkspaceService::read_plugin_source(&existing.name, existing.plugin_type)?,
         };
 
-        let updated = store.update(&request.id, |plugin| {
-            plugin.name = request.name.trim().to_string();
-            plugin.runtime = request.runtime;
-            plugin.schema = request.schema;
-            plugin.source_file = Some(PYTHON_SOURCE_FILE_NAME.to_string());
-            plugin.source_code = None;
-            plugin.dependencies = request.dependencies;
-            plugin.description = request.description.map(|value| value.trim().to_string());
-            plugin.version = request.version.map(|value| value.trim().to_string());
-            plugin.author = request.author.map(|value| value.trim().to_string());
-        })?;
+        let next_plugin = PluginRegistry {
+            id: request.id.clone(),
+            name: request.name.trim().to_string(),
+            plugin_type: existing.plugin_type,
+            runtime: request.runtime,
+            schema: request.schema,
+            source_file: Some(PYTHON_SOURCE_FILE_NAME.to_string()),
+            source_code: None,
+            dependencies: request.dependencies,
+            description: Self::normalize_optional_text(request.description),
+            version: Self::normalize_optional_text(request.version),
+            author: Self::normalize_optional_text(request.author),
+        };
 
         WorkspaceService::update_plugin_registry(
-            &updated,
+            &next_plugin,
             resolved_source_code.as_str(),
-            previous_name.as_str(),
-            previous_type,
+            &existing.name,
+            existing.plugin_type,
         )?;
+        store.replace(&request.id, next_plugin.clone())?;
 
-        Ok(updated)
+        Ok(next_plugin)
     }
 
     fn build_plugin(request: CreatePluginRequest) -> PluginRegistry {
@@ -113,9 +122,9 @@ impl PluginService {
             source_file: Some(PYTHON_SOURCE_FILE_NAME.to_string()),
             source_code: None,
             dependencies: request.dependencies,
-            description: request.description.map(|value| value.trim().to_string()),
-            version: request.version.map(|value| value.trim().to_string()),
-            author: request.author.map(|value| value.trim().to_string()),
+            description: Self::normalize_optional_text(request.description),
+            version: Self::normalize_optional_text(request.version),
+            author: Self::normalize_optional_text(request.author),
         }
     }
 
@@ -174,6 +183,28 @@ impl PluginService {
         }
 
         Ok(())
+    }
+
+    fn normalize_source_code(source_code: Option<&str>) -> Option<String> {
+        source_code.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+    }
+
+    fn normalize_optional_text(value: Option<String>) -> Option<String> {
+        value.and_then(|raw| {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
     }
 }
 

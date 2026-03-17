@@ -12,6 +12,15 @@ use uuid::Uuid;
 
 pub struct PlantService;
 
+#[derive(Debug, Clone)]
+struct PlantRuntimeSnapshot {
+    previous_name: String,
+    previous_sample_time_ms: u64,
+    connected: bool,
+    paused: bool,
+    stats: PlantStats,
+}
+
 impl PlantService {
     pub fn create(
         store: &PlantStore,
@@ -30,9 +39,12 @@ impl PlantService {
         )?;
 
         let plant = Self::build_plant(request, plugins)?;
-
-        store.insert(plant.clone())?;
         WorkspaceService::save_plant_registry(&plant)?;
+
+        if let Err(error) = store.insert(plant.clone()) {
+            let _ = WorkspaceService::delete_plant_registry(&plant.name);
+            return Err(error);
+        }
 
         Ok(plant)
     }
@@ -53,28 +65,20 @@ impl PlantService {
             plugins,
         )?;
 
-        let driver_plugin =
-            Self::resolve_plugin(plugins, &request.driver.plugin_id, PluginType::Driver)?;
-        let next_variables = Self::build_variables(request.variables);
-        let next_driver = Self::build_driver(request.driver, &driver_plugin);
-        let next_controllers = request
-            .controllers
-            .into_iter()
-            .map(|controller| Self::build_controller(controller, plugins))
-            .collect::<AppResult<Vec<_>>>()?;
+        let runtime = store.with_plant(&request.id, |plant| PlantRuntimeSnapshot {
+            previous_name: plant.name.clone(),
+            previous_sample_time_ms: plant.sample_time_ms,
+            connected: plant.connected,
+            paused: plant.paused,
+            stats: plant.stats.clone(),
+        })?;
 
-        store.update(&request.id, move |plant| {
-            let previous_sample_time_ms = plant.sample_time_ms;
-            plant.name = request.name.trim().to_string();
-            plant.sample_time_ms = request.sample_time_ms;
-            plant.variables = next_variables;
-            plant.driver = next_driver;
-            plant.controllers = next_controllers;
+        let previous_name = runtime.previous_name.clone();
+        let updated_plant = Self::build_updated_plant(request, plugins, runtime)?;
+        WorkspaceService::update_plant_registry(&updated_plant, &previous_name)?;
+        store.replace(&updated_plant.id, updated_plant.clone())?;
 
-            if !plant.connected || plant.stats.dt == previous_sample_time_ms as f64 / 1000.0 {
-                plant.stats.dt = request.sample_time_ms as f64 / 1000.0;
-            }
-        })
+        Ok(updated_plant)
     }
 
     fn build_plant(request: CreatePlantRequest, plugins: &PluginStore) -> AppResult<Plant> {
@@ -102,6 +106,38 @@ impl PlantService {
                 dt: sample_time_ms as f64 / 1000.0,
                 uptime: 0,
             },
+        })
+    }
+
+    fn build_updated_plant(
+        request: UpdatePlantRequest,
+        plugins: &PluginStore,
+        runtime: PlantRuntimeSnapshot,
+    ) -> AppResult<Plant> {
+        let driver_plugin =
+            Self::resolve_plugin(plugins, &request.driver.plugin_id, PluginType::Driver)?;
+        let variables = Self::build_variables(request.variables);
+        let controllers = request
+            .controllers
+            .into_iter()
+            .map(|controller| Self::build_controller(controller, plugins))
+            .collect::<AppResult<Vec<_>>>()?;
+
+        let mut stats = runtime.stats;
+        if !runtime.connected || stats.dt == runtime.previous_sample_time_ms as f64 / 1000.0 {
+            stats.dt = request.sample_time_ms as f64 / 1000.0;
+        }
+
+        Ok(Plant {
+            id: request.id,
+            name: request.name.trim().to_string(),
+            sample_time_ms: request.sample_time_ms,
+            variables,
+            driver: Self::build_driver(request.driver, &driver_plugin),
+            controllers,
+            connected: runtime.connected,
+            paused: runtime.paused,
+            stats,
         })
     }
 
@@ -391,6 +427,8 @@ impl PlantService {
     }
 
     pub fn remove(store: &PlantStore, id: &str) -> AppResult<Plant> {
+        let plant = store.get(id)?;
+        WorkspaceService::delete_plant_registry(&plant.name)?;
         store.remove(id)
     }
 

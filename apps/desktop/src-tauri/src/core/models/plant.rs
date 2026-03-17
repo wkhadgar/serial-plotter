@@ -184,16 +184,22 @@ pub struct PlantResponse {
 
 impl From<&Plant> for PlantResponse {
     fn from(plant: &Plant) -> Self {
+        Self::from(plant.clone())
+    }
+}
+
+impl From<Plant> for PlantResponse {
+    fn from(plant: Plant) -> Self {
         Self {
-            id: plant.id.clone(),
-            name: plant.name.clone(),
+            id: plant.id,
+            name: plant.name,
             sample_time_ms: plant.sample_time_ms,
             connected: plant.connected,
             paused: plant.paused,
-            variables: plant.variables.clone(),
-            stats: plant.stats.clone(),
-            driver: plant.driver.clone(),
-            controllers: plant.controllers.clone(),
+            variables: plant.variables,
+            stats: plant.stats,
+            driver: plant.driver,
+            controllers: plant.controllers,
         }
     }
 }
