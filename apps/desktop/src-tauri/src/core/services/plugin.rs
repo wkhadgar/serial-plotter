@@ -6,6 +6,8 @@ use crate::core::services::workspace::WorkspaceService;
 use crate::state::PluginStore;
 use uuid::Uuid;
 
+const PYTHON_SOURCE_FILE_NAME: &str = "main.py";
+
 pub struct PluginService;
 
 impl PluginService {
@@ -17,12 +19,18 @@ impl PluginService {
             request.runtime,
             request.source_file.as_deref(),
             request.source_code.as_deref(),
+            true,
         )?;
 
+        let source_code = request
+            .source_code
+            .as_ref()
+            .map(|value| value.trim().to_string())
+            .unwrap_or_default();
         let plugin = Self::build_plugin(request);
 
         if plugin.plugin_type == PluginType::Driver {
-            WorkspaceService::save_driver_registry(&plugin)?;
+            WorkspaceService::save_driver_registry(&plugin, &source_code)?;
         }
 
         store.insert(plugin.clone())?;
@@ -46,20 +54,35 @@ impl PluginService {
             request.runtime,
             request.source_file.as_deref(),
             request.source_code.as_deref(),
+            false,
         )?;
 
-        store.update(&request.id, |plugin| {
+        let source_code = request
+            .source_code
+            .as_ref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+
+        let updated = store.update(&request.id, |plugin| {
             plugin.name = request.name.trim().to_string();
             plugin.plugin_type = request.plugin_type;
             plugin.runtime = request.runtime;
             plugin.schema = request.schema;
-            plugin.source_file = request.source_file.map(|value| value.trim().to_string());
-            plugin.source_code = request.source_code.map(|value| value.trim().to_string());
+            plugin.source_file = Some(PYTHON_SOURCE_FILE_NAME.to_string());
+            plugin.source_code = None;
             plugin.dependencies = request.dependencies;
             plugin.description = request.description.map(|value| value.trim().to_string());
             plugin.version = request.version.map(|value| value.trim().to_string());
             plugin.author = request.author.map(|value| value.trim().to_string());
-        })
+        })?;
+
+        if updated.plugin_type == PluginType::Driver {
+            if let Some(code) = source_code.as_deref() {
+                WorkspaceService::save_driver_registry(&updated, code)?;
+            }
+        }
+
+        Ok(updated)
     }
 
     fn build_plugin(request: CreatePluginRequest) -> PluginRegistry {
@@ -71,8 +94,8 @@ impl PluginService {
             plugin_type: request.plugin_type,
             runtime: request.runtime,
             schema: request.schema,
-            source_file: request.source_file.map(|value| value.trim().to_string()),
-            source_code: request.source_code.map(|value| value.trim().to_string()),
+            source_file: Some(PYTHON_SOURCE_FILE_NAME.to_string()),
+            source_code: None,
             dependencies: request.dependencies,
             description: request.description.map(|value| value.trim().to_string()),
             version: request.version.map(|value| value.trim().to_string()),
@@ -87,6 +110,7 @@ impl PluginService {
         runtime: PluginRuntime,
         source_file: Option<&str>,
         source_code: Option<&str>,
+        require_source_code: bool,
     ) -> AppResult<()> {
         if name.trim().is_empty() {
             return Err(AppError::InvalidArgument(
@@ -111,10 +135,17 @@ impl PluginService {
             ));
         }
 
-        if source_code
-            .map(|code| code.trim().is_empty())
-            .unwrap_or(true)
+        if require_source_code
+            && source_code
+                .map(|code| code.trim().is_empty())
+                .unwrap_or(true)
         {
+            return Err(AppError::InvalidArgument(
+                "Código fonte Python é obrigatório".into(),
+            ));
+        }
+
+        if source_code.is_some_and(|code| code.trim().is_empty()) {
             return Err(AppError::InvalidArgument(
                 "Código fonte Python é obrigatório".into(),
             ));
@@ -161,6 +192,8 @@ mod tests {
 
         assert!(plugin.id.starts_with("plugin_"));
         assert_eq!(plugin.name, "test_driver");
+        assert_eq!(plugin.source_file.as_deref(), Some("main.py"));
+        assert_eq!(plugin.source_code, None);
     }
 
     #[test]
@@ -208,6 +241,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(updated.name, "updated_driver");
-        assert_eq!(updated.source_file.as_deref(), Some("updated.py"));
+        assert_eq!(updated.source_file.as_deref(), Some("main.py"));
+        assert_eq!(updated.source_code, None);
     }
 }
