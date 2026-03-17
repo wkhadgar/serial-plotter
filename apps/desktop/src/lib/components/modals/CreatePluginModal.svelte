@@ -4,6 +4,7 @@
     PluginKind,
     PluginRuntime,
     SchemaFieldType,
+    SchemaFieldValue,
     PluginSchemaField,
     PluginDefinition,
     PluginDependency,
@@ -57,6 +58,12 @@
     hasDefault: boolean;
     defaultValue: string;
     defaultBool: boolean;
+    defaultListValues: ListDefaultItem[];
+  }
+
+  interface ListDefaultItem {
+    value: string;
+    type: SchemaFieldType;
   }
 
   let pluginName = $state('');
@@ -74,6 +81,7 @@
   let error = $state<string | null>(null);
   let fieldErrors = $state<Record<number, string>>({});
   let showCodeEditor = $state(false);
+  const LIST_ITEM_TYPE_OPTIONS: SchemaFieldType[] = ['string', 'int', 'float', 'bool', 'list'];
 
   const runtimeExtension = $derived('.py');
   const schemaValid = $derived(formFields.every((f, i) => !fieldErrors[i]));
@@ -139,7 +147,32 @@
           ? String(field.defaultValue)
           : '',
       defaultBool: field.defaultValue === true,
+      defaultListValues: Array.isArray(field.defaultValue)
+        ? field.defaultValue.map(toListDefaultItem)
+        : [],
     }));
+  }
+
+  function toListDefaultItem(value: SchemaFieldValue): ListDefaultItem {
+    return {
+      value: stringifyListItem(value),
+      type: inferListItemType(value),
+    };
+  }
+
+  function inferListItemType(value: SchemaFieldValue): SchemaFieldType {
+    if (Array.isArray(value)) return 'list';
+    if (typeof value === 'boolean') return 'bool';
+    if (typeof value === 'number') return Number.isInteger(value) ? 'int' : 'float';
+    return 'string';
+  }
+
+  function stringifyListItem(value: SchemaFieldValue): string {
+    if (Array.isArray(value)) {
+      return JSON.stringify(value);
+    }
+
+    return String(value);
   }
 
   $effect(() => {
@@ -194,6 +227,7 @@
         hasDefault: false,
         defaultValue: '',
         defaultBool: false,
+        defaultListValues: [],
       },
     ];
   }
@@ -222,12 +256,22 @@
 
   function updateFieldType(index: number, value: SchemaFieldType) {
     formFields = formFields.map((f, i) =>
-      i === index ? { ...f, type: value, defaultValue: '', defaultBool: false, hasDefault: false } : f
+      i === index
+        ? { ...f, type: value, defaultValue: '', defaultBool: false, defaultListValues: [], hasDefault: false }
+        : f
     );
   }
 
   function updateFieldHasDefault(index: number, value: boolean) {
-    formFields = formFields.map((f, i) => (i === index ? { ...f, hasDefault: value } : f));
+    formFields = formFields.map((f, i) => {
+      if (i !== index) return f;
+
+      if (f.type === 'list' && value && f.defaultListValues.length === 0) {
+        return { ...f, hasDefault: value, defaultListValues: [createEmptyListDefaultItem()] };
+      }
+
+      return { ...f, hasDefault: value };
+    });
   }
 
   function updateFieldDefaultValue(index: number, value: string) {
@@ -236,6 +280,185 @@
 
   function updateFieldDefaultBool(index: number, value: boolean) {
     formFields = formFields.map((f, i) => (i === index ? { ...f, defaultBool: value } : f));
+  }
+
+  function createEmptyListDefaultItem(): ListDefaultItem {
+    return { value: '', type: 'string' };
+  }
+
+  function updateListDefaultItemValue(fieldIndex: number, itemIndex: number, value: string) {
+    formFields = formFields.map((field, currentIndex) => {
+      if (currentIndex !== fieldIndex) return field;
+
+      const nextValues = field.defaultListValues.map((entry, currentItemIndex) =>
+        currentItemIndex === itemIndex ? { ...entry, value } : entry
+      );
+
+      return { ...field, defaultListValues: nextValues };
+    });
+  }
+
+  function formatListDefaultItemValue(rawValue: string, type: SchemaFieldType): string {
+    const trimmed = rawValue.trim();
+
+    switch (type) {
+      case 'bool':
+        return trimmed.toLowerCase() === 'true' ? 'true' : 'false';
+      case 'int': {
+        if (!trimmed) return '';
+        const parsed = Number.parseInt(trimmed, 10);
+        return Number.isFinite(parsed) ? String(parsed) : '';
+      }
+      case 'float': {
+        if (!trimmed) return '';
+        const parsed = Number.parseFloat(trimmed);
+        return Number.isFinite(parsed) ? String(parsed) : '';
+      }
+      case 'list': {
+        if (!trimmed) return '[]';
+        try {
+          const parsed = JSON.parse(trimmed);
+          return Array.isArray(parsed) ? JSON.stringify(parsed) : rawValue;
+        } catch {
+          return rawValue;
+        }
+      }
+      case 'string':
+      default:
+        return rawValue;
+    }
+  }
+
+  function formatListDefaultItemByType(fieldIndex: number, itemIndex: number) {
+    formFields = formFields.map((field, currentIndex) => {
+      if (currentIndex !== fieldIndex) return field;
+
+      const nextValues = field.defaultListValues.map((entry, currentItemIndex) => {
+        if (currentItemIndex !== itemIndex) return entry;
+
+        return {
+          ...entry,
+          value: formatListDefaultItemValue(entry.value, entry.type),
+        };
+      });
+
+      return { ...field, defaultListValues: nextValues };
+    });
+  }
+
+  function updateListDefaultItemType(fieldIndex: number, itemIndex: number, value: SchemaFieldType) {
+    formFields = formFields.map((field, currentIndex) => {
+      if (currentIndex !== fieldIndex) return field;
+
+      const nextValues = field.defaultListValues.map((entry, currentItemIndex) =>
+        currentItemIndex === itemIndex
+          ? { ...entry, type: value, value: formatListDefaultItemValue(entry.value, value) }
+          : entry
+      );
+
+      return { ...field, defaultListValues: nextValues };
+    });
+  }
+
+  function addListDefaultItem(fieldIndex: number) {
+    formFields = formFields.map((field, currentIndex) => {
+      if (currentIndex !== fieldIndex) return field;
+      return { ...field, defaultListValues: [...field.defaultListValues, createEmptyListDefaultItem()] };
+    });
+  }
+
+  function removeListDefaultItem(fieldIndex: number, itemIndex: number) {
+    formFields = formFields.map((field, currentIndex) => {
+      if (currentIndex !== fieldIndex) return field;
+      return {
+        ...field,
+        defaultListValues: field.defaultListValues.filter((_, currentItemIndex) => currentItemIndex !== itemIndex),
+      };
+    });
+  }
+
+  function normalizeUnknownToSchemaValue(value: unknown): SchemaFieldValue {
+    if (Array.isArray(value)) {
+      return value.map(normalizeUnknownToSchemaValue);
+    }
+
+    if (
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'boolean'
+    ) {
+      return value;
+    }
+
+    return String(value ?? '');
+  }
+
+  function parseListDefaultItem(item: ListDefaultItem): SchemaFieldValue {
+    const trimmed = item.value.trim();
+
+    switch (item.type) {
+      case 'bool':
+        return trimmed.toLowerCase() === 'true';
+      case 'int':
+        return Number.parseInt(trimmed, 10) || 0;
+      case 'float':
+        return Number.parseFloat(trimmed) || 0;
+      case 'list':
+        try {
+          const parsed = JSON.parse(trimmed);
+          return Array.isArray(parsed) ? parsed.map(normalizeUnknownToSchemaValue) : [];
+        } catch {
+          return [];
+        }
+      case 'string':
+      default:
+        return item.value;
+    }
+  }
+
+  function getListDefaultItemTypeError(item: ListDefaultItem): string | null {
+    const trimmed = item.value.trim();
+
+    switch (item.type) {
+      case 'bool':
+        return trimmed === 'true' || trimmed === 'false'
+          ? null
+          : 'Use true ou false';
+      case 'int':
+        return /^-?\d+$/.test(trimmed) ? null : 'Inteiro inválido';
+      case 'float': {
+        const parsed = Number.parseFloat(trimmed);
+        return Number.isFinite(parsed) ? null : 'Decimal inválido';
+      }
+      case 'list':
+        try {
+          const parsed = JSON.parse(trimmed || '[]');
+          return Array.isArray(parsed) ? null : 'Use um JSON de array';
+        } catch {
+          return 'JSON inválido para lista';
+        }
+      case 'string':
+      default:
+        return null;
+    }
+  }
+
+  function validateListDefaults(): string | null {
+    for (let fieldIndex = 0; fieldIndex < formFields.length; fieldIndex++) {
+      const field = formFields[fieldIndex];
+      if (!field.hasDefault || field.type !== 'list') continue;
+
+      for (let itemIndex = 0; itemIndex < field.defaultListValues.length; itemIndex++) {
+        const item = field.defaultListValues[itemIndex];
+        const itemError = getListDefaultItemTypeError(item);
+        if (itemError) {
+          const fieldLabel = field.name.trim() || `#${fieldIndex + 1}`;
+          return `Campo "${fieldLabel}" item ${itemIndex + 1}: ${itemError}`;
+        }
+      }
+    }
+
+    return null;
   }
 
   function buildSchema(): PluginSchemaField[] {
@@ -248,7 +471,7 @@
           case 'int': field.defaultValue = parseInt(f.defaultValue, 10) || 0; break;
           case 'float': field.defaultValue = parseFloat(f.defaultValue) || 0; break;
           case 'string': field.defaultValue = f.defaultValue; break;
-          case 'list': field.defaultValue = []; break;
+          case 'list': field.defaultValue = f.defaultListValues.map(parseListDefaultItem); break;
         }
       }
       return field;
@@ -348,6 +571,12 @@
         error = `Campo "${formFields[i].name}" é um nome reservado`;
         return;
       }
+    }
+
+    const listValidationError = validateListDefaults();
+    if (listValidationError) {
+      error = listValidationError;
+      return;
     }
 
     if (!schemaValid) {
@@ -631,51 +860,151 @@
                     <Trash2 size={14} />
                   </button>
                 </div>
-                <div class="flex items-center gap-2">
-                  <label class="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
-                    <input
-                      type="checkbox"
-                      checked={field.hasDefault}
-                      onchange={(e) => updateFieldHasDefault(i, (e.target as HTMLInputElement).checked)}
-                      class="w-3.5 h-3.5 rounded border-slate-300 dark:border-white/20 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span class="text-[10px] text-slate-500 dark:text-zinc-400 whitespace-nowrap">Valor padrão</span>
-                  </label>
-                  {#if field.hasDefault}
-                    {#if field.type === 'bool'}
+                {#if field.hasDefault && field.type === 'list'}
+                  <div class="space-y-2">
+                    <div class="flex items-center justify-between gap-2">
+                      <label class="flex items-center gap-1.5 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={field.hasDefault}
+                          onchange={(e) => updateFieldHasDefault(i, (e.target as HTMLInputElement).checked)}
+                          class="w-3.5 h-3.5 rounded border-slate-300 dark:border-white/20 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span class="text-[10px] text-slate-500 dark:text-zinc-400 whitespace-nowrap">Valor padrão</span>
+                      </label>
+                      <span class="text-[10px] text-slate-400 dark:text-zinc-500">
+                        {field.defaultListValues.length} item(ns)
+                      </span>
+                    </div>
+
+                    <div class="ml-5 p-2 rounded-md border border-slate-200 dark:border-white/10 bg-white/70 dark:bg-[#18181b]/60 space-y-1.5">
+                      {#if field.defaultListValues.length === 0}
+                        <p class="text-[10px] text-slate-400 dark:text-zinc-500">Nenhum item na lista</p>
+                      {/if}
+                      <div class="space-y-1.5">
+                        {#each field.defaultListValues as item, itemIndex (itemIndex)}
+                          <div class="flex items-start gap-2">
+                            <div class="flex-1 space-y-1">
+                              {#if item.type === 'bool'}
+                                <select
+                                  value={item.value || 'false'}
+                                  onchange={(e) => {
+                                    updateListDefaultItemValue(i, itemIndex, (e.target as HTMLSelectElement).value);
+                                    formatListDefaultItemByType(i, itemIndex);
+                                  }}
+                                  class="w-full h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                                >
+                                  <option value="true" class="dark:bg-zinc-900">true</option>
+                                  <option value="false" class="dark:bg-zinc-900">false</option>
+                                </select>
+                              {:else if item.type === 'int' || item.type === 'float'}
+                                <input
+                                  type="number"
+                                  step={item.type === 'float' ? 'any' : '1'}
+                                  value={item.value}
+                                  oninput={(e) => updateListDefaultItemValue(i, itemIndex, (e.target as HTMLInputElement).value)}
+                                  onblur={() => formatListDefaultItemByType(i, itemIndex)}
+                                  placeholder={item.type === 'float' ? '0.0' : '0'}
+                                  class="w-full h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-mono"
+                                />
+                              {:else if item.type === 'list'}
+                                <textarea
+                                  value={item.value}
+                                  oninput={(e) => updateListDefaultItemValue(i, itemIndex, (e.target as HTMLTextAreaElement).value)}
+                                  onblur={() => formatListDefaultItemByType(i, itemIndex)}
+                                  placeholder='["item1", 2]'
+                                  rows={2}
+                                  class="w-full px-2 py-1.5 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-mono resize-y"
+                                ></textarea>
+                              {:else}
+                                <input
+                                  type="text"
+                                  value={item.value}
+                                  oninput={(e) => updateListDefaultItemValue(i, itemIndex, (e.target as HTMLInputElement).value)}
+                                  onblur={() => formatListDefaultItemByType(i, itemIndex)}
+                                  placeholder={`item_${itemIndex + 1}`}
+                                  class="w-full h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-mono"
+                                />
+                              {/if}
+                              {#if getListDefaultItemTypeError(item)}
+                                <p class="text-[10px] text-red-500">{getListDefaultItemTypeError(item)}</p>
+                              {/if}
+                            </div>
+                            <select
+                              value={item.type}
+                              onchange={(e) => updateListDefaultItemType(i, itemIndex, (e.target as HTMLSelectElement).value as SchemaFieldType)}
+                              class="h-8 w-24 px-1.5 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs focus:outline-none cursor-pointer"
+                            >
+                              {#each LIST_ITEM_TYPE_OPTIONS as itemType}
+                                <option value={itemType} class="dark:bg-zinc-900">
+                                  {SCHEMA_FIELD_TYPE_LABELS[itemType]}
+                                </option>
+                              {/each}
+                            </select>
+                            <button
+                              onclick={() => removeListDefaultItem(i, itemIndex)}
+                              class="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors shrink-0 mt-1"
+                              title="Remover item"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        {/each}
+                      </div>
                       <button
-                        onclick={() => updateFieldDefaultBool(i, !field.defaultBool)}
-                        class="flex items-center gap-2 h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs"
+                        onclick={() => addListDefaultItem(i)}
+                        class="h-7 px-2.5 rounded border border-dashed border-slate-300 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 text-[11px] text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1.5"
                       >
-                        <div class="w-7 h-3.5 rounded-full transition-colors relative {field.defaultBool ? 'bg-blue-500' : 'bg-slate-300 dark:bg-zinc-600'}">
-                          <div class="absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white shadow transition-transform {field.defaultBool ? 'translate-x-3.5' : 'translate-x-0.5'}"></div>
-                        </div>
-                        <span class="text-slate-500 dark:text-zinc-400">{field.defaultBool ? 'true' : 'false'}</span>
+                        <Plus size={12} />
+                        Adicionar item
                       </button>
-                    {:else if field.type === 'int' || field.type === 'float'}
+                    </div>
+                  </div>
+                {:else}
+                  <div class="flex items-center gap-2">
+                    <label class="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
                       <input
-                        type="number"
-                        step={field.type === 'float' ? 'any' : '1'}
-                        value={field.defaultValue}
-                        oninput={(e) => updateFieldDefaultValue(i, (e.target as HTMLInputElement).value)}
-                        placeholder="0"
-                        class="flex-1 h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                        type="checkbox"
+                        checked={field.hasDefault}
+                        onchange={(e) => updateFieldHasDefault(i, (e.target as HTMLInputElement).checked)}
+                        class="w-3.5 h-3.5 rounded border-slate-300 dark:border-white/20 text-blue-600 focus:ring-blue-500"
                       />
-                    {:else if field.type === 'string'}
-                      <input
-                        type="text"
-                        value={field.defaultValue}
-                        oninput={(e) => updateFieldDefaultValue(i, (e.target as HTMLInputElement).value)}
-                        placeholder="valor padrão"
-                        class="flex-1 h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                      />
-                    {:else if field.type === 'list'}
-                      <span class="text-[10px] text-slate-400 dark:text-zinc-500">lista vazia</span>
+                      <span class="text-[10px] text-slate-500 dark:text-zinc-400 whitespace-nowrap">Valor padrão</span>
+                    </label>
+                    {#if field.hasDefault}
+                      {#if field.type === 'bool'}
+                        <button
+                          onclick={() => updateFieldDefaultBool(i, !field.defaultBool)}
+                          class="flex items-center gap-2 h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs"
+                        >
+                          <div class="w-7 h-3.5 rounded-full transition-colors relative {field.defaultBool ? 'bg-blue-500' : 'bg-slate-300 dark:bg-zinc-600'}">
+                            <div class="absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white shadow transition-transform {field.defaultBool ? 'translate-x-3.5' : 'translate-x-0.5'}"></div>
+                          </div>
+                          <span class="text-slate-500 dark:text-zinc-400">{field.defaultBool ? 'true' : 'false'}</span>
+                        </button>
+                      {:else if field.type === 'int' || field.type === 'float'}
+                        <input
+                          type="number"
+                          step={field.type === 'float' ? 'any' : '1'}
+                          value={field.defaultValue}
+                          oninput={(e) => updateFieldDefaultValue(i, (e.target as HTMLInputElement).value)}
+                          placeholder="0"
+                          class="flex-1 h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                        />
+                      {:else if field.type === 'string'}
+                        <input
+                          type="text"
+                          value={field.defaultValue}
+                          oninput={(e) => updateFieldDefaultValue(i, (e.target as HTMLInputElement).value)}
+                          placeholder="valor padrão"
+                          class="flex-1 h-8 px-2 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                        />
+                      {/if}
+                    {:else}
+                      <span class="text-[10px] text-amber-600 dark:text-amber-400">obrigatório</span>
                     {/if}
-                  {:else}
-                    <span class="text-[10px] text-amber-600 dark:text-amber-400">obrigatório</span>
-                  {/if}
-                </div>
+                  </div>
+                {/if}
               </div>
             {/each}
           </div>

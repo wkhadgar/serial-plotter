@@ -164,11 +164,16 @@ impl PluginService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::plugin::{PluginRuntime, PluginType};
+    use crate::core::models::plugin::{
+        PluginRuntime, PluginSchemaField, PluginType, SchemaFieldType, SchemaFieldValue,
+    };
+    use std::fs;
+    use std::path::PathBuf;
+    use uuid::Uuid;
 
     fn create_valid_request() -> CreatePluginRequest {
         CreatePluginRequest {
-            name: "test_driver".to_string(),
+            name: format!("test_driver_{}", Uuid::new_v4().simple()),
             plugin_type: PluginType::Driver,
             runtime: PluginRuntime::Python,
             schema: vec![],
@@ -185,15 +190,66 @@ mod tests {
     fn test_create_plugin_success() {
         let store = PluginStore::new();
         let request = create_valid_request();
+        let expected_name = request.name.clone();
         let result = PluginService::create(&store, request);
 
         assert!(result.is_ok());
         let plugin = result.unwrap();
 
         assert!(plugin.id.starts_with("plugin_"));
-        assert_eq!(plugin.name, "test_driver");
+        assert_eq!(plugin.name, expected_name);
         assert_eq!(plugin.source_file.as_deref(), Some("main.py"));
         assert_eq!(plugin.source_code, None);
+    }
+
+    #[test]
+    fn test_create_driver_with_list_default_persists_schema_structure() {
+        let store = PluginStore::new();
+        let request = CreatePluginRequest {
+            schema: vec![PluginSchemaField {
+                name: "channels".to_string(),
+                field_type: SchemaFieldType::List,
+                default_value: Some(SchemaFieldValue::List(vec![
+                    SchemaFieldValue::String("A0".to_string()),
+                    SchemaFieldValue::Int(2),
+                    SchemaFieldValue::Bool(true),
+                ])),
+                description: Some("Canais ativos".to_string()),
+            }],
+            ..create_valid_request()
+        };
+
+        let plugin = PluginService::create(&store, request).unwrap();
+
+        let registry_path = std::env::temp_dir()
+            .join("Senamby/workspace")
+            .join("drivers")
+            .join(&plugin.name)
+            .join("registry.json");
+        let raw_registry = fs::read_to_string(&registry_path).unwrap();
+        let persisted: PluginRegistry = serde_json::from_str(&raw_registry).unwrap();
+
+        assert_eq!(persisted.schema.len(), 1);
+        let default_value = persisted.schema[0].default_value.clone().unwrap();
+
+        match default_value {
+            SchemaFieldValue::List(items) => {
+                assert_eq!(items.len(), 3);
+                assert!(matches!(
+                    items.first(),
+                    Some(SchemaFieldValue::String(value)) if value == "A0"
+                ));
+                assert!(matches!(items.get(1), Some(SchemaFieldValue::Int(2))));
+                assert!(matches!(items.get(2), Some(SchemaFieldValue::Bool(true))));
+            }
+            _ => panic!("default_value deveria ser uma lista"),
+        }
+
+        let driver_dir: PathBuf = registry_path
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::temp_dir());
+        let _ = fs::remove_dir_all(driver_dir);
     }
 
     #[test]
