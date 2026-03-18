@@ -8,6 +8,8 @@ const APP_WORKSPACE_DIR: &str = "Senamby/workspace";
 const DRIVERS_DIR: &str = "drivers";
 const CONTROLLERS_DIR: &str = "controllers";
 const PLANTS_DIR: &str = "plants";
+const ENVS_DIR: &str = "envs";
+const RUNTIMES_DIR: &str = "runtimes";
 pub(super) const REGISTRY_FILE: &str = "registry.json";
 pub(super) const SOURCE_FILE: &str = "main.py";
 
@@ -32,6 +34,19 @@ pub(super) fn plant_directory(plant_name: &str) -> AppResult<PathBuf> {
     let workspace_root = workspace_root()?;
     let plant_name = crate::core::services::workspace::ensure_non_empty_name(plant_name, "planta")?;
     Ok(workspace_root.join(PLANTS_DIR).join(plant_name))
+}
+
+pub(super) fn env_directory(env_hash: &str) -> AppResult<PathBuf> {
+    let workspace_root = workspace_root()?;
+    let env_hash = crate::core::services::workspace::ensure_non_empty_name(env_hash, "ambiente")?;
+    Ok(workspace_root.join(ENVS_DIR).join(env_hash))
+}
+
+pub(super) fn runtime_directory(runtime_id: &str) -> AppResult<PathBuf> {
+    let workspace_root = workspace_root()?;
+    let runtime_id =
+        crate::core::services::workspace::ensure_non_empty_name(runtime_id, "runtime")?;
+    Ok(workspace_root.join(RUNTIMES_DIR).join(runtime_id))
 }
 
 #[cfg(not(test))]

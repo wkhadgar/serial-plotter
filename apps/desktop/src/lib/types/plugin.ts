@@ -119,12 +119,9 @@ export interface PluginFileJSON {
 }
 
 export const DRIVER_REQUIRED_METHODS = [
-  '__init__',
   'connect',
-  'reconnect',
   'stop',
   'read',
-  'send',
 ] as const;
 
 export function toDriverClassName(pluginName: string): string {
@@ -139,30 +136,29 @@ export function toDriverClassName(pluginName: string): string {
 
 export function generateDriverTemplate(pluginName: string): string {
   const className = toDriverClassName(pluginName);
-  return `from senamby import MCUDriver
+  return `from typing import Any, Dict, Optional
 
-
-class ${className}(MCUDriver):
+class ${className}:
     """Driver: ${pluginName || 'Novo Driver'}"""
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        pass
+    def __init__(self, **kwargs: Any) -> None:
+        self.config = kwargs
 
-    def connect(self):
-        pass
+    def connect(self) -> bool:
+        return True
 
-    def reconnect(self):
-        pass
+    def stop(self) -> bool:
+        return True
 
-    def stop(self):
-        pass
+    def read(self) -> Dict[str, float]:
+        return {}
 
-    def read(self):
-        pass
+    def reconnect(self) -> bool:
+        return True
 
-    def send(self, *outs):
-        pass
+    def send(self, outputs: Optional[Dict[str, float]] = None) -> bool:
+        _ = outputs
+        return True
 `;
 }
 

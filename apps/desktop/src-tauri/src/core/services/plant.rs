@@ -393,12 +393,14 @@ impl PlantService {
         store.remove(id)
     }
 
+    #[allow(dead_code)]
     pub fn connect(store: &PlantStore, id: &str) -> AppResult<Plant> {
         store.update(id, |plant| {
             plant.connected = true;
         })
     }
 
+    #[allow(dead_code)]
     pub fn disconnect(store: &PlantStore, id: &str) -> AppResult<Plant> {
         store.update(id, |plant| {
             plant.connected = false;

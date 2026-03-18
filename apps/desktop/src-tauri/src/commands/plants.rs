@@ -1,8 +1,9 @@
 use crate::core::error::ErrorDto;
 use crate::core::models::plant::{CreatePlantRequest, PlantResponse, UpdatePlantRequest};
 use crate::core::services::plant::PlantService;
+use crate::core::services::runtime::DriverRuntimeService;
 use crate::state::AppState;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 #[tauri::command]
 pub fn create_plant(
@@ -45,14 +46,27 @@ pub fn remove_plant(state: State<'_, AppState>, id: String) -> Result<PlantRespo
 }
 
 #[tauri::command]
-pub fn connect_plant(state: State<'_, AppState>, id: String) -> Result<PlantResponse, ErrorDto> {
-    let plant = PlantService::connect(state.plants(), &id).map_err(ErrorDto::from)?;
+pub fn connect_plant(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<PlantResponse, ErrorDto> {
+    let plant =
+        DriverRuntimeService::connect(&app, state.plants(), state.plugins(), state.runtimes(), &id)
+            .map_err(ErrorDto::from)?;
+
     Ok(plant.into())
 }
 
 #[tauri::command]
-pub fn disconnect_plant(state: State<'_, AppState>, id: String) -> Result<PlantResponse, ErrorDto> {
-    let plant = PlantService::disconnect(state.plants(), &id).map_err(ErrorDto::from)?;
+pub fn disconnect_plant(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<PlantResponse, ErrorDto> {
+    let plant = DriverRuntimeService::disconnect(&app, state.plants(), state.runtimes(), &id)
+        .map_err(ErrorDto::from)?;
+
     Ok(plant.into())
 }
 

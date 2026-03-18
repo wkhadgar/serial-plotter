@@ -1,6 +1,7 @@
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plant::Plant;
 use crate::core::models::plugin::{PluginRegistry, PluginType};
+use std::path::PathBuf;
 
 mod paths;
 mod plant_registry;
@@ -45,6 +46,18 @@ impl WorkspaceService {
 
     pub fn delete_plant_registry(plant_name: &str) -> AppResult<()> {
         plant_registry::delete(plant_name)
+    }
+
+    pub fn plugin_directory(plugin_name: &str, plugin_type: PluginType) -> AppResult<PathBuf> {
+        paths::plugin_directory(plugin_name, plugin_type)
+    }
+
+    pub fn env_directory(env_hash: &str) -> AppResult<PathBuf> {
+        paths::env_directory(env_hash)
+    }
+
+    pub fn runtime_directory(runtime_id: &str) -> AppResult<PathBuf> {
+        paths::runtime_directory(runtime_id)
     }
 }
 
