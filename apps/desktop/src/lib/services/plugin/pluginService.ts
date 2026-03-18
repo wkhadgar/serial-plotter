@@ -23,13 +23,48 @@ const DEFAULT_WORKSPACE_STATE: PluginWorkspaceState = {
   deletedPluginIds: [],
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function resolveSerializedErrorMessage(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '[object Object]') return null;
+
+  try {
+    return extractPluginErrorMessage(JSON.parse(trimmed), trimmed);
+  } catch {
+    return trimmed;
+  }
+}
+
+function extractPluginErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'string') {
+    return resolveSerializedErrorMessage(error) ?? fallback;
+  }
+
+  if (error instanceof Error) {
+    return resolveSerializedErrorMessage(error.message) ?? fallback;
+  }
+
+  if (isRecord(error)) {
+    const message = resolveSerializedErrorMessage(error.message) ?? resolveSerializedErrorMessage(error.error);
+    if (message) return message;
+  }
+
+  return fallback;
+}
+
 function loadWorkspaceState(): PluginWorkspaceState {
   return loadStoredWorkspaceState(STORAGE_KEY, DEFAULT_WORKSPACE_STATE, (parsed) => {
     const state = parsed as PluginWorkspaceState;
 
     return {
       localPlugins: Array.isArray(state.localPlugins) ? state.localPlugins : [],
-      deletedPluginIds: Array.isArray(state.deletedPluginIds) ? state.deletedPluginIds : [],
+      // Legacy field kept for compatibility with persisted snapshots.
+      deletedPluginIds: [],
     };
   });
 }
@@ -61,7 +96,6 @@ function upsertWorkspacePlugin(plugin: PluginDefinition): PluginDefinition {
     state.localPlugins.unshift(normalized);
   }
 
-  state.deletedPluginIds = state.deletedPluginIds.filter((id) => id !== normalized.id);
   saveWorkspaceState(state);
   return normalized;
 }
@@ -69,14 +103,6 @@ function upsertWorkspacePlugin(plugin: PluginDefinition): PluginDefinition {
 function removeWorkspacePlugin(pluginId: string): void {
   const state = loadWorkspaceState();
   state.localPlugins = state.localPlugins.filter((plugin) => plugin.id !== pluginId);
-  saveWorkspaceState(state);
-}
-
-function markPluginDeleted(pluginId: string): void {
-  const state = loadWorkspaceState();
-  if (!state.deletedPluginIds.includes(pluginId)) {
-    state.deletedPluginIds.push(pluginId);
-  }
   saveWorkspaceState(state);
 }
 
@@ -118,7 +144,6 @@ async function listBackendPlugins(): Promise<PluginDefinition[]> {
 export async function loadSystemPlugins(): Promise<PluginDefinition[]> {
   try {
     const response = await invoke<PluginRegistryDto[]>('load_plugins');
-    console.log('[plugins] load_plugins response:', response);
     return response.map(mapDtoToPlugin);
   } catch (error) {
     console.warn('Falha ao carregar plugins do sistema na inicialização:', error);
@@ -145,13 +170,11 @@ async function getBackendPlugin(id: string): Promise<PluginDefinition | null> {
   }
 }
 
-function mergePlugins(backendPlugins: PluginDefinition[], workspacePlugins: PluginDefinition[], deletedIds: string[]): PluginDefinition[] {
+function mergePlugins(backendPlugins: PluginDefinition[], workspacePlugins: PluginDefinition[]): PluginDefinition[] {
   const registry = new Map<string, PluginDefinition>();
 
   for (const plugin of backendPlugins) {
-    if (!deletedIds.includes(plugin.id)) {
-      registry.set(plugin.id, normalizePlugin(plugin));
-    }
+    registry.set(plugin.id, normalizePlugin(plugin));
   }
 
   for (const plugin of workspacePlugins) {
@@ -275,7 +298,7 @@ export async function createPlugin(request: CreatePluginRequest): Promise<Create
 
       return { success: true, plugin: mapDtoToPlugin(response) };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Erro ao criar plugin no backend';
+      const errorMessage = extractPluginErrorMessage(error, 'Erro ao criar plugin no backend');
       return { success: false, error: errorMessage };
     }
   }
@@ -301,7 +324,7 @@ export async function createPlugin(request: CreatePluginRequest): Promise<Create
 export async function listPlugins(): Promise<PluginDefinition[]> {
   const state = loadWorkspaceState();
   const backendPlugins = await listBackendPlugins();
-  return mergePlugins(backendPlugins, state.localPlugins, state.deletedPluginIds);
+  return mergePlugins(backendPlugins, state.localPlugins);
 }
 
 export async function getPlugin(id: string): Promise<PluginDefinition | null> {
@@ -310,10 +333,6 @@ export async function getPlugin(id: string): Promise<PluginDefinition | null> {
 
   if (workspacePlugin) {
     return normalizePlugin(workspacePlugin);
-  }
-
-  if (state.deletedPluginIds.includes(id)) {
-    return null;
   }
 
   return getBackendPlugin(id);
@@ -327,13 +346,13 @@ export async function listPluginsByType(kind: PluginKind): Promise<PluginDefinit
   );
 
   if (!isBuiltInPluginKind(normalizedKind)) {
-    return mergePlugins([], workspacePlugins, state.deletedPluginIds).filter(
+    return mergePlugins([], workspacePlugins).filter(
       (plugin) => normalizePluginKind(plugin.kind) === normalizedKind
     );
   }
 
   const backendPlugins = await listBackendPluginsByType(normalizedKind);
-  return mergePlugins(backendPlugins, workspacePlugins, state.deletedPluginIds).filter(
+  return mergePlugins(backendPlugins, workspacePlugins).filter(
     (plugin) => normalizePluginKind(plugin.kind) === normalizedKind
   );
 }
@@ -367,6 +386,23 @@ export async function validatePluginFile(json: unknown): Promise<{ success: bool
   });
 
   return { success: true, plugin };
+}
+
+export async function importPluginFile(file: File): Promise<{ success: boolean; plugin?: PluginDefinition; error?: string }> {
+  try {
+    const content = await file.text();
+    const response = await invoke<PluginRegistryDto>('import_plugin_file', {
+      request: {
+        fileName: file.name,
+        content,
+      },
+    });
+
+    return { success: true, plugin: mapDtoToPlugin(response) };
+  } catch (error) {
+    const errorMessage = extractPluginErrorMessage(error, 'Erro ao importar plugin');
+    return { success: false, error: errorMessage };
+  }
 }
 
 export async function registerPlugin(plugin: PluginDefinition): Promise<{ success: boolean; plugin?: PluginDefinition; error?: string }> {
@@ -417,7 +453,7 @@ export async function updatePlugin(plugin: PluginDefinition): Promise<{ success:
     const updated = upsertWorkspacePlugin(plugin);
     return { success: true, plugin: updated };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Erro ao atualizar plugin';
+    const errorMessage = extractPluginErrorMessage(error, 'Erro ao atualizar plugin');
     return { success: false, error: errorMessage };
   }
 }
@@ -432,14 +468,14 @@ export async function deletePlugin(pluginId: string): Promise<{ success: boolean
     }
 
     if (target.source === 'backend') {
-      markPluginDeleted(pluginId);
+      await invoke<PluginRegistryDto>('delete_plugin', { id: pluginId });
     } else {
       removeWorkspacePlugin(pluginId);
     }
 
     return { success: true };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Erro ao excluir plugin';
+    const errorMessage = extractPluginErrorMessage(error, 'Erro ao excluir plugin');
     return { success: false, error: errorMessage };
   }
 }

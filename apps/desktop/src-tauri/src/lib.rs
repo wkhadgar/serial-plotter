@@ -4,11 +4,12 @@ mod core;
 mod state;
 
 use crate::commands::plants::{
-    connect_plant, create_plant, disconnect_plant, get_plant, list_plants, pause_plant,
-    remove_plant, resume_plant, update_plant,
+    connect_plant, create_plant, disconnect_plant, get_plant, list_plants, open_plant_file,
+    pause_plant, remove_plant, resume_plant, update_plant,
 };
 use crate::commands::plugins::{
-    create_plugin, get_plugin, list_plugins, list_plugins_by_type, load_plugins, update_plugin,
+    create_plugin, delete_plugin, get_plugin, import_plugin_file, list_plugins,
+    list_plugins_by_type, load_plugins, update_plugin,
 };
 use crate::core::error::{AppError, ErrorDto};
 use crate::state::AppState;
@@ -39,14 +40,17 @@ pub fn run() {
             update_plant,
             list_plants,
             get_plant,
+            open_plant_file,
             remove_plant,
             connect_plant,
             disconnect_plant,
             pause_plant,
             resume_plant,
             create_plugin,
+            delete_plugin,
             get_plugin,
             update_plugin,
+            import_plugin_file,
             load_plugins,
             list_plugins,
             list_plugins_by_type,

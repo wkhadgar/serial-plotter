@@ -87,13 +87,16 @@ export function createDriverPlaceholder(
   driverId: string,
   availablePlugins: PluginDefinition[],
   currentVariables: PlantVariable[]
-): PluginInstance {
+): PluginInstance | null {
   const plugin = availablePlugins.find((entry) => entry.id === driverId);
+  if (!plugin) {
+    return null;
+  }
 
   return {
     pluginId: driverId,
-    pluginName: plugin?.name ?? driverId,
-    pluginKind: plugin?.kind ?? 'driver',
+    pluginName: plugin.name,
+    pluginKind: plugin.kind,
     config: buildDriverAutoConfig(currentVariables),
   };
 }

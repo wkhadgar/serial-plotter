@@ -21,6 +21,7 @@ export function openFileDialog(options: OpenFileOptions = {}): Promise<FileResul
     const input = document.createElement('input');
     input.type = 'file';
     input.style.display = 'none';
+    let settled = false;
     
     if (options.filters && options.filters.length > 0) {
       const accept = options.filters
@@ -31,36 +32,46 @@ export function openFileDialog(options: OpenFileOptions = {}): Promise<FileResul
     
     input.multiple = options.multiple ?? false;
 
+    const cleanup = () => {
+      if (input.parentNode) {
+        input.parentNode.removeChild(input);
+      }
+      window.removeEventListener('focus', handleFocus);
+    };
+
+    const finish = (result: FileResult | null) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+      cleanup();
+    };
+
     input.onchange = () => {
       const file = input.files?.[0];
       if (file) {
         const extension = file.name.split('.').pop()?.toLowerCase() ?? '';
-        resolve({
+        finish({
           file,
           name: file.name,
           path: file.name,
           extension,
         });
       } else {
-        resolve(null);
+        finish(null);
       }
-      document.body.removeChild(input);
     };
     
     input.oncancel = () => {
-      resolve(null);
-      document.body.removeChild(input);
+      finish(null);
     };
     
-    const handleFocus = () => {
+    function handleFocus() {
       setTimeout(() => {
         if (!input.files?.length) {
-          resolve(null);
-          document.body.removeChild(input);
+          finish(null);
         }
-        window.removeEventListener('focus', handleFocus);
       }, 300);
-    };
+    }
     
     document.body.appendChild(input);
     window.addEventListener('focus', handleFocus);

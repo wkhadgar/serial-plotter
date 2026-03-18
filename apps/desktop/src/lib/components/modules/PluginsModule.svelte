@@ -7,8 +7,8 @@
   import CreatePluginModal from '$lib/components/modals/CreatePluginModal.svelte';
   import CodeEditorModal from '$lib/components/modals/CodeEditorModal.svelte';
   import GenericModal from '$lib/components/modals/GenericModal.svelte';
-  import { deletePlugin, getPlugin, listPlugins, loadSystemPlugins, registerPlugin, validatePluginFile } from '$lib/services/plugin';
-  import { FILE_FILTERS, openFileDialog, readFileAsJSON } from '$lib/services/fileDialog';
+  import { deletePlugin, getPlugin, importPluginFile, listPlugins, loadSystemPlugins, registerPlugin } from '$lib/services/plugin';
+  import { FILE_FILTERS, openFileDialog } from '$lib/services/fileDialog';
 
   interface Props {
     theme: 'dark' | 'light';
@@ -144,13 +144,12 @@
 
   async function importPluginFromFile(file: File): Promise<{ success: boolean; error?: string }> {
     try {
-      const json = await readFileAsJSON(file);
-      const validation = await validatePluginFile(json);
-      if (!validation.success || !validation.plugin) {
-        return { success: false, error: validation.error || 'Não foi possível validar o plugin' };
+      const parsed = await importPluginFile(file);
+      if (!parsed.success || !parsed.plugin) {
+        return { success: false, error: parsed.error || 'Não foi possível validar o plugin' };
       }
 
-      const registration = await registerPlugin(validation.plugin);
+      const registration = await registerPlugin(parsed.plugin);
       if (!registration.success || !registration.plugin) {
         return { success: false, error: registration.error || 'Não foi possível salvar o plugin' };
       }

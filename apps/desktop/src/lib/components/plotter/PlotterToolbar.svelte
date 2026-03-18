@@ -6,6 +6,9 @@
     plant,
     currentStats,
     dt,
+    connectDisabled = false,
+    connectDisabledReason = '',
+    editDisabled = false,
     showControllerPanel = $bindable(false),
     onToggleConnect,
     onTogglePause,
@@ -19,6 +22,9 @@
     plant: Plant | undefined;
     currentStats: PlantStats;
     dt: number;
+    connectDisabled?: boolean;
+    connectDisabledReason?: string;
+    editDisabled?: boolean;
     showControllerPanel: boolean;
     onToggleConnect: () => void;
     onTogglePause: () => void;
@@ -57,10 +63,13 @@
   <div class="plotter-toolbar__controls flex min-w-0 flex-1 items-center gap-2 overflow-x-auto sm:gap-3">
     <button
       onclick={onToggleConnect}
+      disabled={connectDisabled}
       class={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all border
         ${plant?.connected
           ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:border-red-900/30'
-          : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-900/30'}`}
+          : 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-900/30'}
+        disabled:cursor-not-allowed disabled:opacity-50`}
+      title={connectDisabled ? connectDisabledReason : (plant?.connected ? 'Desligar planta' : 'Ligar planta')}
     >
       <Power size={18} />
       <span class="hidden sm:inline">{plant?.connected ? 'DESLIGAR' : 'LIGAR'}</span>
@@ -82,7 +91,12 @@
     <button onclick={onResetZoom} class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors" title="Home (Ver Tudo)">
       <Home size={20} />
     </button>
-    <button onclick={onEditPlant} class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors" title="Editar planta">
+    <button
+      onclick={onEditPlant}
+      disabled={editDisabled}
+      class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors disabled:cursor-not-allowed disabled:opacity-30"
+      title={editDisabled ? 'Desligue a planta para editar' : 'Editar planta'}
+    >
       <Pencil size={18} />
     </button>
     <div class="relative export-dropdown">

@@ -2,15 +2,16 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ingestPlantTelemetry } from '$lib/stores/plantData';
 import {
-  buildPlantSeriesCatalog,
   type Plant,
   type PlantDataPoint,
+  type PlantSeriesCatalog,
   type PlantStats,
   type PlantVariable,
   type VariableStats,
 } from '$lib/types/plant';
 import type { Controller, ControllerParam } from '$lib/types/controller';
-import type { PluginInstance } from '$lib/types/plugin';
+import type { PluginInstance, SchemaFieldValue } from '$lib/types/plugin';
+import { listPluginsByType } from '$lib/services/plugin';
 import type {
   ControllerParamDto,
   CreatePlantDto,
@@ -18,6 +19,7 @@ import type {
   CreatePlantResponse,
   OpenPlantRequest,
   OpenPlantResponse,
+  OpenPlantFileCommandResponse,
   PlantActionResponse,
   PlantControllerDto,
   PlantDriverDto,
@@ -31,23 +33,6 @@ import type {
   UpdatePlantDto,
   UpdatePlantRequest,
 } from './types';
-import { generateId } from '$lib/utils/format';
-import { validatePlantExportJSON } from '$lib/types/plantExport';
-import { loadWorkspaceState as loadStoredWorkspaceState, saveWorkspaceState as saveStoredWorkspaceState } from '$lib/utils/workspaceStorage';
-
-const STORAGE_KEY = 'senamby.desktop.plants.workspace';
-
-type PlantWorkspaceState = {
-  workspacePlants: Plant[];
-  plantOverrides: Record<string, Plant>;
-  deletedBackendPlantIds: string[];
-};
-
-const DEFAULT_WORKSPACE_STATE: PlantWorkspaceState = {
-  workspacePlants: [],
-  plantOverrides: {},
-  deletedBackendPlantIds: [],
-};
 
 const DEFAULT_SAMPLE_TIME_MS = 100;
 
@@ -90,46 +75,72 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(resolved) ? resolved : fallback;
 }
 
+function isSchemaFieldValue(value: unknown): value is SchemaFieldValue {
+  if (
+    typeof value === 'boolean' ||
+    typeof value === 'number' ||
+    typeof value === 'string'
+  ) {
+    return true;
+  }
+
+  if (!Array.isArray(value)) {
+    return false;
+  }
+
+  return value.every((entry) => isSchemaFieldValue(entry));
+}
+
+function normalizeImportedDriverConfig(value: unknown): Record<string, SchemaFieldValue> {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  const config: Record<string, SchemaFieldValue> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!key.trim()) continue;
+    if (!isSchemaFieldValue(entry)) continue;
+    config[key] = entry;
+  }
+
+  return config;
+}
+
+function normalizeImportedDriver(
+  payload: unknown
+): { pluginId: string; pluginName: string; config: Record<string, SchemaFieldValue> } | null {
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  const rawPluginId = typeof payload.plugin_id === 'string'
+    ? payload.plugin_id
+    : typeof payload.pluginId === 'string'
+      ? payload.pluginId
+      : '';
+  const pluginId = rawPluginId.trim();
+  if (!pluginId) {
+    return null;
+  }
+
+  const rawPluginName = typeof payload.plugin_name === 'string'
+    ? payload.plugin_name
+    : typeof payload.pluginName === 'string'
+      ? payload.pluginName
+      : '';
+  const pluginName = rawPluginName.trim() || pluginId;
+
+  return {
+    pluginId,
+    pluginName,
+    config: normalizeImportedDriverConfig(payload.config),
+  };
+}
+
 function normalizeSampleTimeMs(sampleTimeMs: number | null | undefined, fallback = DEFAULT_SAMPLE_TIME_MS): number {
   const resolved = Number(sampleTimeMs);
   if (!Number.isFinite(resolved)) return fallback;
   return Math.max(1, Math.round(resolved));
-}
-
-function loadWorkspaceState(): PlantWorkspaceState {
-  return loadStoredWorkspaceState(STORAGE_KEY, DEFAULT_WORKSPACE_STATE, (parsed) => {
-    const state = parsed as PlantWorkspaceState;
-
-    return {
-      workspacePlants: Array.isArray(state.workspacePlants) ? state.workspacePlants : [],
-      plantOverrides: state.plantOverrides ?? {},
-      deletedBackendPlantIds: Array.isArray(state.deletedBackendPlantIds) ? state.deletedBackendPlantIds : [],
-    };
-  });
-}
-
-function saveWorkspaceState(state: PlantWorkspaceState): void {
-  saveStoredWorkspaceState(STORAGE_KEY, state);
-}
-
-function normalizePlant(plant: Plant): Plant {
-  const sampleTimeMs = normalizeSampleTimeMs(
-    plant.sampleTimeMs,
-    normalizeSampleTimeMs(plant.stats?.dt ? plant.stats.dt * 1000 : undefined)
-  );
-
-  return {
-    ...plant,
-    sampleTimeMs,
-    controllers: plant.controllers ?? [],
-    driver: plant.driver ?? null,
-    driverId: plant.driver?.pluginId ?? plant.driverId ?? null,
-    stats: {
-      dt: plant.stats?.dt && plant.stats.dt > 0 ? plant.stats.dt : sampleTimeMs / 1000,
-      uptime: plant.stats?.uptime ?? 0,
-    },
-    source: plant.source ?? 'workspace',
-  };
 }
 
 function mapVariableDtoToFrontend(variable: PlantDto['variables'][number], index: number): PlantVariable {
@@ -302,6 +313,56 @@ function computeVariableStats(data: PlantDataPoint[], variableIndex: number, var
   };
 }
 
+function normalizeImportedVariableStats(payload: unknown): VariableStats {
+  const source = isRecord(payload) ? payload : {};
+  const errorAvg = toFiniteNumber(source.errorAvg ?? source.error_avg, 0);
+  const stability = toFiniteNumber(source.stability, 100);
+  const ripple = toFiniteNumber(source.ripple, 0);
+
+  return {
+    errorAvg,
+    stability,
+    ripple,
+  };
+}
+
+function normalizeImportedSeriesCatalog(
+  payload: unknown,
+  fallbackPlantId: string
+): PlantSeriesCatalog {
+  const source = isRecord(payload) ? payload : {};
+  const rawSeries = Array.isArray(source.series) ? source.series : [];
+  const series = rawSeries
+    .map((entry) => {
+      const item = isRecord(entry) ? entry : {};
+      const key = typeof item.key === 'string' ? item.key.trim() : '';
+      const label = typeof item.label === 'string' ? item.label.trim() : '';
+      const role = item.role;
+
+      if (!key || (role !== 'pv' && role !== 'sp' && role !== 'mv')) {
+        return null;
+      }
+
+      return {
+        key,
+        label: label || key,
+        role,
+      };
+    })
+    .filter((entry): entry is PlantSeriesCatalog['series'][number] => entry !== null);
+
+  const plantId = typeof source.plantId === 'string' && source.plantId.trim()
+    ? source.plantId
+    : typeof source.plant_id === 'string' && source.plant_id.trim()
+      ? source.plant_id
+      : fallbackPlantId;
+
+  return {
+    plantId,
+    series,
+  };
+}
+
 export async function subscribePlantRuntimeEvents(handlers: {
   onTelemetry?: (event: PlantRuntimeTelemetryEvent) => void;
   onStatus?: (event: PlantRuntimeStatusEvent) => void;
@@ -377,77 +438,9 @@ export function buildTelemetryPacketFromRuntimeEvent(
   };
 }
 
-function upsertWorkspacePlant(plant: Plant): Plant {
-  const normalized = normalizePlant({ ...plant, source: 'workspace' });
-  const state = loadWorkspaceState();
-  const index = state.workspacePlants.findIndex((entry) => entry.id === normalized.id);
-
-  if (index >= 0) {
-    state.workspacePlants[index] = normalized;
-  } else {
-    state.workspacePlants.unshift(normalized);
-  }
-
-  saveWorkspaceState(state);
-  return normalized;
-}
-
-function savePlantOverride(plant: Plant): Plant {
-  const normalized = normalizePlant(plant);
-  const state = loadWorkspaceState();
-  state.plantOverrides[normalized.id] = normalized;
-  saveWorkspaceState(state);
-  return normalized;
-}
-
-function clearPlantLocalState(plantId: string): void {
-  const state = loadWorkspaceState();
-  state.workspacePlants = state.workspacePlants.filter((plant) => plant.id !== plantId);
-  delete state.plantOverrides[plantId];
-  state.deletedBackendPlantIds = state.deletedBackendPlantIds.filter((id) => id !== plantId);
-  saveWorkspaceState(state);
-}
-
-function markBackendPlantDeleted(plantId: string): void {
-  const state = loadWorkspaceState();
-  if (!state.deletedBackendPlantIds.includes(plantId)) {
-    state.deletedBackendPlantIds.push(plantId);
-  }
-  saveWorkspaceState(state);
-}
-
-function mergePlants(base: Plant, override?: Plant): Plant {
-  if (!override) return normalizePlant(base);
-  return normalizePlant({
-    ...base,
-    ...override,
-    stats: override.stats ?? base.stats,
-    connected: override.connected,
-    paused: override.paused,
-  });
-}
-
-function updateWorkspacePlant(id: string, updater: (plant: Plant) => Plant): PlantActionResponse {
-  const state = loadWorkspaceState();
-  const index = state.workspacePlants.findIndex((plant) => plant.id === id);
-
-  if (index < 0) {
-    return { success: false, error: 'Planta não encontrada' };
-  }
-
-  state.workspacePlants[index] = normalizePlant(updater(state.workspacePlants[index]));
-  saveWorkspaceState(state);
-  return { success: true, plant: state.workspacePlants[index] };
-}
-
 async function listBackendPlants(): Promise<Plant[]> {
-  try {
-    const response = await invoke<PlantDto[]>('list_plants');
-    return response.map(mapDtoToPlant);
-  } catch (error) {
-    console.warn('Backend de plantas indisponível, usando somente workspace local:', error);
-    return [];
-  }
+  const response = await invoke<PlantDto[]>('list_plants');
+  return response.map(mapDtoToPlant);
 }
 
 async function getBackendPlant(id: string): Promise<Plant | null> {
@@ -468,19 +461,13 @@ export async function createPlant(request: CreatePlantRequest): Promise<CreatePl
     return { success: false, error: 'Configure um driver de comunicação para a planta' };
   }
 
-  const sampleTimeMs = normalizeSampleTimeMs(request.sampleTimeMs);
-
   if (request.variables.length === 0) {
     return { success: false, error: 'Pelo menos uma variável deve ser definida' };
   }
 
   try {
     const response = await invoke<PlantDto>('create_plant', { request: buildCreatePlantDto(request) });
-    const plant = savePlantOverride({
-      ...mapDtoToPlant(response),
-      sampleTimeMs,
-      source: 'backend',
-    });
+    const plant = mapDtoToPlant(response);
 
     return { success: true, plant };
   } catch (error) {
@@ -496,58 +483,29 @@ export async function updatePlant(request: UpdatePlantRequest): Promise<PlantAct
   }
 
   const sampleTimeMs = normalizeSampleTimeMs(request.sampleTimeMs, current.sampleTimeMs);
-  const currentDtMs = current.stats.dt > 0 ? Math.round(current.stats.dt * 1000) : 0;
-  const shouldRefreshConfiguredDt = !current.connected || currentDtMs === current.sampleTimeMs;
+  try {
+    const response = await invoke<PlantDto>('update_plant', {
+      request: {
+        id: request.id,
+        name: request.name.trim(),
+        sample_time_ms: sampleTimeMs,
+        variables: request.variables.map(mapVariableToDto),
+        driver: {
+          plugin_id: request.driver?.pluginId ?? current.driver?.pluginId ?? current.driverId ?? '',
+          config: request.driver?.config ?? current.driver?.config ?? {},
+        },
+        controllers: request.controllers.map(mapControllerToDto),
+      } satisfies UpdatePlantDto,
+    });
 
-  const updatedPlant: Plant = normalizePlant({
-    id: request.id,
-    name: request.name.trim(),
-    sampleTimeMs,
-    variables: request.variables,
-    controllers: request.controllers,
-    driver: request.driver,
-    driverId: request.driver?.pluginId ?? current.driverId ?? null,
-    connected: current.connected,
-    paused: current.paused,
-    stats: shouldRefreshConfiguredDt
-      ? {
-          ...current.stats,
-          dt: sampleTimeMs / 1000,
-        }
-      : current.stats,
-    source: request.source ?? current.source ?? 'workspace',
-  });
-
-  if ((request.source ?? current.source) === 'backend') {
-    try {
-      const response = await invoke<PlantDto>('update_plant', {
-        request: {
-          id: request.id,
-          name: request.name.trim(),
-          sample_time_ms: sampleTimeMs,
-          variables: request.variables.map(mapVariableToDto),
-          driver: {
-            plugin_id: request.driver?.pluginId ?? current.driverId ?? '',
-            config: request.driver?.config ?? current.driver?.config ?? {},
-          },
-          controllers: request.controllers.map(mapControllerToDto),
-        } satisfies UpdatePlantDto,
-      });
-
-      return {
-        success: true,
-        plant: savePlantOverride({
-          ...mapDtoToPlant(response),
-          source: 'backend',
-        }),
-      };
-    } catch (error) {
-      const message = extractErrorMessage(error, 'Erro ao atualizar planta no backend');
-      return { success: false, error: message };
-    }
+    return {
+      success: true,
+      plant: mapDtoToPlant(response),
+    };
+  } catch (error) {
+    const message = extractErrorMessage(error, 'Erro ao atualizar planta no backend');
+    return { success: false, error: message };
   }
-
-  return { success: true, plant: upsertWorkspacePlant(updatedPlant) };
 }
 
 export async function saveControllerInstanceConfig(
@@ -595,54 +553,26 @@ export async function saveControllerInstanceConfig(
 }
 
 export async function listPlants(): Promise<Plant[]> {
-  const state = loadWorkspaceState();
-  const backendPlants = await listBackendPlants();
-
-  const mergedBackend = backendPlants
-    .filter((plant) => !state.deletedBackendPlantIds.includes(plant.id))
-    .map((plant) => mergePlants(plant, state.plantOverrides[plant.id]));
-
-  return [...state.workspacePlants.map(normalizePlant), ...mergedBackend];
+  try {
+    return await listBackendPlants();
+  } catch (error) {
+    console.error('Falha ao listar plantas do backend:', error);
+    return [];
+  }
 }
 
 export async function getPlant(id: string): Promise<Plant | null> {
-  const state = loadWorkspaceState();
-  const workspacePlant = state.workspacePlants.find((plant) => plant.id === id);
-
-  if (workspacePlant) {
-    return normalizePlant(workspacePlant);
-  }
-
-  const override = state.plantOverrides[id];
-  const backendPlant = await getBackendPlant(id);
-
-  if (!backendPlant || state.deletedBackendPlantIds.includes(id)) {
-    return override ? normalizePlant(override) : null;
-  }
-
-  return mergePlants(backendPlant, override);
+  return getBackendPlant(id);
 }
 
 export async function removePlant(id: string): Promise<PlantActionResponse> {
-  const plant = await getPlant(id);
-
-  if (!plant) {
-    return { success: false, error: 'Planta não encontrada' };
+  try {
+    const response = await invoke<PlantDto>('remove_plant', { id });
+    return { success: true, plant: mapDtoToPlant(response) };
+  } catch (error) {
+    const message = extractErrorMessage(error, 'Erro ao remover planta no backend');
+    return { success: false, error: message };
   }
-
-  if (plant.source === 'backend') {
-    try {
-      await invoke<PlantDto>('remove_plant', { id });
-      clearPlantLocalState(id);
-      return { success: true, plant };
-    } catch (error) {
-      const message = extractErrorMessage(error, 'Erro ao remover planta no backend');
-      return { success: false, error: message };
-    }
-  }
-
-  clearPlantLocalState(id);
-  return { success: true, plant };
 }
 
 async function invokePlantAction(command: string, id: string, merge: (current: Plant, backend: Plant) => Plant): Promise<PlantActionResponse> {
@@ -651,13 +581,9 @@ async function invokePlantAction(command: string, id: string, merge: (current: P
     return { success: false, error: 'Planta não encontrada' };
   }
 
-  if (current.source !== 'backend') {
-    return { success: false, error: 'Ação disponível apenas para plantas integradas ao backend' };
-  }
-
   try {
     const response = await invoke<PlantDto>(command, { id });
-    const merged = savePlantOverride(merge(current, mapDtoToPlant(response)));
+    const merged = merge(current, mapDtoToPlant(response));
     return { success: true, plant: merged };
   } catch (error) {
     const message = extractErrorMessage(error, 'Erro ao sincronizar ação da planta');
@@ -667,8 +593,14 @@ async function invokePlantAction(command: string, id: string, merge: (current: P
 
 export async function connectPlant(id: string): Promise<PlantActionResponse> {
   const current = await getPlant(id);
-  if (current?.source !== 'backend') {
-    return updateWorkspacePlant(id, (plant) => ({ ...plant, connected: true, paused: false }));
+  if (current && !current.connected && !current.driver?.pluginId) {
+    const hasMissingLinkedDriver = !!current.driverId;
+    return {
+      success: false,
+      error: hasMissingLinkedDriver
+        ? 'O driver desta planta não está carregado. Vincule um novo driver antes de ligar.'
+        : 'Configure um driver de comunicação para a planta antes de ligar.',
+    };
   }
 
   return invokePlantAction('connect_plant', id, (currentPlant, backendPlant) => ({
@@ -680,11 +612,6 @@ export async function connectPlant(id: string): Promise<PlantActionResponse> {
 }
 
 export async function disconnectPlant(id: string): Promise<PlantActionResponse> {
-  const current = await getPlant(id);
-  if (current?.source !== 'backend') {
-    return updateWorkspacePlant(id, (plant) => ({ ...plant, connected: false, paused: false }));
-  }
-
   return invokePlantAction('disconnect_plant', id, (currentPlant, backendPlant) => ({
     ...backendPlant,
     driver: currentPlant.driver,
@@ -694,11 +621,6 @@ export async function disconnectPlant(id: string): Promise<PlantActionResponse> 
 }
 
 export async function pausePlant(id: string): Promise<PlantActionResponse> {
-  const current = await getPlant(id);
-  if (current?.source !== 'backend') {
-    return updateWorkspacePlant(id, (plant) => ({ ...plant, paused: true }));
-  }
-
   return invokePlantAction('pause_plant', id, (currentPlant, backendPlant) => ({
     ...backendPlant,
     driver: currentPlant.driver,
@@ -708,11 +630,6 @@ export async function pausePlant(id: string): Promise<PlantActionResponse> {
 }
 
 export async function resumePlant(id: string): Promise<PlantActionResponse> {
-  const current = await getPlant(id);
-  if (current?.source !== 'backend') {
-    return updateWorkspacePlant(id, (plant) => ({ ...plant, paused: false }));
-  }
-
   return invokePlantAction('resume_plant', id, (currentPlant, backendPlant) => ({
     ...backendPlant,
     driver: currentPlant.driver,
@@ -731,108 +648,58 @@ export async function openPlant(request: OpenPlantRequest): Promise<OpenPlantRes
 
   try {
     const text = await request.file.text();
-    const parsed = JSON.parse(text) as Record<string, unknown>;
-    const validationError = validatePlantExportJSON(parsed);
-
-    if (validationError) {
-      return { success: false, error: validationError };
+    const response = await invoke<OpenPlantFileCommandResponse>('open_plant_file', {
+      request: {
+        fileName: request.file.name,
+        content: text,
+      },
+    });
+    const importedDriver = normalizeImportedDriver(response.plant.driver);
+    const availableDrivers = importedDriver
+      ? await listPluginsByType('driver')
+      : [];
+    const matchedDriver = importedDriver
+      ? availableDrivers.find((entry) => entry.id === importedDriver.pluginId) ??
+        availableDrivers.find(
+          (entry) => entry.name.trim().toLowerCase() === importedDriver.pluginName.trim().toLowerCase()
+        )
+      : undefined;
+    const resolvedDriver: PluginInstance | null = matchedDriver
+      ? {
+          pluginId: matchedDriver.id,
+          pluginName: matchedDriver.name,
+          pluginKind: 'driver',
+          config: importedDriver?.config ?? {},
+        }
+      : null;
+    if (!resolvedDriver?.pluginId) {
+      const message = importedDriver
+        ? `Driver "${importedDriver.pluginName}" não está carregado. Vincule/importe o driver e tente novamente.`
+        : 'Arquivo de planta sem driver válido. A planta precisa de um driver para ser criada no backend.';
+      return { success: false, error: message };
     }
 
-    const sensors = (parsed.sensors as Array<Record<string, unknown>>).map((sensor, index) => ({
-      id: `var_${index}`,
-      name: sensor.name as string,
-      type: 'sensor' as const,
-      unit: (sensor.unit as string) ?? '%',
-      setpoint: 0,
-      pvMin: 0,
-      pvMax: 100,
-    }));
-
-    const actuatorsOffset = sensors.length;
-    const actuators = (parsed.actuators as Array<Record<string, unknown>>).map((actuator, index) => ({
-      id: `var_${actuatorsOffset + index}`,
-      name: actuator.name as string,
-      type: 'atuador' as const,
-      unit: (actuator.unit as string) ?? '%',
-      setpoint: 0,
-      pvMin: 0,
-      pvMax: 100,
-      linkedSensorIds: Array.isArray(actuator.linkedSensorIds)
-        ? (actuator.linkedSensorIds as string[]).map((sensorId) => {
-            const sensorIndex = (parsed.sensors as Array<Record<string, unknown>>).findIndex((sensor) => sensor.id === sensorId);
-            return sensorIndex >= 0 ? `var_${sensorIndex}` : sensorId;
-          })
-        : [],
-    }));
-
-    const sensorIndexByExportId = new Map(
-      (parsed.sensors as Array<Record<string, unknown>>).map((sensor, index) => [sensor.id as string, index])
-    );
-    const actuatorIndexByExportId = new Map(
-      (parsed.actuators as Array<Record<string, unknown>>).map((actuator, index) => [actuator.id as string, actuatorsOffset + index])
-    );
-    const setpointSensorMap = new Map(
-      (parsed.setpoints as Array<Record<string, unknown>>).map((setpoint) => [setpoint.id as string, setpoint.sensorId as string])
-    );
-
-    const data = (parsed.data as Array<Record<string, unknown>>).map((sample) => {
-      const point: PlantDataPoint = {
-        time: Number(sample.time ?? 0),
-      };
-
-      const sensorsRecord = sample.sensors as Record<string, number>;
-      for (const [sensorId, value] of Object.entries(sensorsRecord)) {
-        const index = sensorIndexByExportId.get(sensorId);
-        if (index !== undefined) {
-          point[`var_${index}_pv`] = Number(value ?? 0);
-        }
-      }
-
-      const setpointsRecord = sample.setpoints as Record<string, number>;
-      for (const [setpointId, value] of Object.entries(setpointsRecord)) {
-        const sensorId = setpointSensorMap.get(setpointId);
-        const index = sensorId ? sensorIndexByExportId.get(sensorId) : undefined;
-        if (index !== undefined) {
-          point[`var_${index}_sp`] = Number(value ?? 0);
-        }
-      }
-
-      const actuatorsRecord = sample.actuators as Record<string, number>;
-      for (const [actuatorId, value] of Object.entries(actuatorsRecord)) {
-        const index = actuatorIndexByExportId.get(actuatorId);
-        if (index !== undefined) {
-          point[`var_${index}_pv`] = Number(value ?? 0);
-        }
-      }
-
-      return point;
+    const createResponse = await invoke<PlantDto>('create_plant', {
+      request: {
+        name: response.plant.name.trim(),
+        sample_time_ms: normalizeSampleTimeMs(response.plant.sample_time_ms, response.stats.dt * 1000),
+        variables: response.plant.variables,
+        driver: {
+          plugin_id: resolvedDriver.pluginId,
+          config: resolvedDriver.config ?? {},
+        },
+        controllers: [],
+      } satisfies CreatePlantDto,
     });
-
-    const stats = computePlantStats(data);
-    const plant = upsertWorkspacePlant({
-      id: generateId(),
-      name: ((parsed.meta as Record<string, unknown>).name as string) ?? request.filePath,
-      sampleTimeMs: normalizeSampleTimeMs((parsed.meta as Record<string, unknown>).sampleTimeMs as number | undefined, stats.dt * 1000),
-      connected: false,
-      paused: false,
-      variables: [...sensors, ...actuators],
-      controllers: [],
-      driver: null,
-      driverId: null,
-      stats,
-      source: 'workspace',
-    });
-
-    const variableStats = plant.variables.map((variable, index) => computeVariableStats(data, index, variable));
-    const seriesCatalog = buildPlantSeriesCatalog(plant.id, plant.variables);
+    const plant = mapDtoToPlant(createResponse);
 
     return {
       success: true,
       plant,
-      data,
-      stats: plant.stats,
-      variableStats,
-      seriesCatalog,
+      data: response.data,
+      stats: response.stats,
+      variableStats: (response.variable_stats ?? []).map(normalizeImportedVariableStats),
+      seriesCatalog: normalizeImportedSeriesCatalog(response.series_catalog, plant.id),
     };
   } catch (error) {
     const errorMessage = extractErrorMessage(error, 'Erro ao abrir arquivo');

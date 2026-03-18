@@ -33,7 +33,10 @@ pub(super) fn save(plugin: &PluginRegistry, source_code: &str) -> AppResult<()> 
         )
     })?;
 
-    let registry_payload = serde_json::to_string_pretty(plugin).map_err(|error| {
+    let mut plugin_registry_payload = plugin.clone();
+    plugin_registry_payload.source_code = Some(source_code.to_string());
+
+    let registry_payload = serde_json::to_string_pretty(&plugin_registry_payload).map_err(|error| {
         map_serde_error(
             &format!(
                 "Falha ao serializar registro do {:?} '{}'",
@@ -108,12 +111,17 @@ pub(super) fn delete(plugin_name: &str, plugin_type: PluginType) -> AppResult<()
         return Ok(());
     }
 
-    fs::remove_dir_all(&plugin_dir).map_err(|error| {
+    let registry_path = plugin_dir.join(REGISTRY_FILE);
+    if !registry_path.exists() {
+        return Ok(());
+    }
+
+    fs::remove_file(&registry_path).map_err(|error| {
         map_io_error(
             &format!(
-                "Falha ao remover diretório do plugin '{}' em '{}'",
+                "Falha ao remover registro do plugin '{}' em '{}'",
                 normalized_name,
-                plugin_dir.display()
+                registry_path.display()
             ),
             error,
         )

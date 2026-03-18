@@ -78,6 +78,13 @@ impl PluginStore {
         Ok(())
     }
 
+    pub fn remove(&self, id: &str) -> AppResult<PluginRegistry> {
+        self.registries
+            .write()
+            .remove(id)
+            .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))
+    }
+
     pub fn exists_by_name(&self, name: &str) -> bool {
         self.registries
             .read()

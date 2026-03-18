@@ -4,6 +4,7 @@ use crate::core::models::plugin::{
 };
 use crate::core::services::workspace::WorkspaceService;
 use crate::state::PluginStore;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 const PYTHON_SOURCE_FILE_NAME: &str = "main.py";
@@ -25,11 +26,14 @@ impl PluginService {
             request.runtime,
             request.source_file.as_deref(),
             request.source_code.as_deref(),
-            true,
         )?;
 
-        let source_code = Self::normalize_source_code(request.source_code.as_deref())
-            .ok_or_else(|| AppError::InvalidArgument("Código fonte Python é obrigatório".into()))?;
+        let source_code = Self::resolve_source_code_for_create(
+            request.source_code.as_deref(),
+            request.source_file.as_deref(),
+            &request.name,
+            request.plugin_type,
+        )?;
         let plugin = Self::build_plugin(request);
 
         WorkspaceService::save_plugin_registry(&plugin, &source_code)?;
@@ -65,7 +69,6 @@ impl PluginService {
             request.runtime,
             request.source_file.as_deref(),
             request.source_code.as_deref(),
-            false,
         )?;
 
         let existing = store.with_registry(&request.id, |plugin| ExistingPluginMeta {
@@ -124,6 +127,12 @@ impl PluginService {
         Ok(plugins)
     }
 
+    pub fn remove(store: &PluginStore, id: &str) -> AppResult<PluginRegistry> {
+        let existing = store.get(id)?;
+        WorkspaceService::delete_plugin_registry(&existing.name, existing.plugin_type)?;
+        store.remove(id)
+    }
+
     fn build_plugin(request: CreatePluginRequest) -> PluginRegistry {
         let plugin_id = format!("plugin_{}", Uuid::new_v4());
 
@@ -149,7 +158,6 @@ impl PluginService {
         runtime: PluginRuntime,
         source_file: Option<&str>,
         source_code: Option<&str>,
-        require_source_code: bool,
     ) -> AppResult<()> {
         if name.trim().is_empty() {
             return Err(AppError::InvalidArgument(
@@ -174,16 +182,6 @@ impl PluginService {
             ));
         }
 
-        if require_source_code
-            && source_code
-                .map(|code| code.trim().is_empty())
-                .unwrap_or(true)
-        {
-            return Err(AppError::InvalidArgument(
-                "Código fonte Python é obrigatório".into(),
-            ));
-        }
-
         if source_code.is_some_and(|code| code.trim().is_empty()) {
             return Err(AppError::InvalidArgument(
                 "Código fonte Python é obrigatório".into(),
@@ -197,6 +195,43 @@ impl PluginService {
         }
 
         Ok(())
+    }
+
+    fn resolve_source_code_for_create(
+        source_code: Option<&str>,
+        source_file: Option<&str>,
+        plugin_name: &str,
+        plugin_type: PluginType,
+    ) -> AppResult<String> {
+        if let Some(code) = Self::normalize_source_code(source_code) {
+            return Ok(code);
+        }
+
+        if let Some(file_name) = source_file {
+            let maybe_path = PathBuf::from(file_name);
+            if maybe_path.is_absolute() && maybe_path.exists() {
+                let code = std::fs::read_to_string(&maybe_path).map_err(|error| {
+                    AppError::IoError(format!(
+                        "Falha ao ler código fonte do arquivo '{}': {error}",
+                        maybe_path.display()
+                    ))
+                })?;
+                if let Some(normalized) = Self::normalize_source_code(Some(&code)) {
+                    return Ok(normalized);
+                }
+            }
+        }
+
+        if let Ok(code) = WorkspaceService::read_plugin_source(plugin_name, plugin_type) {
+            if let Some(normalized) = Self::normalize_source_code(Some(&code)) {
+                return Ok(normalized);
+            }
+        }
+
+        Err(AppError::InvalidArgument(
+            "Código fonte Python é obrigatório. Informe sourceCode ou use um source_file absoluto válido."
+                .into(),
+        ))
     }
 
     fn normalize_source_code(source_code: Option<&str>) -> Option<String> {

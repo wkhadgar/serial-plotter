@@ -129,6 +129,16 @@
   });
 
   const activePlant = $derived(plants.find((p: Plant) => p.id === activePlantId));
+  const connectDisabledReason = $derived.by(() => {
+    if (!activePlant || activePlant.connected) return '';
+    if (activePlant.driver?.pluginId) return '';
+    if (activePlant.driverId) {
+      return 'O driver vinculado à planta não está carregado. Vincule um novo driver para ligar.';
+    }
+    return 'Configure um driver de comunicação antes de ligar a planta.';
+  });
+  const connectDisabled = $derived(connectDisabledReason.length > 0);
+  const editDisabled = $derived(!!activePlant?.connected);
 
   $effect(() => {
     for (const plant of plants) {
@@ -410,6 +420,13 @@
       for (const [index, stats] of (plantResult.variableStats ?? []).entries()) {
         setVariableStats(plantResult.plant.id, index, stats);
       }
+      if (plantResult.warning) {
+        showFeedbackModal({
+          type: 'error',
+          title: 'Driver ausente',
+          message: plantResult.warning,
+        });
+      }
       return;
     }
 
@@ -448,6 +465,14 @@
 
   function handleEditPlant() {
     if (!activePlant) return;
+    if (activePlant.connected) {
+      showFeedbackModal({
+        type: 'warning',
+        title: 'Edição bloqueada',
+        message: 'Desligue a planta antes de editar suas configurações.',
+      });
+      return;
+    }
     editPlantModal = true;
   }
 
@@ -498,6 +523,15 @@
 
   async function handleToggleConnect() {
     if (!activePlant) return;
+    if (!activePlant.connected && !activePlant.driver?.pluginId) {
+      showFeedbackModal({
+        type: 'error',
+        title: 'Driver obrigatório',
+        message: connectDisabledReason || 'Configure um driver de comunicação antes de ligar a planta.',
+      });
+      return;
+    }
+
     const wasConnected = activePlant.connected;
     plantActionLoading = 'connect';
     const result = activePlant.connected
@@ -1019,6 +1053,9 @@
         plant={activePlant}
         {currentStats}
         dt={displayDt}
+        {connectDisabled}
+        connectDisabledReason={connectDisabledReason}
+        {editDisabled}
         bind:showControllerPanel
         onToggleConnect={handleToggleConnect}
         onTogglePause={handleTogglePause}

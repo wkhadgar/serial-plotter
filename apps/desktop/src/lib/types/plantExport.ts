@@ -51,13 +51,11 @@ export function validatePlantExportJSON(obj: unknown): string | null {
 
   const json = obj as Record<string, unknown>;
 
-  if (!json.meta || typeof json.meta !== 'object') {
-    return 'Arquivo inválido: campo "meta" ausente';
-  }
-  const meta = json.meta as Record<string, unknown>;
+  const meta = ((json.meta && typeof json.meta === 'object' && !Array.isArray(json.meta))
+    ? json.meta
+    : json) as Record<string, unknown>;
+
   if (typeof meta.name !== 'string') return 'meta.name deve ser uma string';
-  if (typeof meta.version !== 'string') return 'meta.version deve ser uma string';
-  if (typeof meta.sampleCount !== 'number') return 'meta.sampleCount deve ser um número';
   if (meta.sampleTimeMs !== undefined && typeof meta.sampleTimeMs !== 'number') {
     return 'meta.sampleTimeMs deve ser um número';
   }

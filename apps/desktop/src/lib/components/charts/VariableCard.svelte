@@ -95,6 +95,19 @@
   );
 
   const hasActuatorChart = $derived(mvSeries.length > 0);
+  const resolvedStats = $derived.by(() => {
+    if (!stats) return null;
+
+    const errorAvg = Number.isFinite(stats.errorAvg) ? stats.errorAvg : 0;
+    const stability = Number.isFinite(stats.stability) ? stats.stability : 0;
+    const ripple = Number.isFinite(stats.ripple) ? stats.ripple : 0;
+
+    return {
+      errorAvg,
+      stability,
+      ripple,
+    };
+  });
 </script>
 
 <div class="variable-card flex flex-col h-full bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm">
@@ -106,18 +119,18 @@
           <span class="text-xs font-normal text-slate-400 dark:text-zinc-500">({unit})</span>
         {/if}
       </h3>
-      {#if stats}
+      {#if resolvedStats}
         <div class="variable-card__stats flex items-center gap-2 text-[10px] font-medium">
           <div class="flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5">
             <span class="text-slate-400 dark:text-zinc-500">Erro:</span>
-            <span class={stats.errorAvg < 3 ? 'text-emerald-600 dark:text-emerald-400' : stats.errorAvg < 10 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}>
-              {stats.errorAvg.toFixed(2)}
+            <span class={resolvedStats.errorAvg < 3 ? 'text-emerald-600 dark:text-emerald-400' : resolvedStats.errorAvg < 10 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}>
+              {resolvedStats.errorAvg.toFixed(2)}
             </span>
           </div>
           <div class="flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5">
             <span class="text-slate-400 dark:text-zinc-500">Estab:</span>
-            <span class={stats.stability > 90 ? 'text-emerald-600 dark:text-emerald-400' : stats.stability > 70 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}>
-              {stats.stability.toFixed(0)}%
+            <span class={resolvedStats.stability > 90 ? 'text-emerald-600 dark:text-emerald-400' : resolvedStats.stability > 70 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}>
+              {resolvedStats.stability.toFixed(0)}%
             </span>
           </div>
         </div>
@@ -164,28 +177,3 @@
     {/if}
   </div>
 </div>
-
-<style>
-  @media (max-height: 860px) {
-    .variable-card__header {
-      padding-top: 0.35rem;
-      padding-bottom: 0.35rem;
-    }
-
-    .variable-card__legend {
-      gap: 0.5rem;
-      font-size: 9px;
-    }
-
-    .variable-card__stats {
-      gap: 0.375rem;
-      font-size: 9px;
-    }
-  }
-
-  @media (max-height: 740px) {
-    .variable-card__stats {
-      display: none;
-    }
-  }
-</style>
