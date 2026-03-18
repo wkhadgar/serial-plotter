@@ -11,12 +11,6 @@ const PYTHON_SOURCE_FILE_NAME: &str = "main.py";
 
 pub struct PluginService;
 
-#[derive(Debug, Clone)]
-struct ExistingPluginMeta {
-    name: String,
-    plugin_type: PluginType,
-}
-
 impl PluginService {
     pub fn create(store: &PluginStore, request: CreatePluginRequest) -> AppResult<PluginRegistry> {
         Self::validate_request(
@@ -71,10 +65,7 @@ impl PluginService {
             request.source_code.as_deref(),
         )?;
 
-        let existing = store.with_registry(&request.id, |plugin| ExistingPluginMeta {
-            name: plugin.name.clone(),
-            plugin_type: plugin.plugin_type,
-        })?;
+        let existing = store.get(&request.id)?;
 
         if request.plugin_type != existing.plugin_type {
             return Err(AppError::InvalidArgument(
@@ -114,17 +105,14 @@ impl PluginService {
     }
 
     pub fn load_all(store: &PluginStore) -> AppResult<Vec<PluginRegistry>> {
-        let plugins = WorkspaceService::load_plugin_registrys()?;
-
-        for plugin in &plugins {
-            if store.get(&plugin.id).is_ok() {
-                store.replace(&plugin.id, plugin.clone())?;
-            } else {
-                store.insert(plugin.clone())?;
-            }
-        }
-
-        Ok(plugins)
+        let plugins = WorkspaceService::load_plugin_registries()?
+            .into_iter()
+            .map(|mut plugin| {
+                plugin.source_code = None;
+                plugin
+            })
+            .collect::<Vec<_>>();
+        store.sync(plugins)
     }
 
     pub fn remove(store: &PluginStore, id: &str) -> AppResult<PluginRegistry> {
@@ -326,6 +314,7 @@ mod tests {
         let persisted: PluginRegistry = serde_json::from_str(&raw_registry).unwrap();
 
         assert_eq!(persisted.schema.len(), 1);
+        assert_eq!(persisted.source_code, None);
         let default_value = persisted.schema[0].default_value.clone().unwrap();
 
         match default_value {
@@ -480,5 +469,22 @@ mod tests {
         assert_eq!(updated_source.trim(), original_source.trim());
         assert!(!original_source_path.exists());
         assert_eq!(updated.source_code, None);
+    }
+
+    #[test]
+    fn test_remove_plugin_cleans_workspace_directory() {
+        let store = PluginStore::new();
+        let created = PluginService::create(&store, create_valid_request()).unwrap();
+
+        let plugin_dir = std::env::temp_dir()
+            .join("Senamby/workspace")
+            .join("drivers")
+            .join(&created.name);
+        assert!(plugin_dir.exists());
+
+        let removed = PluginService::remove(&store, &created.id).unwrap();
+
+        assert_eq!(removed.id, created.id);
+        assert!(!plugin_dir.exists());
     }
 }

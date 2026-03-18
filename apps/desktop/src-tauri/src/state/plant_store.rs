@@ -5,112 +5,175 @@ use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct PlantStore {
-    plants: RwLock<HashMap<String, Plant>>,
+    state: RwLock<PlantStoreInner>,
+}
+
+#[derive(Debug, Default)]
+struct PlantStoreInner {
+    plants: HashMap<String, Plant>,
+    names: HashMap<String, String>,
 }
 
 impl PlantStore {
     pub fn new() -> Self {
         Self {
-            plants: RwLock::new(HashMap::new()),
+            state: RwLock::new(PlantStoreInner::default()),
         }
     }
 
     pub fn insert(&self, plant: Plant) -> AppResult<()> {
-        let mut plants = self.plants.write();
-
-        if plants.contains_key(&plant.id) {
-            return Err(AppError::InvalidArgument(format!(
-                "Planta com ID '{}' já existe",
-                plant.id
-            )));
-        }
-
-        plants.insert(plant.id.clone(), plant);
+        let mut state = self.state.write();
+        Self::insert_into_state(&mut state, plant)?;
         Ok(())
     }
 
     pub fn get(&self, id: &str) -> AppResult<Plant> {
-        let plants = self.plants.read();
-
-        plants
+        self.state
+            .read()
+            .plants
             .get(id)
             .cloned()
             .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))
     }
 
-    pub fn with_plant<R, F>(&self, id: &str, reader: F) -> AppResult<R>
-    where
-        F: FnOnce(&Plant) -> R,
-    {
-        let plants = self.plants.read();
-        let plant = plants
-            .get(id)
-            .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
-
-        Ok(reader(plant))
-    }
-
     pub fn list(&self) -> Vec<Plant> {
-        let plants = self.plants.read();
-        plants.values().cloned().collect()
+        self.state.read().plants.values().cloned().collect()
     }
 
     pub fn remove(&self, id: &str) -> AppResult<Plant> {
-        let mut plants = self.plants.write();
-
-        plants
+        let mut state = self.state.write();
+        let plant = state
+            .plants
             .remove(id)
-            .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))
+            .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
+        state.names.remove(&Self::name_key(&plant.name));
+        Ok(plant)
     }
 
     pub fn update<F>(&self, id: &str, updater: F) -> AppResult<Plant>
     where
         F: FnOnce(&mut Plant),
     {
-        let mut plants = self.plants.write();
+        let mut state = self.state.write();
+        let (previous_name_key, next_name_key, plant_id, plant_snapshot) = {
+            let plant = state
+                .plants
+                .get_mut(id)
+                .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
+            let previous_name_key = Self::name_key(&plant.name);
+            updater(plant);
+            (
+                previous_name_key,
+                Self::name_key(&plant.name),
+                plant.id.clone(),
+                plant.clone(),
+            )
+        };
 
-        let plant = plants
-            .get_mut(id)
-            .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
-
-        updater(plant);
-        Ok(plant.clone())
+        if previous_name_key != next_name_key {
+            if let Some(existing_id) = state.names.get(&next_name_key) {
+                if existing_id != id {
+                    return Err(AppError::InvalidArgument(format!(
+                        "Planta com NOME '{}' já existe",
+                        plant_snapshot.name.trim()
+                    )));
+                }
+            }
+            state.names.remove(&previous_name_key);
+            state.names.insert(next_name_key, plant_id);
+        }
+        Ok(plant_snapshot)
     }
 
     pub fn replace(&self, id: &str, next_plant: Plant) -> AppResult<()> {
-        let mut plants = self.plants.write();
-        let plant = plants
-            .get_mut(id)
-            .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
+        let mut state = self.state.write();
+        let previous_name_key = {
+            let current = state
+                .plants
+                .get(id)
+                .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
+            Self::name_key(&current.name)
+        };
+        let next_name_key = Self::name_key(&next_plant.name);
 
-        *plant = next_plant;
+        if next_name_key.is_empty() {
+            return Err(AppError::InvalidArgument(
+                "Nome da planta é obrigatório".into(),
+            ));
+        }
+
+        if let Some(existing_id) = state.names.get(&next_name_key) {
+            if existing_id != id {
+                return Err(AppError::InvalidArgument(format!(
+                    "Planta com NOME '{}' já existe",
+                    next_plant.name.trim()
+                )));
+            }
+        }
+
+        state.names.remove(&previous_name_key);
+        state.names.insert(next_name_key, next_plant.id.clone());
+        state.plants.insert(id.to_string(), next_plant);
         Ok(())
     }
 
     #[cfg(test)]
     pub fn exists(&self, id: &str) -> bool {
-        let plants = self.plants.read();
-        plants.contains_key(id)
+        self.state.read().plants.contains_key(id)
     }
 
     pub fn exists_by_name(&self, name: &str) -> bool {
-        let plants = self.plants.read();
-
-        plants.values().any(|plant| plant.name == name)
+        let key = Self::name_key(name);
+        !key.is_empty() && self.state.read().names.contains_key(&key)
     }
 
     pub fn exists_by_name_except(&self, id: &str, name: &str) -> bool {
-        let plants = self.plants.read();
+        let key = Self::name_key(name);
+        if key.is_empty() {
+            return false;
+        }
 
-        plants
-            .values()
-            .any(|plant| plant.id != id && plant.name == name)
+        self.state
+            .read()
+            .names
+            .get(&key)
+            .is_some_and(|existing_id| existing_id != id)
     }
 
     #[cfg(test)]
     pub fn count(&self) -> usize {
-        let plants = self.plants.read();
-        plants.len()
+        self.state.read().plants.len()
+    }
+
+    fn insert_into_state(state: &mut PlantStoreInner, plant: Plant) -> AppResult<()> {
+        if state.plants.contains_key(&plant.id) {
+            return Err(AppError::InvalidArgument(format!(
+                "Planta com ID '{}' já existe",
+                plant.id
+            )));
+        }
+
+        let name_key = Self::name_key(&plant.name);
+        if name_key.is_empty() {
+            return Err(AppError::InvalidArgument(
+                "Nome da planta é obrigatório".into(),
+            ));
+        }
+
+        if state.names.contains_key(&name_key) {
+            return Err(AppError::InvalidArgument(format!(
+                "Planta com NOME '{}' já existe",
+                plant.name.trim()
+            )));
+        }
+
+        state.names.insert(name_key, plant.id.clone());
+        state.plants.insert(plant.id.clone(), plant);
+        Ok(())
+    }
+
+    fn name_key(name: &str) -> String {
+        name.trim().to_lowercase()
     }
 }
 
@@ -171,6 +234,18 @@ mod tests {
 
         assert!(store.insert(plant.clone()).is_ok());
         assert!(store.insert(plant).is_err());
+    }
+
+    #[test]
+    fn test_insert_duplicate_name_ignores_case_and_whitespace() {
+        let store = PlantStore::new();
+
+        assert!(store
+            .insert(create_test_plant("plant_1", "Planta A"))
+            .is_ok());
+        assert!(store
+            .insert(create_test_plant("plant_2", "  planta a  "))
+            .is_err());
     }
 
     #[test]

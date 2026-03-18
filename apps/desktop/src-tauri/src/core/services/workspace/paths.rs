@@ -16,7 +16,7 @@ pub(super) const SOURCE_FILE: &str = "main.py";
 pub(super) fn plugin_directory(plugin_name: &str, plugin_type: PluginType) -> AppResult<PathBuf> {
     let plugin_root = plugin_root_directory(plugin_type)?;
     let plugin_name =
-        crate::core::services::workspace::ensure_non_empty_name(plugin_name, "plugin")?;
+        crate::core::services::workspace::ensure_safe_workspace_component(plugin_name, "plugin")?;
 
     Ok(plugin_root.join(plugin_name))
 }
@@ -37,20 +37,22 @@ pub(super) fn plugin_source_path(plugin_name: &str, plugin_type: PluginType) -> 
 
 pub(super) fn plant_directory(plant_name: &str) -> AppResult<PathBuf> {
     let workspace_root = workspace_root()?;
-    let plant_name = crate::core::services::workspace::ensure_non_empty_name(plant_name, "planta")?;
+    let plant_name =
+        crate::core::services::workspace::ensure_safe_workspace_component(plant_name, "planta")?;
     Ok(workspace_root.join(PLANTS_DIR).join(plant_name))
 }
 
 pub(super) fn env_directory(env_hash: &str) -> AppResult<PathBuf> {
     let workspace_root = workspace_root()?;
-    let env_hash = crate::core::services::workspace::ensure_non_empty_name(env_hash, "ambiente")?;
+    let env_hash =
+        crate::core::services::workspace::ensure_safe_workspace_component(env_hash, "ambiente")?;
     Ok(workspace_root.join(ENVS_DIR).join(env_hash))
 }
 
 pub(super) fn runtime_directory(runtime_id: &str) -> AppResult<PathBuf> {
     let workspace_root = workspace_root()?;
     let runtime_id =
-        crate::core::services::workspace::ensure_non_empty_name(runtime_id, "runtime")?;
+        crate::core::services::workspace::ensure_safe_workspace_component(runtime_id, "runtime")?;
     Ok(workspace_root.join(RUNTIMES_DIR).join(runtime_id))
 }
 

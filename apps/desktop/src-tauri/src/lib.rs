@@ -4,29 +4,14 @@ mod core;
 mod state;
 
 use crate::commands::plants::{
-    connect_plant, create_plant, disconnect_plant, get_plant, list_plants, open_plant_file,
-    pause_plant, remove_plant, resume_plant, update_plant,
+    connect_plant, create_plant, disconnect_plant, get_plant, import_plant_file, list_plants,
+    open_plant_file, pause_plant, remove_plant, resume_plant, update_plant,
 };
 use crate::commands::plugins::{
     create_plugin, delete_plugin, get_plugin, import_plugin_file, list_plugins,
     list_plugins_by_type, load_plugins, update_plugin,
 };
-use crate::core::error::{AppError, ErrorDto};
 use crate::state::AppState;
-
-#[tauri::command]
-fn greet_safe(name: &str) -> Result<String, ErrorDto> {
-    if name.trim().is_empty() {
-        return Err(AppError::InvalidArgument("name is required".to_string()).into());
-    }
-
-    Ok(format!("Hello, {name}! (safe)"))
-}
-
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -34,13 +19,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
-            greet,
-            greet_safe,
             create_plant,
             update_plant,
             list_plants,
             get_plant,
             open_plant_file,
+            import_plant_file,
             remove_plant,
             connect_plant,
             disconnect_plant,

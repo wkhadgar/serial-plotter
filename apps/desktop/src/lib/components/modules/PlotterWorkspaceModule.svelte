@@ -310,6 +310,12 @@
     }
 
     const packet = buildTelemetryPacketFromRuntimeEvent(plant, event);
+    if (getPlantData(plant.id).length === 0 && packet.points[0]) {
+      packet.points[0].time = 0;
+      if (packet.stats) {
+        packet.stats.uptime = 0;
+      }
+    }
     applyPlantTelemetryPacket(packet);
 
     if (packet.stats) {

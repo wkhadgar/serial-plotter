@@ -65,13 +65,14 @@ impl PlantService {
             plugins,
         )?;
 
-        let runtime = store.with_plant(&request.id, |plant| PlantRuntimeSnapshot {
-            previous_name: plant.name.clone(),
-            previous_sample_time_ms: plant.sample_time_ms,
-            connected: plant.connected,
-            paused: plant.paused,
-            stats: plant.stats.clone(),
-        })?;
+        let existing = store.get(&request.id)?;
+        let runtime = PlantRuntimeSnapshot {
+            previous_name: existing.name.clone(),
+            previous_sample_time_ms: existing.sample_time_ms,
+            connected: existing.connected,
+            paused: existing.paused,
+            stats: existing.stats,
+        };
 
         let previous_name = runtime.previous_name.clone();
         let updated_plant = Self::build_updated_plant(request, plugins, runtime)?;
@@ -353,7 +354,7 @@ impl PlantService {
             plugin_name: plugin.name.clone(),
             runtime: plugin.runtime,
             source_file: plugin.source_file.clone(),
-            source_code: plugin.source_code.clone(),
+            source_code: None,
             config: request.config,
         }
     }
@@ -391,35 +392,6 @@ impl PlantService {
         let plant = store.get(id)?;
         WorkspaceService::delete_plant_registry(&plant.name)?;
         store.remove(id)
-    }
-
-    #[allow(dead_code)]
-    pub fn connect(store: &PlantStore, id: &str) -> AppResult<Plant> {
-        store.update(id, |plant| {
-            plant.connected = true;
-        })
-    }
-
-    #[allow(dead_code)]
-    pub fn disconnect(store: &PlantStore, id: &str) -> AppResult<Plant> {
-        store.update(id, |plant| {
-            plant.connected = false;
-            plant.paused = false;
-        })
-    }
-
-    #[allow(dead_code)]
-    pub fn pause(store: &PlantStore, id: &str) -> AppResult<Plant> {
-        store.update(id, |plant| {
-            plant.paused = true;
-        })
-    }
-
-    #[allow(dead_code)]
-    pub fn resume(store: &PlantStore, id: &str) -> AppResult<Plant> {
-        store.update(id, |plant| {
-            plant.paused = false;
-        })
     }
 }
 
@@ -778,34 +750,6 @@ mod tests {
 
         let result = PlantService::create(&store, &plugins, request);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_connect_disconnect() {
-        let store = PlantStore::new();
-        let plugins = create_plugin_store();
-        let request = create_valid_request("Test");
-        let plant = PlantService::create(&store, &plugins, request).unwrap();
-
-        let connected = PlantService::connect(&store, &plant.id).unwrap();
-        assert!(connected.connected);
-
-        let disconnected = PlantService::disconnect(&store, &plant.id).unwrap();
-        assert!(!disconnected.connected);
-    }
-
-    #[test]
-    fn test_pause_resume() {
-        let store = PlantStore::new();
-        let plugins = create_plugin_store();
-        let request = create_valid_request("Test");
-        let plant = PlantService::create(&store, &plugins, request).unwrap();
-
-        let paused = PlantService::pause(&store, &plant.id).unwrap();
-        assert!(paused.paused);
-
-        let resumed = PlantService::resume(&store, &plant.id).unwrap();
-        assert!(!resumed.paused);
     }
 
     #[test]

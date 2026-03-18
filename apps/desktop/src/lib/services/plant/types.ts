@@ -165,6 +165,23 @@ export interface OpenPlantFileCommandResponse {
   };
 }
 
+export interface ImportPlantFileCommandResponse {
+  plant: PlantDto;
+  data: PlantDataPoint[];
+  stats: PlantStats;
+  variable_stats: Array<{
+    error_avg?: number;
+    errorAvg?: number;
+    stability?: number;
+    ripple?: number;
+  }>;
+  series_catalog: {
+    plant_id?: string;
+    plantId?: string;
+    series: PlantSeriesCatalog['series'];
+  };
+}
+
 export interface PlantTelemetryPacket {
   plantId: string;
   points: PlantDataPoint[];

@@ -647,6 +647,15 @@ def run() -> int:
         late_by_ms = max(0.0, (cycle_finished_at - planned_next_deadline) * 1000.0)
         cycle_late = late_by_ms > 0.0
 
+        telemetry_uptime_s = (
+            0.0
+            if cycle_id == 1
+            else max(
+                0.0,
+                time.monotonic() - (runtime_started_at or cycle_started_at) - paused_duration_s,
+            )
+        )
+
         emit(
             "telemetry",
             {
@@ -658,12 +667,7 @@ def run() -> int:
                 "read_duration_ms": read_duration_ms,
                 "cycle_late": cycle_late,
                 "phase": "publish_telemetry",
-                "uptime_s": max(
-                    0.0,
-                    time.monotonic()
-                    - (runtime_started_at or cycle_started_at)
-                    - paused_duration_s,
-                ),
+                "uptime_s": telemetry_uptime_s,
                 "sensors": sensors,
                 "actuators": actuators,
                 "setpoints": context.plant.setpoints,

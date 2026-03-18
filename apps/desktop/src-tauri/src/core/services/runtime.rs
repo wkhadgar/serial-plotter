@@ -1,6 +1,7 @@
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plant::Plant;
 use crate::core::models::plugin::{PluginRegistry, PluginRuntime, PluginType};
+use crate::core::services::plugin::PluginService;
 use crate::core::services::workspace::WorkspaceService;
 use crate::state::{PlantStore, PluginStore};
 use parking_lot::{Condvar, Mutex};
@@ -185,10 +186,6 @@ struct DriverBootstrapPayload {
 struct RuntimeHandle {
     plant_id: String,
     runtime_id: String,
-    #[allow(dead_code)]
-    env_hash: String,
-    #[allow(dead_code)]
-    venv_python_path: PathBuf,
     runtime_dir: PathBuf,
     configured_sample_time_ms: u64,
     stdin: Arc<Mutex<ChildStdin>>,
@@ -212,17 +209,13 @@ impl PlantRuntimeManager {
         }
     }
 
-    pub fn is_running(&self, plant_id: &str) -> bool {
-        self.handles.lock().contains_key(plant_id)
-    }
-
     pub fn start_runtime(
         &self,
         app: &AppHandle,
         plant: &Plant,
         driver_plugin: &PluginRegistry,
     ) -> AppResult<()> {
-        if self.is_running(&plant.id) {
+        if self.handles.lock().contains_key(&plant.id) {
             return Err(AppError::InvalidArgument(format!(
                 "Planta '{}' já está em execução",
                 plant.id
@@ -322,8 +315,6 @@ impl PlantRuntimeManager {
             Ok(RuntimeHandle {
                 plant_id: plant.id.clone(),
                 runtime_id: runtime_id.clone(),
-                env_hash,
-                venv_python_path,
                 runtime_dir: runtime_dir.clone(),
                 configured_sample_time_ms: plant.sample_time_ms,
                 stdin: shared_stdin,
@@ -444,7 +435,7 @@ impl DriverRuntimeService {
             ));
         }
 
-        let driver = plugins.get(&plant.driver.plugin_id)?;
+        let (plant, driver) = resolve_driver_for_connect(plants, plugins, plant)?;
         manager.start_runtime(app, &plant, &driver)?;
 
         plants.update(plant_id, |plant| {
@@ -512,6 +503,67 @@ impl DriverRuntimeService {
             plant.paused = false;
         })
     }
+}
+
+fn resolve_driver_for_connect(
+    plants: &PlantStore,
+    plugins: &PluginStore,
+    mut plant: Plant,
+) -> AppResult<(Plant, PluginRegistry)> {
+    let find_by_name = |plugins: &PluginStore, plant: &Plant| {
+        plugins
+            .list_by_type(PluginType::Driver)
+            .into_iter()
+            .find(|plugin| {
+                plugin
+                    .name
+                    .eq_ignore_ascii_case(plant.driver.plugin_name.trim())
+            })
+            .ok_or_else(|| {
+                AppError::NotFound(format!(
+                    "Driver '{}' da planta '{}' não está carregado",
+                    plant.driver.plugin_name, plant.name
+                ))
+            })
+    };
+
+    let driver = match plugins.get(&plant.driver.plugin_id) {
+        Ok(plugin) if plugin.plugin_type == PluginType::Driver => plugin,
+        Ok(_) => find_by_name(plugins, &plant)?,
+        Err(AppError::NotFound(_)) if plant.driver.plugin_name.trim().is_empty() => {
+            return Err(AppError::NotFound(format!(
+                "Driver da planta '{}' não foi encontrado",
+                plant.name
+            )));
+        }
+        Err(AppError::NotFound(_)) => {
+            PluginService::load_all(plugins)?;
+            match plugins.get(&plant.driver.plugin_id) {
+                Ok(plugin) if plugin.plugin_type == PluginType::Driver => plugin,
+                Ok(_) | Err(AppError::NotFound(_)) => find_by_name(plugins, &plant)?,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(error) => return Err(error),
+    };
+
+    let driver_changed = plant.driver.plugin_id != driver.id
+        || plant.driver.plugin_name != driver.name
+        || plant.driver.runtime != driver.runtime
+        || plant.driver.source_file != driver.source_file;
+
+    if driver_changed {
+        plant.driver.plugin_id = driver.id.clone();
+        plant.driver.plugin_name = driver.name.clone();
+        plant.driver.runtime = driver.runtime;
+        plant.driver.source_file = driver.source_file.clone();
+        plant.driver.source_code = None;
+
+        WorkspaceService::update_plant_registry(&plant, &plant.name)?;
+        plants.replace(&plant.id, plant.clone())?;
+    }
+
+    Ok((plant, driver))
 }
 
 fn prepare_runtime_directory() -> AppResult<PathBuf> {

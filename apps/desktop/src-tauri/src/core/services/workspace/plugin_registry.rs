@@ -33,10 +33,7 @@ pub(super) fn save(plugin: &PluginRegistry, source_code: &str) -> AppResult<()> 
         )
     })?;
 
-    let mut plugin_registry_payload = plugin.clone();
-    plugin_registry_payload.source_code = Some(source_code.to_string());
-
-    let registry_payload = serde_json::to_string_pretty(&plugin_registry_payload).map_err(|error| {
+    let registry_payload = serde_json::to_string_pretty(plugin).map_err(|error| {
         map_serde_error(
             &format!(
                 "Falha ao serializar registro do {:?} '{}'",
@@ -111,17 +108,12 @@ pub(super) fn delete(plugin_name: &str, plugin_type: PluginType) -> AppResult<()
         return Ok(());
     }
 
-    let registry_path = plugin_dir.join(REGISTRY_FILE);
-    if !registry_path.exists() {
-        return Ok(());
-    }
-
-    fs::remove_file(&registry_path).map_err(|error| {
+    fs::remove_dir_all(&plugin_dir).map_err(|error| {
         map_io_error(
             &format!(
-                "Falha ao remover registro do plugin '{}' em '{}'",
+                "Falha ao remover diretório do plugin '{}' em '{}'",
                 normalized_name,
-                registry_path.display()
+                plugin_dir.display()
             ),
             error,
         )
@@ -129,52 +121,71 @@ pub(super) fn delete(plugin_name: &str, plugin_type: PluginType) -> AppResult<()
 }
 
 pub(super) fn load() -> AppResult<Vec<PluginRegistry>> {
-    let mut plugins: Vec<PluginRegistry> = vec![];
+    let mut plugins = Vec::new();
+    load_plugin_type(PluginType::Controller, &mut plugins)?;
+    load_plugin_type(PluginType::Driver, &mut plugins)?;
+    Ok(plugins)
+}
 
-    let controller_workspace = plugin_root_directory(PluginType::Controller)?;
-    let driver_workspace = plugin_root_directory(PluginType::Driver)?;
-
-    let mut plugins_folders: Vec<std::path::PathBuf> = if controller_workspace.exists() {
-        fs::read_dir(&controller_workspace)
-            .map_err(|error| map_io_error("Falha ao carregar workspace de plugins", error))?
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| path.is_dir())
-            .collect()
-    } else {
-        vec![]
-    };
-
-    let mut controller_folders: Vec<std::path::PathBuf> = if driver_workspace.exists() {
-        fs::read_dir(&driver_workspace)
-            .map_err(|error| map_io_error("Falha ao carregar workspace de plugins", error))?
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path())
-            .filter(|path| path.is_dir())
-            .collect()
-    } else {
-        vec![]
-    };
-
-    plugins_folders.append(&mut controller_folders);
-
-    for entry in plugins_folders {
-        let Some(ret) = fs::read_dir(entry)
-            .map_err(|error| map_io_error("Falha ao carregar pastas dos plugins", error))?
-            .filter_map(|entry| entry.ok())
-            .find(|entry| entry.file_name().to_str() == Some(REGISTRY_FILE))
-        else {
-            continue;
-        };
-
-        let content = fs::read_to_string(ret.path())
-            .map_err(|error| map_io_error("Falha ao ler registro do plugin", error))?;
-
-        let json = serde_json::from_str::<PluginRegistry>(&content)
-            .map_err(|error| map_serde_error("Falha ao desserializar registro do plugin", error))?;
-
-        plugins.push(json);
+fn load_plugin_type(plugin_type: PluginType, plugins: &mut Vec<PluginRegistry>) -> AppResult<()> {
+    let root = plugin_root_directory(plugin_type)?;
+    if !root.exists() {
+        return Ok(());
     }
 
-    Ok(plugins)
+    for entry in fs::read_dir(&root)
+        .map_err(|error| map_io_error("Falha ao carregar workspace de plugins", error))?
+    {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let plugin_dir = entry.path();
+        if !plugin_dir.is_dir() {
+            continue;
+        }
+
+        let registry_path = plugin_dir.join(REGISTRY_FILE);
+        if !registry_path.exists() {
+            continue;
+        }
+
+        let content = match fs::read_to_string(&registry_path) {
+            Ok(content) => content,
+            Err(error) => {
+                eprintln!(
+                    "{}",
+                    map_io_error(
+                        &format!(
+                            "Falha ao ler registro do plugin em '{}'",
+                            registry_path.display()
+                        ),
+                        error,
+                    )
+                );
+                continue;
+            }
+        };
+
+        let plugin = match serde_json::from_str::<PluginRegistry>(&content) {
+            Ok(plugin) => plugin,
+            Err(error) => {
+                eprintln!(
+                    "{}",
+                    map_serde_error(
+                        &format!(
+                            "Falha ao desserializar registro do plugin em '{}'",
+                            registry_path.display()
+                        ),
+                        error,
+                    )
+                );
+                continue;
+            }
+        };
+
+        plugins.push(plugin);
+    }
+
+    Ok(())
 }

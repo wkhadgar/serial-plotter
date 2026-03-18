@@ -1,7 +1,7 @@
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plant::Plant;
 use crate::core::models::plugin::{PluginRegistry, PluginType};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 mod paths;
 mod plant_registry;
@@ -44,7 +44,7 @@ impl WorkspaceService {
         plant_registry::update(plant, previous_plant_name)
     }
 
-    pub fn load_plugin_registrys() -> AppResult<Vec<PluginRegistry>> {
+    pub fn load_plugin_registries() -> AppResult<Vec<PluginRegistry>> {
         plugin_registry::load()
     }
 
@@ -91,4 +91,58 @@ pub(crate) fn ensure_non_empty_name(name: &str, entity: &str) -> AppResult<Strin
     }
 
     Ok(normalized.to_string())
+}
+
+pub(crate) fn ensure_safe_workspace_component(name: &str, entity: &str) -> AppResult<String> {
+    let normalized = ensure_non_empty_name(name, entity)?;
+    let path = Path::new(&normalized);
+
+    if path.is_absolute() {
+        return Err(AppError::InvalidArgument(format!(
+            "Nome de {entity} não pode ser caminho absoluto"
+        )));
+    }
+
+    if normalized.contains('/') || normalized.contains('\\') {
+        return Err(AppError::InvalidArgument(format!(
+            "Nome de {entity} não pode conter separadores de diretório"
+        )));
+    }
+
+    if normalized.chars().any(|character| character.is_control()) {
+        return Err(AppError::InvalidArgument(format!(
+            "Nome de {entity} contém caracteres inválidos"
+        )));
+    }
+
+    if path.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::CurDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return Err(AppError::InvalidArgument(format!(
+            "Nome de {entity} contém componentes de caminho inválidos"
+        )));
+    }
+
+    Ok(normalized)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_safe_workspace_component;
+
+    #[test]
+    fn safe_workspace_component_accepts_regular_names() {
+        let value = ensure_safe_workspace_component("Meu Driver 1", "plugin").unwrap();
+        assert_eq!(value, "Meu Driver 1");
+    }
+
+    #[test]
+    fn safe_workspace_component_rejects_path_traversal() {
+        assert!(ensure_safe_workspace_component("../driver", "plugin").is_err());
+        assert!(ensure_safe_workspace_component("driver/teste", "plugin").is_err());
+        assert!(ensure_safe_workspace_component("driver\\teste", "plugin").is_err());
+    }
 }

@@ -10,6 +10,7 @@ import type {
 } from './types';
 import { generateId } from '$lib/utils/format';
 import { loadWorkspaceState as loadStoredWorkspaceState, saveWorkspaceState as saveStoredWorkspaceState } from '$lib/utils/workspaceStorage';
+import { extractServiceErrorMessage } from '$lib/services/shared/errorMessage';
 
 const STORAGE_KEY = 'senamby.desktop.plugins.workspace';
 
@@ -22,40 +23,6 @@ const DEFAULT_WORKSPACE_STATE: PluginWorkspaceState = {
   localPlugins: [],
   deletedPluginIds: [],
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function resolveSerializedErrorMessage(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === '[object Object]') return null;
-
-  try {
-    return extractPluginErrorMessage(JSON.parse(trimmed), trimmed);
-  } catch {
-    return trimmed;
-  }
-}
-
-function extractPluginErrorMessage(error: unknown, fallback: string): string {
-  if (typeof error === 'string') {
-    return resolveSerializedErrorMessage(error) ?? fallback;
-  }
-
-  if (error instanceof Error) {
-    return resolveSerializedErrorMessage(error.message) ?? fallback;
-  }
-
-  if (isRecord(error)) {
-    const message = resolveSerializedErrorMessage(error.message) ?? resolveSerializedErrorMessage(error.error);
-    if (message) return message;
-  }
-
-  return fallback;
-}
 
 function loadWorkspaceState(): PluginWorkspaceState {
   return loadStoredWorkspaceState(STORAGE_KEY, DEFAULT_WORKSPACE_STATE, (parsed) => {
@@ -298,7 +265,7 @@ export async function createPlugin(request: CreatePluginRequest): Promise<Create
 
       return { success: true, plugin: mapDtoToPlugin(response) };
     } catch (error) {
-      const errorMessage = extractPluginErrorMessage(error, 'Erro ao criar plugin no backend');
+      const errorMessage = extractServiceErrorMessage(error, 'Erro ao criar plugin no backend');
       return { success: false, error: errorMessage };
     }
   }
@@ -400,7 +367,7 @@ export async function importPluginFile(file: File): Promise<{ success: boolean; 
 
     return { success: true, plugin: mapDtoToPlugin(response) };
   } catch (error) {
-    const errorMessage = extractPluginErrorMessage(error, 'Erro ao importar plugin');
+    const errorMessage = extractServiceErrorMessage(error, 'Erro ao importar plugin');
     return { success: false, error: errorMessage };
   }
 }
@@ -453,7 +420,7 @@ export async function updatePlugin(plugin: PluginDefinition): Promise<{ success:
     const updated = upsertWorkspacePlugin(plugin);
     return { success: true, plugin: updated };
   } catch (error) {
-    const errorMessage = extractPluginErrorMessage(error, 'Erro ao atualizar plugin');
+    const errorMessage = extractServiceErrorMessage(error, 'Erro ao atualizar plugin');
     return { success: false, error: errorMessage };
   }
 }
@@ -475,7 +442,7 @@ export async function deletePlugin(pluginId: string): Promise<{ success: boolean
 
     return { success: true };
   } catch (error) {
-    const errorMessage = extractPluginErrorMessage(error, 'Erro ao excluir plugin');
+    const errorMessage = extractServiceErrorMessage(error, 'Erro ao excluir plugin');
     return { success: false, error: errorMessage };
   }
 }

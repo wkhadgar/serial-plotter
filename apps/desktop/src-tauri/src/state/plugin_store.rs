@@ -1,67 +1,52 @@
 use crate::core::error::{AppError, AppResult};
-
 use crate::core::models::plugin::PluginRegistry;
-
 use parking_lot::RwLock;
 use std::collections::HashMap;
 
 #[derive(Debug, Default)]
 pub struct PluginStore {
-    registries: RwLock<HashMap<String, PluginRegistry>>,
+    state: RwLock<PluginStoreState>,
+}
+
+#[derive(Debug, Default)]
+struct PluginStoreState {
+    registries: HashMap<String, PluginRegistry>,
+    names: HashMap<String, String>,
 }
 
 impl PluginStore {
     pub fn new() -> Self {
         Self {
-            registries: RwLock::new(HashMap::new()),
+            state: RwLock::new(PluginStoreState::default()),
         }
     }
 
     pub fn insert(&self, registry: PluginRegistry) -> AppResult<()> {
-        let mut plugins = self.registries.write();
-
-        if plugins.contains_key(&registry.id) {
-            return Err(AppError::InvalidArgument(format!(
-                "Plugin com ID {} já existe!",
-                registry.id
-            )));
-        }
-
-        plugins.insert(registry.id.clone(), registry);
+        let mut state = self.state.write();
+        Self::insert_into_state(&mut state, registry)?;
         Ok(())
     }
 
     pub fn get(&self, id: &str) -> AppResult<PluginRegistry> {
-        let plugins = self.registries.read();
-
-        plugins
+        self.state
+            .read()
+            .registries
             .get(id)
             .cloned()
             .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))
     }
 
-    pub fn with_registry<R, F>(&self, id: &str, reader: F) -> AppResult<R>
-    where
-        F: FnOnce(&PluginRegistry) -> R,
-    {
-        let plugins = self.registries.read();
-        let plugin = plugins
-            .get(id)
-            .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))?;
-
-        Ok(reader(plugin))
-    }
-
     pub fn list(&self) -> Vec<PluginRegistry> {
-        self.registries.read().values().cloned().collect()
+        self.state.read().registries.values().cloned().collect()
     }
 
     pub fn list_by_type(
         &self,
         plugin_type: crate::core::models::plugin::PluginType,
     ) -> Vec<PluginRegistry> {
-        self.registries
+        self.state
             .read()
+            .registries
             .values()
             .filter(|p| p.plugin_type == plugin_type)
             .cloned()
@@ -69,34 +54,105 @@ impl PluginStore {
     }
 
     pub fn replace(&self, id: &str, registry: PluginRegistry) -> AppResult<()> {
-        let mut plugins = self.registries.write();
-        let slot = plugins
-            .get_mut(id)
-            .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))?;
+        let mut state = self.state.write();
+        let previous_name_key = {
+            let current = state
+                .registries
+                .get(id)
+                .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))?;
+            Self::name_key(&current.name)
+        };
+        let next_name_key = Self::name_key(&registry.name);
 
-        *slot = registry;
+        if next_name_key.is_empty() {
+            return Err(AppError::InvalidArgument(
+                "Nome do plugin é obrigatório".into(),
+            ));
+        }
+
+        if let Some(existing_id) = state.names.get(&next_name_key) {
+            if existing_id != id {
+                return Err(AppError::InvalidArgument(format!(
+                    "Plugin com nome '{}' já existe",
+                    registry.name.trim()
+                )));
+            }
+        }
+
+        state.names.remove(&previous_name_key);
+        state.names.insert(next_name_key, registry.id.clone());
+        state.registries.insert(id.to_string(), registry);
         Ok(())
     }
 
     pub fn remove(&self, id: &str) -> AppResult<PluginRegistry> {
-        self.registries
-            .write()
+        let mut state = self.state.write();
+        let registry = state
+            .registries
             .remove(id)
-            .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))
+            .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))?;
+        state.names.remove(&Self::name_key(&registry.name));
+        Ok(registry)
+    }
+
+    pub fn sync(&self, registries: Vec<PluginRegistry>) -> AppResult<Vec<PluginRegistry>> {
+        let mut next_state = PluginStoreState::default();
+        for registry in registries {
+            Self::insert_into_state(&mut next_state, registry)?;
+        }
+
+        let items = next_state.registries.values().cloned().collect::<Vec<_>>();
+        *self.state.write() = next_state;
+        Ok(items)
     }
 
     pub fn exists_by_name(&self, name: &str) -> bool {
-        self.registries
-            .read()
-            .values()
-            .any(|plugin| plugin.name.eq_ignore_ascii_case(name))
+        let key = Self::name_key(name);
+        !key.is_empty() && self.state.read().names.contains_key(&key)
     }
 
     pub fn exists_by_name_except(&self, id: &str, name: &str) -> bool {
-        self.registries
+        let key = Self::name_key(name);
+        if key.is_empty() {
+            return false;
+        }
+
+        self.state
             .read()
-            .values()
-            .any(|plugin| plugin.id != id && plugin.name.eq_ignore_ascii_case(name))
+            .names
+            .get(&key)
+            .is_some_and(|existing_id| existing_id != id)
+    }
+
+    fn insert_into_state(state: &mut PluginStoreState, registry: PluginRegistry) -> AppResult<()> {
+        if state.registries.contains_key(&registry.id) {
+            return Err(AppError::InvalidArgument(format!(
+                "Plugin com ID {} já existe!",
+                registry.id
+            )));
+        }
+
+        let name_key = Self::name_key(&registry.name);
+        if name_key.is_empty() {
+            return Err(AppError::InvalidArgument(
+                "Nome do plugin é obrigatório".into(),
+            ));
+        }
+
+        if state.names.contains_key(&name_key) {
+            return Err(AppError::InvalidArgument(format!(
+                "Plugin com nome '{}' já existe",
+                registry.name.trim()
+            )));
+        }
+
+        state.names.insert(name_key, registry.id.clone());
+        state.registries.insert(registry.id.clone(), registry);
+        Ok(())
+    }
+
+    fn name_key(name: &str) -> String {
+        name.trim().to_lowercase()
     }
 }
 
@@ -150,5 +206,17 @@ mod tests {
 
         assert!(store.insert(plugin1_registry).is_ok());
         assert!(store.insert(plugin2_registry).is_err());
+    }
+
+    #[test]
+    fn test_registry_duplicate_name_ignores_case_and_whitespace() {
+        let store = PluginStore::new();
+
+        assert!(store
+            .insert(create_plugin_test("plugin_test_1", "Driver Base", None))
+            .is_ok());
+        assert!(store
+            .insert(create_plugin_test("plugin_test_2", "  driver base  ", None))
+            .is_err());
     }
 }

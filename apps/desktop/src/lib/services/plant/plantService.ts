@@ -10,16 +10,16 @@ import {
   type VariableStats,
 } from '$lib/types/plant';
 import type { Controller, ControllerParam } from '$lib/types/controller';
-import type { PluginInstance, SchemaFieldValue } from '$lib/types/plugin';
-import { listPluginsByType } from '$lib/services/plugin';
+import type { PluginInstance } from '$lib/types/plugin';
+import { extractServiceErrorMessage } from '$lib/services/shared/errorMessage';
 import type {
   ControllerParamDto,
   CreatePlantDto,
   CreatePlantRequest,
   CreatePlantResponse,
+  ImportPlantFileCommandResponse,
   OpenPlantRequest,
   OpenPlantResponse,
-  OpenPlantFileCommandResponse,
   PlantActionResponse,
   PlantControllerDto,
   PlantDriverDto,
@@ -40,101 +40,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function resolveSerializedErrorMessage(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === '[object Object]') return null;
-
-  try {
-    return extractErrorMessage(JSON.parse(trimmed), trimmed);
-  } catch {
-    return trimmed;
-  }
-}
-
-function extractErrorMessage(error: unknown, fallback: string): string {
-  if (typeof error === 'string') {
-    return resolveSerializedErrorMessage(error) ?? fallback;
-  }
-
-  if (error instanceof Error) {
-    return resolveSerializedErrorMessage(error.message) ?? fallback;
-  }
-
-  if (isRecord(error)) {
-    const message = resolveSerializedErrorMessage(error.message) ?? resolveSerializedErrorMessage(error.error);
-    if (message) return message;
-  }
-
-  return fallback;
-}
-
 function toFiniteNumber(value: unknown, fallback = 0): number {
   const resolved = Number(value);
   return Number.isFinite(resolved) ? resolved : fallback;
-}
-
-function isSchemaFieldValue(value: unknown): value is SchemaFieldValue {
-  if (
-    typeof value === 'boolean' ||
-    typeof value === 'number' ||
-    typeof value === 'string'
-  ) {
-    return true;
-  }
-
-  if (!Array.isArray(value)) {
-    return false;
-  }
-
-  return value.every((entry) => isSchemaFieldValue(entry));
-}
-
-function normalizeImportedDriverConfig(value: unknown): Record<string, SchemaFieldValue> {
-  if (!isRecord(value)) {
-    return {};
-  }
-
-  const config: Record<string, SchemaFieldValue> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (!key.trim()) continue;
-    if (!isSchemaFieldValue(entry)) continue;
-    config[key] = entry;
-  }
-
-  return config;
-}
-
-function normalizeImportedDriver(
-  payload: unknown
-): { pluginId: string; pluginName: string; config: Record<string, SchemaFieldValue> } | null {
-  if (!isRecord(payload)) {
-    return null;
-  }
-
-  const rawPluginId = typeof payload.plugin_id === 'string'
-    ? payload.plugin_id
-    : typeof payload.pluginId === 'string'
-      ? payload.pluginId
-      : '';
-  const pluginId = rawPluginId.trim();
-  if (!pluginId) {
-    return null;
-  }
-
-  const rawPluginName = typeof payload.plugin_name === 'string'
-    ? payload.plugin_name
-    : typeof payload.pluginName === 'string'
-      ? payload.pluginName
-      : '';
-  const pluginName = rawPluginName.trim() || pluginId;
-
-  return {
-    pluginId,
-    pluginName,
-    config: normalizeImportedDriverConfig(payload.config),
-  };
 }
 
 function normalizeSampleTimeMs(sampleTimeMs: number | null | undefined, fallback = DEFAULT_SAMPLE_TIME_MS): number {
@@ -471,7 +379,7 @@ export async function createPlant(request: CreatePlantRequest): Promise<CreatePl
 
     return { success: true, plant };
   } catch (error) {
-    const message = extractErrorMessage(error, 'Erro ao criar planta no backend');
+    const message = extractServiceErrorMessage(error, 'Erro ao criar planta no backend');
     return { success: false, error: message };
   }
 }
@@ -503,7 +411,7 @@ export async function updatePlant(request: UpdatePlantRequest): Promise<PlantAct
       plant: mapDtoToPlant(response),
     };
   } catch (error) {
-    const message = extractErrorMessage(error, 'Erro ao atualizar planta no backend');
+    const message = extractServiceErrorMessage(error, 'Erro ao atualizar planta no backend');
     return { success: false, error: message };
   }
 }
@@ -570,7 +478,7 @@ export async function removePlant(id: string): Promise<PlantActionResponse> {
     const response = await invoke<PlantDto>('remove_plant', { id });
     return { success: true, plant: mapDtoToPlant(response) };
   } catch (error) {
-    const message = extractErrorMessage(error, 'Erro ao remover planta no backend');
+    const message = extractServiceErrorMessage(error, 'Erro ao remover planta no backend');
     return { success: false, error: message };
   }
 }
@@ -586,9 +494,18 @@ async function invokePlantAction(command: string, id: string, merge: (current: P
     const merged = merge(current, mapDtoToPlant(response));
     return { success: true, plant: merged };
   } catch (error) {
-    const message = extractErrorMessage(error, 'Erro ao sincronizar ação da planta');
+    const message = extractServiceErrorMessage(error, 'Erro ao sincronizar ação da planta');
     return { success: false, error: message };
   }
+}
+
+function mergeBackendRuntimeState(currentPlant: Plant, backendPlant: Plant): Plant {
+  return {
+    ...backendPlant,
+    driver: currentPlant.driver ?? backendPlant.driver,
+    controllers: currentPlant.controllers ?? backendPlant.controllers,
+    source: 'backend',
+  };
 }
 
 export async function connectPlant(id: string): Promise<PlantActionResponse> {
@@ -603,39 +520,19 @@ export async function connectPlant(id: string): Promise<PlantActionResponse> {
     };
   }
 
-  return invokePlantAction('connect_plant', id, (currentPlant, backendPlant) => ({
-    ...backendPlant,
-    driver: currentPlant.driver,
-    controllers: currentPlant.controllers,
-    source: 'backend',
-  }));
+  return invokePlantAction('connect_plant', id, mergeBackendRuntimeState);
 }
 
 export async function disconnectPlant(id: string): Promise<PlantActionResponse> {
-  return invokePlantAction('disconnect_plant', id, (currentPlant, backendPlant) => ({
-    ...backendPlant,
-    driver: currentPlant.driver,
-    controllers: currentPlant.controllers,
-    source: 'backend',
-  }));
+  return invokePlantAction('disconnect_plant', id, mergeBackendRuntimeState);
 }
 
 export async function pausePlant(id: string): Promise<PlantActionResponse> {
-  return invokePlantAction('pause_plant', id, (currentPlant, backendPlant) => ({
-    ...backendPlant,
-    driver: currentPlant.driver,
-    controllers: currentPlant.controllers,
-    source: 'backend',
-  }));
+  return invokePlantAction('pause_plant', id, mergeBackendRuntimeState);
 }
 
 export async function resumePlant(id: string): Promise<PlantActionResponse> {
-  return invokePlantAction('resume_plant', id, (currentPlant, backendPlant) => ({
-    ...backendPlant,
-    driver: currentPlant.driver,
-    controllers: currentPlant.controllers,
-    source: 'backend',
-  }));
+  return invokePlantAction('resume_plant', id, mergeBackendRuntimeState);
 }
 
 export async function openPlant(request: OpenPlantRequest): Promise<OpenPlantResponse> {
@@ -648,50 +545,13 @@ export async function openPlant(request: OpenPlantRequest): Promise<OpenPlantRes
 
   try {
     const text = await request.file.text();
-    const response = await invoke<OpenPlantFileCommandResponse>('open_plant_file', {
+    const response = await invoke<ImportPlantFileCommandResponse>('import_plant_file', {
       request: {
         fileName: request.file.name,
         content: text,
       },
     });
-    const importedDriver = normalizeImportedDriver(response.plant.driver);
-    const availableDrivers = importedDriver
-      ? await listPluginsByType('driver')
-      : [];
-    const matchedDriver = importedDriver
-      ? availableDrivers.find((entry) => entry.id === importedDriver.pluginId) ??
-        availableDrivers.find(
-          (entry) => entry.name.trim().toLowerCase() === importedDriver.pluginName.trim().toLowerCase()
-        )
-      : undefined;
-    const resolvedDriver: PluginInstance | null = matchedDriver
-      ? {
-          pluginId: matchedDriver.id,
-          pluginName: matchedDriver.name,
-          pluginKind: 'driver',
-          config: importedDriver?.config ?? {},
-        }
-      : null;
-    if (!resolvedDriver?.pluginId) {
-      const message = importedDriver
-        ? `Driver "${importedDriver.pluginName}" não está carregado. Vincule/importe o driver e tente novamente.`
-        : 'Arquivo de planta sem driver válido. A planta precisa de um driver para ser criada no backend.';
-      return { success: false, error: message };
-    }
-
-    const createResponse = await invoke<PlantDto>('create_plant', {
-      request: {
-        name: response.plant.name.trim(),
-        sample_time_ms: normalizeSampleTimeMs(response.plant.sample_time_ms, response.stats.dt * 1000),
-        variables: response.plant.variables,
-        driver: {
-          plugin_id: resolvedDriver.pluginId,
-          config: resolvedDriver.config ?? {},
-        },
-        controllers: [],
-      } satisfies CreatePlantDto,
-    });
-    const plant = mapDtoToPlant(createResponse);
+    const plant = mapDtoToPlant(response.plant);
 
     return {
       success: true,
@@ -702,7 +562,7 @@ export async function openPlant(request: OpenPlantRequest): Promise<OpenPlantRes
       seriesCatalog: normalizeImportedSeriesCatalog(response.series_catalog, plant.id),
     };
   } catch (error) {
-    const errorMessage = extractErrorMessage(error, 'Erro ao abrir arquivo');
+    const errorMessage = extractServiceErrorMessage(error, 'Erro ao abrir arquivo');
     return { success: false, error: errorMessage };
   }
 }

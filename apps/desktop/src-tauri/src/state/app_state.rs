@@ -1,3 +1,4 @@
+use crate::core::services::plugin::PluginService;
 use crate::core::services::runtime::PlantRuntimeManager;
 use crate::state::{plant_store::PlantStore, PluginStore};
 use std::sync::Arc;
@@ -14,6 +15,9 @@ impl AppState {
         let plant_store = Arc::new(PlantStore::new());
         let plugin_store = Arc::new(PluginStore::new());
         let runtime_manager = Arc::new(PlantRuntimeManager::new(plant_store.clone()));
+        if let Err(error) = PluginService::load_all(&plugin_store) {
+            eprintln!("Falha ao carregar plugins do workspace na inicialização: {error}");
+        }
 
         Self {
             plant_store,

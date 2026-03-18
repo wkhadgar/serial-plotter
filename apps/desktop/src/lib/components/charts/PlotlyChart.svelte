@@ -384,7 +384,14 @@
         dash: s.dashed ? [6, 4] : undefined,
         show: s.visible,
         value: (_u: uPlot, v: number | null) => (v != null ? v.toFixed(2) : '--'),
-        points: { show: false },
+        points: {
+          // Keep charts lightweight for normal streams, but render a marker when
+          // there is only one visible sample so the first t=0 point is visible.
+          show: (_u: uPlot, _seriesIdx: number, idx0: number, idx1: number) => idx0 === idx1,
+          size: 7,
+          width: 2,
+          fill: s.color,
+        },
       };
       if (s.type === 'step') ser.paths = uPlot.paths.stepped!({ align: 1 });
       if (s.type === 'area') ser.fill = s.color + '30';
