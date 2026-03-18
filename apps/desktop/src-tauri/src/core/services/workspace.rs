@@ -44,6 +44,10 @@ impl WorkspaceService {
         plant_registry::update(plant, previous_plant_name)
     }
 
+    pub fn load_plugin_registrys() -> AppResult<Vec<PluginRegistry>> {
+        plugin_registry::load()
+    }
+
     pub fn delete_plant_registry(plant_name: &str) -> AppResult<()> {
         plant_registry::delete(plant_name)
     }

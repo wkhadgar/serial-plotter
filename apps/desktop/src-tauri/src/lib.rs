@@ -8,7 +8,7 @@ use crate::commands::plants::{
     remove_plant, resume_plant, update_plant,
 };
 use crate::commands::plugins::{
-    create_plugin, get_plugin, list_plugins, list_plugins_by_type, update_plugin,
+    create_plugin, get_plugin, list_plugins, list_plugins_by_type, load_plugins, update_plugin,
 };
 use crate::core::error::{AppError, ErrorDto};
 use crate::state::AppState;
@@ -47,6 +47,7 @@ pub fn run() {
             create_plugin,
             get_plugin,
             update_plugin,
+            load_plugins,
             list_plugins,
             list_plugins_by_type,
         ])

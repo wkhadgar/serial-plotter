@@ -21,6 +21,8 @@
   let _panning = false;
   let _pointerInside = false;
   let _pendingDeferredUpdate = false;
+  let _localManualRange: { min: number; max: number } | null = null;
+  let _lastResolvedXMode: 'auto' | 'sliding' | 'manual' = 'auto';
   let _panStartX = 0;
   let _panScaleMin = 0;
   let _panScaleMax = 0;
@@ -42,9 +44,11 @@
   };
 
   function syncScaleRef() {
-    _scaleRef.xMode = config.xMode;
-    _scaleRef.xMin = config.xMin ?? null;
-    _scaleRef.xMax = config.xMax ?? null;
+    const localRange = _localManualRange;
+
+    _scaleRef.xMode = localRange ? 'manual' : config.xMode;
+    _scaleRef.xMin = localRange?.min ?? config.xMin ?? null;
+    _scaleRef.xMax = localRange?.max ?? config.xMax ?? null;
     _scaleRef.windowSize = config.windowSize;
     _scaleRef.yMode = config.yMode;
     _scaleRef.yMin = config.yMin;
@@ -149,6 +153,31 @@
   function buildRenderIndices(source: typeof series[number]['data']): number[] {
     if (source.length === 0) {
       return [];
+    }
+
+    if (_scaleRef.xMode === 'manual') {
+      const count = source.length;
+
+      if (count <= MAX_RENDER_POINTS) {
+        const indices = new Array<number>(count);
+        for (let index = 0; index < count; index += 1) {
+          indices[index] = index;
+        }
+        return indices;
+      }
+
+      const step = Math.max(1, Math.floor(count / (MAX_RENDER_POINTS - 1)));
+      const indices: number[] = [];
+
+      for (let index = 0; index < count; index += step) {
+        indices.push(index);
+      }
+
+      if (indices[indices.length - 1] !== count - 1) {
+        indices.push(count - 1);
+      }
+
+      return indices;
     }
 
     const firstTime = source[0].time;
@@ -318,6 +347,28 @@
     return _pointerInside && !_panning && _scaleRef.xMode === 'manual';
   }
 
+  function setLocalManualRange(xMin: number, xMax: number, syncChart = true) {
+    const nextMin = Math.min(xMin, xMax);
+    const nextMax = Math.max(xMin, xMax);
+
+    if (!Number.isFinite(nextMin) || !Number.isFinite(nextMax) || nextMax - nextMin <= 0.0001) {
+      return;
+    }
+
+    _localManualRange = { min: nextMin, max: nextMax };
+    syncScaleRef();
+
+    if (syncChart && chart) {
+      chart.setScale('x', { min: nextMin, max: nextMax });
+      lastAppliedXRange = { min: nextMin, max: nextMax };
+    }
+  }
+
+  function clearLocalManualRange() {
+    _localManualRange = null;
+    syncScaleRef();
+  }
+
   function buildSeries(): uPlot.Series[] {
     const uSeries: uPlot.Series[] = [
       {
@@ -343,10 +394,17 @@
   }
 
   function buildOpts(w: number, h: number): uPlot.Options {
+    const compactHeight = h < 180;
+    const ultraCompactHeight = h < 120;
+    const axisFont = ultraCompactHeight ? '9px system-ui, sans-serif' : compactHeight ? '10px system-ui, sans-serif' : '11px system-ui, sans-serif';
+    const xAxisSize = ultraCompactHeight ? 24 : compactHeight ? 28 : 32;
+    const yAxisSize = ultraCompactHeight ? 40 : compactHeight ? 44 : 50;
+    const axisGap = ultraCompactHeight ? 4 : 6;
+
     return {
       width: w,
       height: h,
-      padding: [8, 12, 0, 0],
+      padding: ultraCompactHeight ? [6, 8, 6, 0] : compactHeight ? [7, 10, 6, 0] : [8, 12, 8, 0],
       cursor: {
         show: config.showHover !== false,
         drag: { x: true, y: false, setScale: false },
@@ -383,18 +441,18 @@
           stroke: colors.ticks,
           grid: { stroke: colors.grid, width: 1, show: config.showGrid },
           ticks: { stroke: colors.axis, width: 1 },
-          font: '11px system-ui, sans-serif',
+          font: axisFont,
           values: (_u: uPlot, splits: number[]) => splits.map((v) => v.toFixed(1) + 's'),
-          gap: 6,
-          size: 32,
+          gap: axisGap,
+          size: xAxisSize,
         },
         {
           stroke: colors.ticks,
           grid: { stroke: colors.grid, width: 1, show: config.showGrid },
           ticks: { stroke: colors.axis, width: 1 },
-          font: '11px system-ui, sans-serif',
-          gap: 6,
-          size: 50,
+          font: axisFont,
+          gap: axisGap,
+          size: yAxisSize,
         },
       ],
       series: buildSeries(),
@@ -405,6 +463,7 @@
             if (sel.width > 2) {
               const xMin = u.posToVal(sel.left, 'x');
               const xMax = u.posToVal(sel.left + sel.width, 'x');
+              setLocalManualRange(xMin, xMax);
               queueRangeChange(xMin, xMax);
             }
             u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
@@ -477,6 +536,7 @@
       }
       nMin = Math.max(0, nMin);
     }
+    setLocalManualRange(nMin, nMax);
     queueRangeChange(nMin, nMax);
   }
 
@@ -515,6 +575,7 @@
       }
       nMin = Math.max(0, nMin);
     }
+    setLocalManualRange(nMin, nMax);
     queueRangeChange(nMin, nMax);
   }
 
@@ -547,6 +608,7 @@
     applyResolvedScales(data);
     prevDataSignature = getDataSignature();
     _pendingDeferredUpdate = false;
+    _lastResolvedXMode = _scaleRef.xMode as 'auto' | 'sliding' | 'manual';
   }
 
 
@@ -580,6 +642,11 @@
 
   function pollDataUpdates() {
     if (chart && wrapper) {
+      syncScaleRef();
+      if (_scaleRef.xMode === 'manual') {
+        return;
+      }
+
       const signature = getDataSignature();
       if (signature !== prevDataSignature) {
         updateChart({ deferIfHovering: true });
@@ -640,16 +707,41 @@
   });
 
   $effect(() => {
-    const _ = [
-      config.xMode,
-      config.xMin,
-      config.xMax,
-      config.windowSize,
-      config.yMin,
-      config.yMax,
-    ];
+    const _ = [config.yMin, config.yMax];
     untrack(() => {
       if (_mounted && chart) updateChart();
+    });
+  });
+
+  $effect(() => {
+    const _ = [config.xMode, config.xMin, config.xMax, config.windowSize];
+    untrack(() => {
+      if (!_mounted || !chart) return;
+
+      if (config.xMode !== 'manual') {
+        clearLocalManualRange();
+      } else if (config.xMin != null && config.xMax != null) {
+        setLocalManualRange(config.xMin, config.xMax, false);
+      }
+
+      syncScaleRef();
+      const resolvedMode = _scaleRef.xMode as 'auto' | 'sliding' | 'manual';
+      const modeChanged = resolvedMode !== _lastResolvedXMode;
+      _lastResolvedXMode = resolvedMode;
+
+      if (modeChanged) {
+        updateChart();
+        return;
+      }
+
+      if (resolvedMode === 'manual') {
+        const data = (chart.data ?? buildData()) as uPlot.AlignedData;
+        applyResolvedScales(data);
+        prevDataSignature = getDataSignature();
+        return;
+      }
+
+      updateChart();
     });
   });
 </script>
@@ -679,6 +771,7 @@
 <style>
   .plotly-surface {
     min-height: 96px;
+    overflow: hidden;
   }
 
   .uplot-wrapper {
@@ -743,13 +836,13 @@
 
   @media (max-height: 860px) {
     .plotly-surface {
-      min-height: 72px;
+      min-height: 80px;
     }
   }
 
   @media (max-height: 700px) {
     .plotly-surface {
-      min-height: 56px;
+      min-height: 68px;
     }
   }
 </style>

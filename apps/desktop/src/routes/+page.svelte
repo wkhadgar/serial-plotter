@@ -3,11 +3,12 @@
   import { PanelLeft } from 'lucide-svelte';
   import { appStore } from '$lib/stores/data.svelte';
   import Sidebar from '$lib/components/layout/Sidebar.svelte';
-  import PlotterModule from '$lib/components/modules/PlotterModule.svelte';
+  import PlotterWorkspaceModule from '$lib/components/modules/PlotterWorkspaceModule.svelte';
   import AnalyzerModule from '$lib/components/modules/AnalyzerModule.svelte';
   import PluginsModule from '$lib/components/modules/PluginsModule.svelte';
   import GlobalSettingsModal from '$lib/components/modals/GlobalSettingsModal.svelte';
   import { listPlants } from '$lib/services/plant';
+  import { loadSystemPlugins } from '$lib/services/plugin';
   import { setPlantStats } from '$lib/stores/plantData';
 
   let showControllerPanel = $state(false);
@@ -29,6 +30,7 @@
 
     void (async () => {
       try {
+        await loadSystemPlugins();
         const plants = await listPlants();
         appStore.setPlants(plants);
         for (const plant of plants) {
@@ -90,7 +92,7 @@
 
     <main class="flex-1 flex flex-col min-w-0 relative">
       <div class="flex-1 flex flex-col min-w-0" style:display={appStore.state.activeModule === 'plotter' ? 'flex' : 'none'}>
-        <PlotterModule
+        <PlotterWorkspaceModule
           plants={appStore.state.plants || []}
           activePlantId={appStore.state.activePlantId ?? appStore.state.plants[0]?.id ?? ''}
           theme={appStore.state.theme || 'dark'}
@@ -115,4 +117,3 @@
     </main>
   </div>
 </div>
-

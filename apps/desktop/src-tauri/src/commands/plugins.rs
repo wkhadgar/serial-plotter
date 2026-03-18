@@ -36,6 +36,11 @@ pub fn list_plugins(state: State<'_, AppState>) -> Vec<PluginRegistry> {
 }
 
 #[tauri::command]
+pub fn load_plugins(state: State<'_, AppState>) -> Result<Vec<PluginRegistry>, ErrorDto> {
+    PluginService::load_all(state.plugins()).map_err(ErrorDto::from)
+}
+
+#[tauri::command]
 #[allow(non_snake_case)]
 pub fn list_plugins_by_type(
     state: State<'_, AppState>,

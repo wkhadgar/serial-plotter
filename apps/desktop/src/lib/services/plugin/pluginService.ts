@@ -115,6 +115,17 @@ async function listBackendPlugins(): Promise<PluginDefinition[]> {
   }
 }
 
+export async function loadSystemPlugins(): Promise<PluginDefinition[]> {
+  try {
+    const response = await invoke<PluginRegistryDto[]>('load_plugins');
+    console.log('[plugins] load_plugins response:', response);
+    return response.map(mapDtoToPlugin);
+  } catch (error) {
+    console.warn('Falha ao carregar plugins do sistema na inicialização:', error);
+    return [];
+  }
+}
+
 async function listBackendPluginsByType(kind: BuiltInPluginKind): Promise<PluginDefinition[]> {
   try {
     const response = await invoke<PluginRegistryDto[]>('list_plugins_by_type', { pluginType: kind });

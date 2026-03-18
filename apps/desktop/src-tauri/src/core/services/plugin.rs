@@ -110,6 +110,20 @@ impl PluginService {
         Ok(next_plugin)
     }
 
+    pub fn load_all(store: &PluginStore) -> AppResult<Vec<PluginRegistry>> {
+        let plugins = WorkspaceService::load_plugin_registrys()?;
+
+        for plugin in &plugins {
+            if store.get(&plugin.id).is_ok() {
+                store.replace(&plugin.id, plugin.clone())?;
+            } else {
+                store.insert(plugin.clone())?;
+            }
+        }
+
+        Ok(plugins)
+    }
+
     fn build_plugin(request: CreatePluginRequest) -> PluginRegistry {
         let plugin_id = format!("plugin_{}", Uuid::new_v4());
 

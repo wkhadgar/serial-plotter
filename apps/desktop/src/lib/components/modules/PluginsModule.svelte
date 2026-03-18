@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { Plus, Search, Puzzle, Upload, RefreshCw } from 'lucide-svelte';
   import type { PluginDefinition, PluginKind } from '$lib/types/plugin';
   import { BUILTIN_PLUGIN_KINDS, getPluginKindLabel } from '$lib/types/plugin';
@@ -8,7 +7,7 @@
   import CreatePluginModal from '$lib/components/modals/CreatePluginModal.svelte';
   import CodeEditorModal from '$lib/components/modals/CodeEditorModal.svelte';
   import GenericModal from '$lib/components/modals/GenericModal.svelte';
-  import { deletePlugin, getPlugin, listPlugins, registerPlugin, validatePluginFile } from '$lib/services/plugin';
+  import { deletePlugin, getPlugin, listPlugins, loadSystemPlugins, registerPlugin, validatePluginFile } from '$lib/services/plugin';
   import { FILE_FILTERS, openFileDialog, readFileAsJSON } from '$lib/services/fileDialog';
 
   interface Props {
@@ -74,6 +73,7 @@
     loadError = null;
 
     try {
+      await loadSystemPlugins();
       plugins = await listPlugins();
     } catch (error) {
       loadError = error instanceof Error ? error.message : 'Erro ao carregar os plugins';
@@ -82,7 +82,10 @@
     }
   }
 
-  onMount(loadCatalog);
+  $effect(() => {
+    if (!active) return;
+    void loadCatalog();
+  });
 
   function handlePluginCreated(plugin: PluginDefinition) {
     plugins = [plugin, ...plugins.filter((entry) => entry.id !== plugin.id)];

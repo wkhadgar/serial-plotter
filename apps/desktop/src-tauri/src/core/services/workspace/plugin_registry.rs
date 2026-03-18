@@ -3,7 +3,9 @@ use crate::core::models::plugin::{PluginRegistry, PluginType};
 use crate::core::services::workspace::{map_io_error, map_serde_error, normalize_entity_name};
 use std::fs;
 
-use super::paths::{plugin_directory, plugin_source_path, REGISTRY_FILE, SOURCE_FILE};
+use super::paths::{
+    plugin_directory, plugin_root_directory, plugin_source_path, REGISTRY_FILE, SOURCE_FILE,
+};
 
 pub(super) fn save(plugin: &PluginRegistry, source_code: &str) -> AppResult<()> {
     let plugin_dir = plugin_directory(&plugin.name, plugin.plugin_type)?;
@@ -116,4 +118,55 @@ pub(super) fn delete(plugin_name: &str, plugin_type: PluginType) -> AppResult<()
             error,
         )
     })
+}
+
+pub(super) fn load() -> AppResult<Vec<PluginRegistry>> {
+    let mut plugins: Vec<PluginRegistry> = vec![];
+
+    let controller_workspace = plugin_root_directory(PluginType::Controller)?;
+    let driver_workspace = plugin_root_directory(PluginType::Driver)?;
+
+    let mut plugins_folders: Vec<std::path::PathBuf> = if controller_workspace.exists() {
+        fs::read_dir(&controller_workspace)
+            .map_err(|error| map_io_error("Falha ao carregar workspace de plugins", error))?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect()
+    } else {
+        vec![]
+    };
+
+    let mut controller_folders: Vec<std::path::PathBuf> = if driver_workspace.exists() {
+        fs::read_dir(&driver_workspace)
+            .map_err(|error| map_io_error("Falha ao carregar workspace de plugins", error))?
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .collect()
+    } else {
+        vec![]
+    };
+
+    plugins_folders.append(&mut controller_folders);
+
+    for entry in plugins_folders {
+        let Some(ret) = fs::read_dir(entry)
+            .map_err(|error| map_io_error("Falha ao carregar pastas dos plugins", error))?
+            .filter_map(|entry| entry.ok())
+            .find(|entry| entry.file_name().to_str() == Some(REGISTRY_FILE))
+        else {
+            continue;
+        };
+
+        let content = fs::read_to_string(ret.path())
+            .map_err(|error| map_io_error("Falha ao ler registro do plugin", error))?;
+
+        let json = serde_json::from_str::<PluginRegistry>(&content)
+            .map_err(|error| map_serde_error("Falha ao desserializar registro do plugin", error))?;
+
+        plugins.push(json);
+    }
+
+    Ok(plugins)
 }

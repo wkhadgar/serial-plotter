@@ -14,16 +14,21 @@ pub(super) const REGISTRY_FILE: &str = "registry.json";
 pub(super) const SOURCE_FILE: &str = "main.py";
 
 pub(super) fn plugin_directory(plugin_name: &str, plugin_type: PluginType) -> AppResult<PathBuf> {
-    let workspace_root = workspace_root()?;
+    let plugin_root = plugin_root_directory(plugin_type)?;
     let plugin_name =
         crate::core::services::workspace::ensure_non_empty_name(plugin_name, "plugin")?;
 
+    Ok(plugin_root.join(plugin_name))
+}
+
+pub(super) fn plugin_root_directory(plugin_type: PluginType) -> AppResult<PathBuf> {
+    let workspace_root = workspace_root()?;
     let parent_dir = match plugin_type {
         PluginType::Driver => DRIVERS_DIR,
         PluginType::Controller => CONTROLLERS_DIR,
     };
 
-    Ok(workspace_root.join(parent_dir).join(plugin_name))
+    Ok(workspace_root.join(parent_dir))
 }
 
 pub(super) fn plugin_source_path(plugin_name: &str, plugin_type: PluginType) -> AppResult<PathBuf> {
