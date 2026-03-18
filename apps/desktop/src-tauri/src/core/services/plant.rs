@@ -408,12 +408,14 @@ impl PlantService {
         })
     }
 
+    #[allow(dead_code)]
     pub fn pause(store: &PlantStore, id: &str) -> AppResult<Plant> {
         store.update(id, |plant| {
             plant.paused = true;
         })
     }
 
+    #[allow(dead_code)]
     pub fn resume(store: &PlantStore, id: &str) -> AppResult<Plant> {
         store.update(id, |plant| {
             plant.paused = false;

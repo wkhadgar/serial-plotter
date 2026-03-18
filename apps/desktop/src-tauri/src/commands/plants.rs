@@ -72,12 +72,14 @@ pub fn disconnect_plant(
 
 #[tauri::command]
 pub fn pause_plant(state: State<'_, AppState>, id: String) -> Result<PlantResponse, ErrorDto> {
-    let plant = PlantService::pause(state.plants(), &id).map_err(ErrorDto::from)?;
+    let plant = DriverRuntimeService::pause(state.plants(), state.runtimes(), &id)
+        .map_err(ErrorDto::from)?;
     Ok(plant.into())
 }
 
 #[tauri::command]
 pub fn resume_plant(state: State<'_, AppState>, id: String) -> Result<PlantResponse, ErrorDto> {
-    let plant = PlantService::resume(state.plants(), &id).map_err(ErrorDto::from)?;
+    let plant = DriverRuntimeService::resume(state.plants(), state.runtimes(), &id)
+        .map_err(ErrorDto::from)?;
     Ok(plant.into())
 }

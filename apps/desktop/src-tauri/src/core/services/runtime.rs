@@ -18,6 +18,14 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 const RUNNER_SCRIPT: &str = include_str!("../../../runtime/python/runner.py");
+const PYTHON_SYNTAX_CHECK_SCRIPT: &str = r#"
+import sys
+import tokenize
+
+path = sys.argv[1]
+with tokenize.open(path) as handle:
+    compile(handle.read(), path, "exec")
+"#;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(12);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(4);
 
@@ -110,22 +118,67 @@ struct RuntimeEnvelope {
     payload: Value,
 }
 
-#[derive(Debug, Serialize)]
-struct DriverBootstrapPayload {
-    runtime_id: String,
-    plant_id: String,
-    plant_name: String,
-    sample_time_ms: u64,
-    driver_class_name: String,
-    driver_config: Value,
-    variables: Value,
-    sensors: Vec<String>,
-    actuators: Vec<String>,
+#[derive(Debug, Serialize, Clone)]
+struct DriverBootstrapIoGroup {
+    ids: Vec<String>,
+    count: usize,
+    variables: Vec<Value>,
+    variables_by_id: HashMap<String, Value>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct DriverBootstrapPlant {
+    id: String,
+    name: String,
+    variables: Vec<Value>,
+    variables_by_id: HashMap<String, Value>,
+    sensors: DriverBootstrapIoGroup,
+    actuators: DriverBootstrapIoGroup,
     setpoints: HashMap<String, f64>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct DriverBootstrapRuntimeTiming {
+    owner: &'static str,
+    clock: &'static str,
+    strategy: &'static str,
+    sample_time_ms: u64,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct DriverBootstrapRuntimeSupervision {
+    owner: &'static str,
+    startup_timeout_ms: u64,
+    shutdown_timeout_ms: u64,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct DriverBootstrapRuntimePaths {
     driver_dir: String,
     runtime_dir: String,
     venv_python_path: String,
     runner_path: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct DriverBootstrapRuntime {
+    id: String,
+    timing: DriverBootstrapRuntimeTiming,
+    supervision: DriverBootstrapRuntimeSupervision,
+    paths: DriverBootstrapRuntimePaths,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct DriverBootstrapDriver {
+    class_name: String,
+    config: Value,
+}
+
+#[derive(Debug, Serialize, Clone)]
+struct DriverBootstrapPayload {
+    driver: DriverBootstrapDriver,
+    plant: DriverBootstrapPlant,
+    runtime: DriverBootstrapRuntime,
 }
 
 #[derive(Debug)]
@@ -191,98 +244,106 @@ impl PlantRuntimeManager {
         let runtime_id = format!("rt_{}", Uuid::new_v4().simple());
         let env_hash = compute_env_hash(driver_plugin);
         let venv_python_path = ensure_python_env(driver_plugin, &env_hash)?;
-        let runtime_dir = prepare_runtime_directory()?;
-        let runtime_dir = runtime_dir.join(&runtime_id);
-        prepare_runtime_scaffold(&runtime_dir)?;
 
         let driver_dir =
             WorkspaceService::plugin_directory(&driver_plugin.name, PluginType::Driver)?;
         validate_driver_files(&driver_dir)?;
+        validate_driver_python_source(&venv_python_path, &driver_dir)?;
 
-        let runner_path = write_runner_script(&runtime_dir)?;
-        let bootstrap = build_bootstrap_payload(
-            &runtime_id,
-            plant,
-            &driver_dir,
-            &runtime_dir,
-            &venv_python_path,
-            &runner_path,
-        )?;
-        write_bootstrap_files(&runtime_dir, &bootstrap, plant)?;
+        let runtime_root = prepare_runtime_directory()?;
+        let runtime_dir = runtime_root.join(&runtime_id);
+        prepare_runtime_scaffold(&runtime_dir)?;
 
-        let mut child = spawn_driver_process(
-            &venv_python_path,
-            &runner_path,
-            &runtime_dir,
-            &driver_dir,
-            &runtime_dir.join("driver").join("bootstrap.json"),
-        )?;
+        let startup_result = (|| -> AppResult<RuntimeHandle> {
+            let runner_path = write_runner_script(&runtime_dir)?;
+            let bootstrap = build_bootstrap_payload(
+                &runtime_id,
+                plant,
+                &driver_dir,
+                &runtime_dir,
+                &venv_python_path,
+                &runner_path,
+            )?;
+            write_bootstrap_files(&runtime_dir, &bootstrap)?;
 
-        let stdin = child.stdin.take().ok_or_else(|| AppError::InternalError)?;
-        let stdout = child.stdout.take().ok_or_else(|| AppError::InternalError)?;
-        let stderr = child.stderr.take().ok_or_else(|| AppError::InternalError)?;
+            let mut child = spawn_driver_process(
+                &venv_python_path,
+                &runner_path,
+                &runtime_dir,
+                &driver_dir,
+                &runtime_dir.join("driver").join("bootstrap.json"),
+            )?;
 
-        let shared_stdin = Arc::new(Mutex::new(stdin));
-        let metrics = Arc::new(Mutex::new(RuntimeMetrics {
-            lifecycle_state: RuntimeLifecycleState::Bootstrapping,
-            cycle_phase: RuntimeCyclePhase::CycleStarted,
-            ..RuntimeMetrics::default()
-        }));
-        let handshake = Arc::new((Mutex::new(HandshakeState::default()), Condvar::new()));
+            let stdin = child.stdin.take().ok_or_else(|| AppError::InternalError)?;
+            let stdout = child.stdout.take().ok_or_else(|| AppError::InternalError)?;
+            let stderr = child.stderr.take().ok_or_else(|| AppError::InternalError)?;
 
-        let stdout_task = spawn_stdout_task(
-            app.clone(),
-            self.plant_store.clone(),
-            plant.id.clone(),
-            runtime_id.clone(),
-            plant.sample_time_ms,
-            stdout,
-            handshake.clone(),
-            metrics.clone(),
-        );
-        let stderr_task =
-            spawn_stderr_task(app.clone(), plant.id.clone(), runtime_id.clone(), stderr);
+            let shared_stdin = Arc::new(Mutex::new(stdin));
+            let metrics = Arc::new(Mutex::new(RuntimeMetrics {
+                lifecycle_state: RuntimeLifecycleState::Bootstrapping,
+                cycle_phase: RuntimeCyclePhase::CycleStarted,
+                ..RuntimeMetrics::default()
+            }));
+            let handshake = Arc::new((Mutex::new(HandshakeState::default()), Condvar::new()));
 
-        send_command(
-            &shared_stdin,
-            "init",
-            Some(serde_json::to_value(&bootstrap).map_err(|error| {
-                AppError::IoError(format!("Falha ao serializar payload init: {error}"))
-            })?),
-        )?;
-        send_command(&shared_stdin, "start", None)?;
+            let stdout_task = spawn_stdout_task(
+                app.clone(),
+                self.plant_store.clone(),
+                plant.id.clone(),
+                runtime_id.clone(),
+                plant.sample_time_ms,
+                stdout,
+                handshake.clone(),
+                metrics.clone(),
+            );
+            let stderr_task = spawn_stderr_task(plant.id.clone(), runtime_id.clone(), stderr);
 
-        wait_for_handshake(&handshake, STARTUP_TIMEOUT)?;
-        emit_status_event(
-            app,
-            RuntimeStatusEvent {
+            let startup = (|| -> AppResult<()> {
+                send_command(
+                    &shared_stdin,
+                    "init",
+                    Some(serde_json::to_value(&bootstrap).map_err(|error| {
+                        AppError::IoError(format!("Falha ao serializar payload init: {error}"))
+                    })?),
+                )?;
+                send_command(&shared_stdin, "start", None)?;
+                wait_for_handshake(&handshake, STARTUP_TIMEOUT)
+            })();
+
+            if let Err(error) = startup {
+                let _ = send_command(&shared_stdin, "shutdown", None);
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_task.join();
+                let _ = stderr_task.join();
+                return Err(error);
+            }
+
+            Ok(RuntimeHandle {
                 plant_id: plant.id.clone(),
                 runtime_id: runtime_id.clone(),
-                lifecycle_state: RuntimeLifecycleState::Running,
-                cycle_phase: RuntimeCyclePhase::ReadInputs,
-                configured_sample_time_ms: plant.sample_time_ms,
-                effective_dt_ms: plant.sample_time_ms as f64,
-                cycle_late: false,
-            },
-        );
-
-        let mut handles = self.handles.lock();
-        handles.insert(
-            plant.id.clone(),
-            RuntimeHandle {
-                plant_id: plant.id.clone(),
-                runtime_id,
                 env_hash,
                 venv_python_path,
-                runtime_dir,
+                runtime_dir: runtime_dir.clone(),
                 configured_sample_time_ms: plant.sample_time_ms,
                 stdin: shared_stdin,
                 child,
                 stdout_task: Some(stdout_task),
                 stderr_task: Some(stderr_task),
                 metrics,
-            },
-        );
+            })
+        })();
+
+        let handle = match startup_result {
+            Ok(handle) => handle,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&runtime_dir);
+                return Err(error);
+            }
+        };
+
+        let mut handles = self.handles.lock();
+        handles.insert(plant.id.clone(), handle);
 
         Ok(())
     }
@@ -340,6 +401,29 @@ impl PlantRuntimeManager {
 
         Ok(())
     }
+
+    pub fn pause_runtime(&self, plant_id: &str) -> AppResult<()> {
+        self.send_runtime_command(plant_id, "pause")
+    }
+
+    pub fn resume_runtime(&self, plant_id: &str) -> AppResult<()> {
+        self.send_runtime_command(plant_id, "resume")
+    }
+
+    fn send_runtime_command(&self, plant_id: &str, msg_type: &str) -> AppResult<()> {
+        let stdin = {
+            let handles = self.handles.lock();
+            let handle = handles.get(plant_id).ok_or_else(|| {
+                AppError::NotFound(format!(
+                    "Runtime da planta '{}' não está em execução",
+                    plant_id
+                ))
+            })?;
+            handle.stdin.clone()
+        };
+
+        send_command(&stdin, msg_type, None)
+    }
 }
 
 pub struct DriverRuntimeService;
@@ -379,6 +463,52 @@ impl DriverRuntimeService {
 
         plants.update(plant_id, |plant| {
             plant.connected = false;
+            plant.paused = false;
+        })
+    }
+
+    pub fn pause(
+        plants: &PlantStore,
+        manager: &PlantRuntimeManager,
+        plant_id: &str,
+    ) -> AppResult<Plant> {
+        let plant = plants.get(plant_id)?;
+
+        if !plant.connected {
+            return Err(AppError::InvalidArgument(
+                "Planta precisa estar conectada para pausar".to_string(),
+            ));
+        }
+
+        if plant.paused {
+            return Ok(plant);
+        }
+
+        manager.pause_runtime(plant_id)?;
+        plants.update(plant_id, |plant| {
+            plant.paused = true;
+        })
+    }
+
+    pub fn resume(
+        plants: &PlantStore,
+        manager: &PlantRuntimeManager,
+        plant_id: &str,
+    ) -> AppResult<Plant> {
+        let plant = plants.get(plant_id)?;
+
+        if !plant.connected {
+            return Err(AppError::InvalidArgument(
+                "Planta precisa estar conectada para retomar".to_string(),
+            ));
+        }
+
+        if !plant.paused {
+            return Ok(plant);
+        }
+
+        manager.resume_runtime(plant_id)?;
+        plants.update(plant_id, |plant| {
             plant.paused = false;
         })
     }
@@ -441,6 +571,39 @@ fn validate_driver_files(driver_dir: &Path) -> AppResult<()> {
     Ok(())
 }
 
+fn validate_driver_python_source(venv_python_path: &Path, driver_dir: &Path) -> AppResult<()> {
+    let main_path = driver_dir.join("main.py");
+    let output = Command::new(venv_python_path)
+        .arg("-c")
+        .arg(PYTHON_SYNTAX_CHECK_SCRIPT)
+        .arg(&main_path)
+        .output()
+        .map_err(|error| {
+            AppError::IoError(format!(
+                "Falha ao validar código Python do driver '{}': {error}",
+                main_path.display()
+            ))
+        })?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let detail = stderr
+        .lines()
+        .chain(stdout.lines())
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .last()
+        .unwrap_or("Erro de sintaxe desconhecido no driver Python");
+
+    Err(AppError::InvalidArgument(format!(
+        "Código do driver Python inválido: {detail}"
+    )))
+}
+
 fn build_bootstrap_payload(
     runtime_id: &str,
     plant: &Plant,
@@ -449,51 +612,95 @@ fn build_bootstrap_payload(
     venv_python_path: &Path,
     runner_path: &Path,
 ) -> AppResult<DriverBootstrapPayload> {
-    let mut sensors = Vec::new();
-    let mut actuators = Vec::new();
+    let mut variables = Vec::new();
+    let mut variables_by_id = HashMap::new();
+    let mut sensor_ids = Vec::new();
+    let mut actuator_ids = Vec::new();
+    let mut sensor_variables = Vec::new();
+    let mut sensor_variables_by_id = HashMap::new();
+    let mut actuator_variables = Vec::new();
+    let mut actuator_variables_by_id = HashMap::new();
     let mut setpoints = HashMap::new();
+
     for variable in &plant.variables {
+        let serialized_variable = serde_json::to_value(variable).map_err(|error| {
+            AppError::IoError(format!(
+                "Falha ao serializar variável '{}' da planta: {error}",
+                variable.id
+            ))
+        })?;
+
+        variables.push(serialized_variable.clone());
+        variables_by_id.insert(variable.id.clone(), serialized_variable.clone());
         setpoints.insert(variable.id.clone(), variable.setpoint);
+
         match variable.var_type {
-            crate::core::models::plant::VariableType::Sensor => sensors.push(variable.id.clone()),
+            crate::core::models::plant::VariableType::Sensor => {
+                sensor_ids.push(variable.id.clone());
+                sensor_variables.push(serialized_variable.clone());
+                sensor_variables_by_id.insert(variable.id.clone(), serialized_variable);
+            }
             crate::core::models::plant::VariableType::Atuador => {
-                actuators.push(variable.id.clone())
+                actuator_ids.push(variable.id.clone());
+                actuator_variables.push(serialized_variable.clone());
+                actuator_variables_by_id.insert(variable.id.clone(), serialized_variable);
             }
         }
     }
 
     Ok(DriverBootstrapPayload {
-        runtime_id: runtime_id.to_string(),
-        plant_id: plant.id.clone(),
-        plant_name: plant.name.clone(),
-        sample_time_ms: plant.sample_time_ms,
-        driver_class_name: to_driver_class_name(&plant.driver.plugin_name),
-        driver_config: serde_json::to_value(&plant.driver.config).map_err(|error| {
-            AppError::IoError(format!("Falha ao serializar config do driver: {error}"))
-        })?,
-        variables: serde_json::to_value(&plant.variables).map_err(|error| {
-            AppError::IoError(format!("Falha ao serializar variáveis da planta: {error}"))
-        })?,
-        sensors,
-        actuators,
-        setpoints,
-        driver_dir: driver_dir.display().to_string(),
-        runtime_dir: runtime_dir.display().to_string(),
-        venv_python_path: venv_python_path.display().to_string(),
-        runner_path: runner_path.display().to_string(),
+        driver: DriverBootstrapDriver {
+            class_name: to_driver_class_name(&plant.driver.plugin_name),
+            config: serde_json::to_value(&plant.driver.config).map_err(|error| {
+                AppError::IoError(format!("Falha ao serializar config do driver: {error}"))
+            })?,
+        },
+        plant: DriverBootstrapPlant {
+            id: plant.id.clone(),
+            name: plant.name.clone(),
+            variables,
+            variables_by_id,
+            sensors: DriverBootstrapIoGroup {
+                ids: sensor_ids,
+                count: sensor_variables.len(),
+                variables: sensor_variables,
+                variables_by_id: sensor_variables_by_id,
+            },
+            actuators: DriverBootstrapIoGroup {
+                ids: actuator_ids,
+                count: actuator_variables.len(),
+                variables: actuator_variables,
+                variables_by_id: actuator_variables_by_id,
+            },
+            setpoints,
+        },
+        runtime: DriverBootstrapRuntime {
+            id: runtime_id.to_string(),
+            timing: DriverBootstrapRuntimeTiming {
+                owner: "runtime",
+                clock: "monotonic",
+                strategy: "deadline",
+                sample_time_ms: plant.sample_time_ms,
+            },
+            supervision: DriverBootstrapRuntimeSupervision {
+                owner: "rust",
+                startup_timeout_ms: STARTUP_TIMEOUT.as_millis() as u64,
+                shutdown_timeout_ms: SHUTDOWN_TIMEOUT.as_millis() as u64,
+            },
+            paths: DriverBootstrapRuntimePaths {
+                driver_dir: driver_dir.display().to_string(),
+                runtime_dir: runtime_dir.display().to_string(),
+                venv_python_path: venv_python_path.display().to_string(),
+                runner_path: runner_path.display().to_string(),
+            },
+        },
     })
 }
 
-fn write_bootstrap_files(
-    runtime_dir: &Path,
-    bootstrap: &DriverBootstrapPayload,
-    plant: &Plant,
-) -> AppResult<()> {
+fn write_bootstrap_files(runtime_dir: &Path, bootstrap: &DriverBootstrapPayload) -> AppResult<()> {
     let runtime_path = runtime_dir.join("runtime.json");
     let runtime_payload = json!({
-        "runtime_id": bootstrap.runtime_id,
-        "plant_id": bootstrap.plant_id,
-        "sample_time_ms": bootstrap.sample_time_ms,
+        "runtime": bootstrap.runtime,
         "created_at": SystemTime::now().duration_since(UNIX_EPOCH).map(|t| t.as_secs()).unwrap_or(0),
     });
     fs::write(
@@ -512,7 +719,7 @@ fn write_bootstrap_files(
     let plant_path = runtime_dir.join("plant.json");
     fs::write(
         &plant_path,
-        serde_json::to_string_pretty(plant).map_err(|error| {
+        serde_json::to_string_pretty(&bootstrap.plant).map_err(|error| {
             AppError::IoError(format!("Falha ao serializar plant.json: {error}"))
         })?,
     )
@@ -627,6 +834,18 @@ fn spawn_stdout_task(
                     handshake.1.notify_all();
                     let mut lock = metrics.lock();
                     lock.lifecycle_state = RuntimeLifecycleState::Ready;
+                    emit_status_event(
+                        &app,
+                        RuntimeStatusEvent {
+                            plant_id: plant_id.clone(),
+                            runtime_id: runtime_id.clone(),
+                            lifecycle_state: RuntimeLifecycleState::Ready,
+                            cycle_phase: RuntimeCyclePhase::CycleStarted,
+                            configured_sample_time_ms,
+                            effective_dt_ms: configured_sample_time_ms as f64,
+                            cycle_late: false,
+                        },
+                    );
                 }
                 "connected" => {
                     {
@@ -637,6 +856,18 @@ fn spawn_stdout_task(
                     let mut lock = metrics.lock();
                     lock.lifecycle_state = RuntimeLifecycleState::Running;
                     lock.cycle_phase = RuntimeCyclePhase::ReadInputs;
+                    emit_status_event(
+                        &app,
+                        RuntimeStatusEvent {
+                            plant_id: plant_id.clone(),
+                            runtime_id: runtime_id.clone(),
+                            lifecycle_state: RuntimeLifecycleState::Running,
+                            cycle_phase: RuntimeCyclePhase::ReadInputs,
+                            configured_sample_time_ms,
+                            effective_dt_ms: configured_sample_time_ms as f64,
+                            cycle_late: false,
+                        },
+                    );
                 }
                 "error" => {
                     {
@@ -659,6 +890,18 @@ fn spawn_stdout_task(
                         .and_then(Value::as_str)
                         .unwrap_or("Erro na runtime Python")
                         .to_string();
+                    emit_status_event(
+                        &app,
+                        RuntimeStatusEvent {
+                            plant_id: plant_id.clone(),
+                            runtime_id: runtime_id.clone(),
+                            lifecycle_state: RuntimeLifecycleState::Faulted,
+                            cycle_phase: lock.cycle_phase,
+                            configured_sample_time_ms,
+                            effective_dt_ms: lock.effective_dt_ms,
+                            cycle_late: lock.cycle_late,
+                        },
+                    );
                     let _ = emit_error_event(&app, &plant_id, &runtime_id, message);
                 }
                 "telemetry" => {
@@ -680,6 +923,18 @@ fn spawn_stdout_task(
                 "stopped" => {
                     let mut lock = metrics.lock();
                     lock.lifecycle_state = RuntimeLifecycleState::Stopped;
+                    emit_status_event(
+                        &app,
+                        RuntimeStatusEvent {
+                            plant_id: plant_id.clone(),
+                            runtime_id: runtime_id.clone(),
+                            lifecycle_state: RuntimeLifecycleState::Stopped,
+                            cycle_phase: RuntimeCyclePhase::SleepUntilDeadline,
+                            configured_sample_time_ms,
+                            effective_dt_ms: lock.effective_dt_ms,
+                            cycle_late: false,
+                        },
+                    );
                     break;
                 }
                 _ => {}
@@ -689,7 +944,6 @@ fn spawn_stdout_task(
 }
 
 fn spawn_stderr_task(
-    app: AppHandle,
     plant_id: String,
     runtime_id: String,
     stderr: std::process::ChildStderr,
@@ -699,7 +953,10 @@ fn spawn_stderr_task(
         for line in reader.lines() {
             if let Ok(line) = line {
                 if !line.trim().is_empty() {
-                    let _ = emit_error_event(&app, &plant_id, &runtime_id, line);
+                    eprintln!(
+                        "[driver-runtime][plant={}][runtime={}] {}",
+                        plant_id, runtime_id, line
+                    );
                 }
             }
         }
