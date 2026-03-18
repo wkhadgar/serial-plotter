@@ -137,6 +137,66 @@ export interface PlantTelemetryPacket {
   series?: PlantSeriesDescriptor[];
 }
 
+export type PlantRuntimeLifecycleState =
+  | 'created'
+  | 'bootstrapping'
+  | 'ready'
+  | 'connecting'
+  | 'running'
+  | 'stopping'
+  | 'stopped'
+  | 'faulted';
+
+export type PlantRuntimeCyclePhase =
+  | 'cycle_started'
+  | 'read_inputs'
+  | 'compute_controllers'
+  | 'write_outputs'
+  | 'publish_telemetry'
+  | 'sleep_until_deadline';
+
+export interface PlantRuntimeTelemetryPayload {
+  timestamp?: number;
+  cycle_id?: number;
+  configured_sample_time_ms?: number;
+  effective_dt_ms?: number;
+  cycle_duration_ms?: number;
+  read_duration_ms?: number;
+  cycle_late?: boolean;
+  phase?: string;
+  uptime_s?: number;
+  sensors?: Record<string, number>;
+  actuators?: Record<string, number>;
+  setpoints?: Record<string, number>;
+}
+
+export interface PlantRuntimeTelemetryEvent {
+  plant_id: string;
+  runtime_id: string;
+  lifecycle_state: PlantRuntimeLifecycleState;
+  cycle_phase: PlantRuntimeCyclePhase;
+  configured_sample_time_ms: number;
+  effective_dt_ms: number;
+  cycle_late: boolean;
+  payload: PlantRuntimeTelemetryPayload;
+}
+
+export interface PlantRuntimeStatusEvent {
+  plant_id: string;
+  runtime_id: string;
+  lifecycle_state: PlantRuntimeLifecycleState;
+  cycle_phase: PlantRuntimeCyclePhase;
+  configured_sample_time_ms: number;
+  effective_dt_ms: number;
+  cycle_late: boolean;
+}
+
+export interface PlantRuntimeErrorEvent {
+  plant_id: string;
+  runtime_id: string;
+  message: string;
+}
+
 export interface GetPlantRequest {
   id: string;
 }

@@ -19,11 +19,17 @@
   let prevDataSignature = '';
   let _mounted = false;
   let _panning = false;
+  let _pointerInside = false;
+  let _pendingDeferredUpdate = false;
   let _panStartX = 0;
   let _panScaleMin = 0;
   let _panScaleMax = 0;
   let tooltipEl: HTMLDivElement;
   const MAX_RENDER_POINTS = 2400;
+  let rangeChangeRaf: number | null = null;
+  let pendingRangeChange: { xMin: number; xMax: number } | null = null;
+  let lastAppliedXRange: { min: number; max: number } | null = null;
+  let lastAppliedYRange: { min: number; max: number } | null = null;
 
   const _scaleRef = {
     xMode: 'auto' as string,
@@ -59,12 +65,52 @@
       return '0';
     }
 
-    return `${source.length}:${source[0]?.time ?? 0}:${source[source.length - 1]?.time ?? 0}`;
+    syncScaleRef();
+    const indices = buildRenderIndices(source);
+    if (!indices.length) {
+      return `${_scaleRef.xMode}:${_scaleRef.xMin ?? 'na'}:${_scaleRef.xMax ?? 'na'}:${_scaleRef.windowSize}:0`;
+    }
+
+    const firstIndex = indices[0];
+    const lastIndex = indices[indices.length - 1];
+    return [
+      _scaleRef.xMode,
+      _scaleRef.xMin ?? 'na',
+      _scaleRef.xMax ?? 'na',
+      _scaleRef.windowSize,
+      indices.length,
+      source[firstIndex]?.time ?? 0,
+      source[lastIndex]?.time ?? 0,
+    ].join(':');
   }
 
   const seriesVisualSignature = $derived.by(() =>
     series.map((s) => `${s.key}:${s.visible ? 1 : 0}:${s.color}:${s.label}`).join('|')
   );
+
+  function queueRangeChange(xMin: number, xMax: number) {
+    if (!onRangeChange) return;
+
+    const nextMin = Math.min(xMin, xMax);
+    const nextMax = Math.max(xMin, xMax);
+    if (!Number.isFinite(nextMin) || !Number.isFinite(nextMax) || nextMax - nextMin <= 0.0001) {
+      return;
+    }
+
+    pendingRangeChange = { xMin: nextMin, xMax: nextMax };
+    if (rangeChangeRaf !== null) {
+      return;
+    }
+
+    rangeChangeRaf = requestAnimationFrame(() => {
+      rangeChangeRaf = null;
+      const nextRange = pendingRangeChange;
+      pendingRangeChange = null;
+      if (nextRange) {
+        onRangeChange?.(nextRange.xMin, nextRange.xMax);
+      }
+    });
+  }
 
   function findLowerBound(data: typeof series[number]['data'], target: number): number {
     let low = 0;
@@ -168,6 +214,110 @@
     return cols as uPlot.AlignedData;
   }
 
+  function rangesEqual(
+    current: { min: number; max: number } | null,
+    next: { min: number; max: number } | null,
+    epsilon = 0.0001,
+  ): boolean {
+    if (current === next) return true;
+    if (!current || !next) return false;
+
+    return (
+      Math.abs(current.min - next.min) <= epsilon &&
+      Math.abs(current.max - next.max) <= epsilon
+    );
+  }
+
+  function resolveXRange(data: uPlot.AlignedData): { min: number; max: number } | null {
+    const xs = data[0] as number[];
+    if (!xs.length) return null;
+
+    const dataMin = xs[0];
+    const dataMax = xs[xs.length - 1];
+    const xPad = Math.max((dataMax - dataMin) * 0.03, 0.5);
+
+    if (_scaleRef.xMode === 'sliding') {
+      return {
+        min: Math.max(0, dataMax - _scaleRef.windowSize),
+        max: dataMax + xPad,
+      };
+    }
+
+    if (_scaleRef.xMode === 'manual' && _scaleRef.xMin != null && _scaleRef.xMax != null) {
+      return {
+        min: _scaleRef.xMin,
+        max: _scaleRef.xMax,
+      };
+    }
+
+    return {
+      min: Math.min(dataMin, 0),
+      max: Math.max(dataMax, 1) + xPad,
+    };
+  }
+
+  function resolveYRange(data: uPlot.AlignedData): { min: number; max: number } | null {
+    if (_scaleRef.yMode === 'manual') {
+      return {
+        min: _scaleRef.yMin,
+        max: _scaleRef.yMax,
+      };
+    }
+
+    let dataMin = Number.POSITIVE_INFINITY;
+    let dataMax = Number.NEGATIVE_INFINITY;
+
+    for (let columnIndex = 1; columnIndex < data.length; columnIndex += 1) {
+      const values = data[columnIndex] as Array<number | null>;
+      for (const value of values) {
+        if (value == null || !Number.isFinite(value)) continue;
+        if (value < dataMin) dataMin = value;
+        if (value > dataMax) dataMax = value;
+      }
+    }
+
+    if (!Number.isFinite(dataMin) || !Number.isFinite(dataMax)) {
+      return { min: 0, max: 1 };
+    }
+
+    const pad = (dataMax - dataMin) * 0.05 || 1;
+    return {
+      min: dataMin - pad,
+      max: dataMax + pad,
+    };
+  }
+
+  function applyResolvedScales(data: uPlot.AlignedData) {
+    if (!chart) return;
+
+    const nextXRange = resolveXRange(data);
+    const nextYRange = resolveYRange(data);
+
+    const batch = (chart as unknown as { batch?: (fn: () => void) => void }).batch;
+    const run = () => {
+      if (nextXRange && !rangesEqual(lastAppliedXRange, nextXRange)) {
+        chart?.setScale('x', nextXRange);
+        lastAppliedXRange = nextXRange;
+      }
+
+      if (nextYRange && !rangesEqual(lastAppliedYRange, nextYRange)) {
+        chart?.setScale('y', nextYRange);
+        lastAppliedYRange = nextYRange;
+      }
+    };
+
+    if (typeof batch === 'function') {
+      batch.call(chart, run);
+      return;
+    }
+
+    run();
+  }
+
+  function shouldDeferRuntimeRefresh(): boolean {
+    return _pointerInside && !_panning && _scaleRef.xMode === 'manual';
+  }
+
   function buildSeries(): uPlot.Series[] {
     const uSeries: uPlot.Series[] = [
       {
@@ -255,7 +405,7 @@
             if (sel.width > 2) {
               const xMin = u.posToVal(sel.left, 'x');
               const xMax = u.posToVal(sel.left + sel.width, 'x');
-              onRangeChange?.(xMin, xMax);
+              queueRangeChange(xMin, xMax);
             }
             u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
           },
@@ -327,7 +477,7 @@
       }
       nMin = Math.max(0, nMin);
     }
-    onRangeChange?.(nMin, nMax);
+    queueRangeChange(nMin, nMax);
   }
 
   function handlePointerDown(e: PointerEvent) {
@@ -365,7 +515,7 @@
       }
       nMin = Math.max(0, nMin);
     }
-    onRangeChange?.(nMin, nMax);
+    queueRangeChange(nMin, nMax);
   }
 
   function handlePointerUp(e: PointerEvent) {
@@ -374,6 +524,9 @@
     if (wrapper) {
       wrapper.releasePointerCapture(e.pointerId);
       wrapper.style.cursor = '';
+    }
+    if (!_pointerInside) {
+      flushDeferredUpdate();
     }
   }
 
@@ -389,18 +542,34 @@
     const opts = buildOpts(Math.floor(rect.width), Math.floor(rect.height));
     const data = buildData();
     chart = new uPlot(opts, data, wrapper);
+    lastAppliedXRange = null;
+    lastAppliedYRange = null;
+    applyResolvedScales(data);
     prevDataSignature = getDataSignature();
+    _pendingDeferredUpdate = false;
   }
 
 
-  function updateChart() {
+  function updateChart(options?: { deferIfHovering?: boolean }) {
     if (!chart || !wrapper) return;
     const rect = wrapper.getBoundingClientRect();
     if (rect.width < 10 || rect.height < 10) return;
 
     syncScaleRef();
+    if (options?.deferIfHovering && shouldDeferRuntimeRefresh()) {
+      _pendingDeferredUpdate = true;
+      prevDataSignature = getDataSignature();
+      return;
+    }
+
     const data = buildData();
-    chart.setData(data, true);
+    if (tooltipEl) {
+      tooltipEl.style.display = 'none';
+    }
+    chart.setData(data, false);
+    applyResolvedScales(data);
+    prevDataSignature = getDataSignature();
+    _pendingDeferredUpdate = false;
 
     const w = Math.floor(rect.width);
     const h = Math.floor(rect.height);
@@ -413,10 +582,14 @@
     if (chart && wrapper) {
       const signature = getDataSignature();
       if (signature !== prevDataSignature) {
-        prevDataSignature = signature;
-        updateChart();
+        updateChart({ deferIfHovering: true });
       }
     }
+  }
+
+  function flushDeferredUpdate() {
+    if (!_pendingDeferredUpdate) return;
+    updateChart();
   }
 
   onMount(() => {
@@ -452,6 +625,7 @@
 
   onDestroy(() => {
     if (renderPollTimer) window.clearInterval(renderPollTimer);
+    if (rangeChangeRaf !== null) cancelAnimationFrame(rangeChangeRaf);
     if (chart) {
       chart.destroy();
       chart = null;
@@ -489,6 +663,15 @@
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
+  onpointerenter={() => {
+    _pointerInside = true;
+  }}
+  onpointerleave={() => {
+    _pointerInside = false;
+    if (!_panning) {
+      flushDeferredUpdate();
+    }
+  }}
 >
   <div bind:this={tooltipEl} class="chart-tooltip"></div>
 </div>

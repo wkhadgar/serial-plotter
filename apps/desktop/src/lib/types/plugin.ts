@@ -136,29 +136,41 @@ export function toDriverClassName(pluginName: string): string {
 
 export function generateDriverTemplate(pluginName: string): string {
   const className = toDriverClassName(pluginName);
-  return `from typing import Any, Dict, Optional
+  return `from typing import Any, Dict
 
 class ${className}:
     """Driver: ${pluginName || 'Novo Driver'}"""
 
-    def __init__(self, **kwargs: Any) -> None:
-        self.config = kwargs
+    def __init__(self, context: Any) -> None:
+        # Contrato atual:
+        # - context.config -> configuração do driver
+        # - context.plant -> planta, sensores, atuadores e setpoints
+        # - context.runtime -> timing, paths e supervisão
+        self.context = context
 
     def connect(self) -> bool:
+        # Exemplos úteis:
+        # port = self.context.config.get("port")
+        # sensor_ids = self.context.plant.sensors.ids
+        # sample_time_ms = self.context.runtime.timing.sample_time_ms
         return True
 
     def stop(self) -> bool:
         return True
 
-    def read(self) -> Dict[str, float]:
-        return {}
-
-    def reconnect(self) -> bool:
-        return True
-
-    def send(self, outputs: Optional[Dict[str, float]] = None) -> bool:
-        _ = outputs
-        return True
+    def read(self) -> Dict[str, Dict[str, float]]:
+        # O contrato atual de leitura é explícito:
+        # {
+        #   "sensors": {"var_0": 0.0},
+        #   "actuators": {"var_2": 0.0}
+        # }
+        return {
+            "sensors": {
+                sensor_id: 0.0
+                for sensor_id in self.context.plant.sensors.ids
+            },
+            "actuators": {}
+        }
 `;
 }
 

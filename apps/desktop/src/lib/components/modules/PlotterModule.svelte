@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { untrack } from 'svelte';
   import { appStore } from '$lib/stores/data.svelte';
   import {
@@ -25,10 +26,11 @@
   import ControllerBindingsModal from '../modals/ControllerBindingsModal.svelte';
   import PlantRemovalModal from '../modals/PlantRemovalModal.svelte';
   import CreatePlantModal from '../modals/CreatePlantModal.svelte';
+  import GenericModal from '../modals/GenericModal.svelte';
   import type { Plant, PlantVariable } from '$lib/types/plant';
   import { buildPlantSeriesCatalog, type Controller } from '$lib/types/plant';
   import type { PluginDefinition, PluginInstance } from '$lib/types/plugin';
-  import { type ChartStateType, defaultChartState, nextViewState, resetToGridView } from '$lib/types/chart';
+  import { type ChartStateType, type XAxisMode, defaultChartState, nextViewState, resetToGridView } from '$lib/types/chart';
   import {
     connectPlant,
     disconnectPlant,
@@ -37,6 +39,12 @@
     removePlant,
     resumePlant,
     saveControllerInstanceConfig,
+    applyPlantTelemetryPacket,
+    buildTelemetryPacketFromRuntimeEvent,
+    subscribePlantRuntimeEvents,
+    type PlantRuntimeErrorEvent,
+    type PlantRuntimeStatusEvent,
+    type PlantRuntimeTelemetryEvent,
   } from '$lib/services/plant';
   import { createConfiguredController } from '$lib/services/plugin';
   import { openFileDialog, FILE_FILTERS } from '$lib/services/fileDialog';
@@ -60,6 +68,7 @@
 
   let chartStates: Record<string, ChartStateType> = $state({});
   let manualRangesByPlant: Record<string, Record<number, { xMin: number; xMax: number }>> = $state({});
+  let runtimeSessionByPlant: Record<string, string> = $state({});
 
   function countSensors(variables: PlantVariable[]): number {
     let count = 0;
@@ -111,6 +120,13 @@
   let dragOverlay = $state(false);
   let dragDepth = $state(0);
   let plantActionLoading = $state<'connect' | 'pause' | 'remove' | null>(null);
+  let feedbackModal = $state({
+    visible: false,
+    type: 'error' as 'info' | 'error' | 'warning' | 'success',
+    title: '',
+    message: '',
+    confirmLabel: 'Entendi',
+  });
 
   const activePlant = $derived(plants.find((p: Plant) => p.id === activePlantId));
 
@@ -209,6 +225,179 @@
     };
   }
 
+  function resetPlantTelemetryState(plant: Plant) {
+    clearPlant(plant.id);
+    setPlantSeriesCatalog(buildPlantSeriesCatalog(plant.id, plant.variables));
+    setPlantStats(plant.id, {
+      dt: plant.sampleTimeMs / 1000,
+      uptime: 0,
+    });
+    clearVariableStats(plant.id);
+  }
+
+  function forgetRuntimeSession(plantId: string) {
+    if (!(plantId in runtimeSessionByPlant)) return;
+
+    const nextSessions = { ...runtimeSessionByPlant };
+    delete nextSessions[plantId];
+    runtimeSessionByPlant = nextSessions;
+  }
+
+  function rememberRuntimeSession(plantId: string, runtimeId: string): boolean {
+    if (runtimeSessionByPlant[plantId] === runtimeId) {
+      return false;
+    }
+
+    runtimeSessionByPlant = {
+      ...runtimeSessionByPlant,
+      [plantId]: runtimeId,
+    };
+    return true;
+  }
+
+  function resetPlantZoomState(plantId: string) {
+    manualRangesByPlant = {
+      ...manualRangesByPlant,
+      [plantId]: {},
+    };
+
+    if (plantId === activePlantId) {
+      chartState.xMode = 'auto';
+      chartState.xMin = null;
+      chartState.xMax = null;
+    }
+  }
+
+  function showFeedbackModal(options: {
+    type?: 'info' | 'error' | 'warning' | 'success';
+    title: string;
+    message: string;
+    confirmLabel?: string;
+  }) {
+    feedbackModal = {
+      visible: true,
+      type: options.type ?? 'error',
+      title: options.title,
+      message: options.message,
+      confirmLabel: options.confirmLabel ?? 'Entendi',
+    };
+  }
+
+  function hideFeedbackModal() {
+    feedbackModal.visible = false;
+  }
+
+  function findPlantById(plantId: string): Plant | undefined {
+    return plants.find((plant: Plant) => plant.id === plantId);
+  }
+
+  function handleRuntimeTelemetry(event: PlantRuntimeTelemetryEvent) {
+    const plant = findPlantById(event.plant_id);
+    if (!plant) return;
+
+    if (rememberRuntimeSession(event.plant_id, event.runtime_id)) {
+      resetPlantTelemetryState(plant);
+    }
+
+    const packet = buildTelemetryPacketFromRuntimeEvent(plant, event);
+    applyPlantTelemetryPacket(packet);
+
+    if (packet.stats) {
+      appStore.upsertPlant({
+        ...plant,
+        stats: packet.stats,
+      });
+    }
+  }
+
+  function handleRuntimeStatus(event: PlantRuntimeStatusEvent) {
+    const plant = findPlantById(event.plant_id);
+    if (!plant) return;
+
+    const isOffline = event.lifecycle_state === 'stopped' || event.lifecycle_state === 'faulted';
+    if (isOffline) {
+      forgetRuntimeSession(event.plant_id);
+    }
+
+    appStore.upsertPlant({
+      ...plant,
+      connected: !isOffline && (plant.connected || event.lifecycle_state === 'running'),
+      paused: isOffline ? false : plant.paused,
+      stats: {
+        ...plant.stats,
+        dt: Math.max(0, event.effective_dt_ms / 1000),
+      },
+    });
+  }
+
+  function handleRuntimeError(event: PlantRuntimeErrorEvent) {
+    if (plantActionLoading === 'connect') {
+      return;
+    }
+
+    const plant = findPlantById(event.plant_id);
+    const title = plant ? `Falha na planta "${plant.name}"` : 'Falha na runtime da planta';
+    showFeedbackModal({
+      type: 'error',
+      title,
+      message: event.message,
+    });
+  }
+
+  onMount(() => {
+    let unsubscribe: (() => void) | undefined;
+    let disposed = false;
+    const handleGlobalPointerDown = (event: PointerEvent) => {
+      if (!contextMenu.visible) return;
+
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-chart-context-menu]')) {
+        return;
+      }
+
+      closeContextMenu();
+    };
+    const handleGlobalScroll = () => {
+      if (contextMenu.visible) {
+        closeContextMenu();
+      }
+    };
+    const handleWindowBlur = () => {
+      if (contextMenu.visible) {
+        closeContextMenu();
+      }
+    };
+
+    window.addEventListener('pointerdown', handleGlobalPointerDown);
+    window.addEventListener('scroll', handleGlobalScroll, true);
+    window.addEventListener('blur', handleWindowBlur);
+
+    void subscribePlantRuntimeEvents({
+      onTelemetry: handleRuntimeTelemetry,
+      onStatus: handleRuntimeStatus,
+      onError: handleRuntimeError,
+    })
+      .then((cleanup) => {
+        if (disposed) {
+          cleanup();
+          return;
+        }
+
+        unsubscribe = cleanup;
+      })
+      .catch((error) => {
+        console.error('Falha ao registrar listeners de runtime da planta:', error);
+      });
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+      window.removeEventListener('pointerdown', handleGlobalPointerDown);
+      window.removeEventListener('scroll', handleGlobalScroll, true);
+      window.removeEventListener('blur', handleWindowBlur);
+    };
+  });
+
   async function importPlantFile(file: File): Promise<void> {
     const plantResult = await openPlant({ filePath: file.name, file });
     if (plantResult.success && plantResult.plant) {
@@ -243,7 +432,11 @@
       await importPlantFile(result.file);
     } catch (e) {
       console.error('Erro ao abrir planta:', e);
-      alert('Erro ao abrir planta');
+      showFeedbackModal({
+        type: 'error',
+        title: 'Falha ao abrir planta',
+        message: e instanceof Error ? e.message : 'Erro ao abrir planta',
+      });
     } finally {
       openPlantLoading = false;
     }
@@ -283,11 +476,16 @@
       if (result.success) {
         appStore.removePlant(removeModal.plantId);
         clearPlant(removeModal.plantId);
+        forgetRuntimeSession(removeModal.plantId);
         const remainingRanges = { ...manualRangesByPlant };
         delete remainingRanges[removeModal.plantId];
         manualRangesByPlant = remainingRanges;
       } else {
-        alert(result.error || 'Erro ao remover planta');
+        showFeedbackModal({
+          type: 'error',
+          title: 'Falha ao remover planta',
+          message: result.error || 'Erro ao remover planta',
+        });
       }
       plantActionLoading = null;
     }
@@ -300,15 +498,26 @@
 
   async function handleToggleConnect() {
     if (!activePlant) return;
+    const wasConnected = activePlant.connected;
     plantActionLoading = 'connect';
     const result = activePlant.connected
       ? await disconnectPlant(activePlant.id)
       : await connectPlant(activePlant.id);
 
     if (result.success && result.plant) {
+      if (!wasConnected) {
+        forgetRuntimeSession(result.plant.id);
+        resetPlantTelemetryState(result.plant);
+        resetPlantZoomState(result.plant.id);
+      }
+
       appStore.upsertPlant(result.plant);
     } else {
-      alert(result.error || 'Erro ao atualizar driver da planta');
+      showFeedbackModal({
+        type: 'error',
+        title: activePlant.connected ? 'Falha ao desligar planta' : 'Falha ao iniciar planta',
+        message: result.error || 'Erro ao atualizar driver da planta',
+      });
     }
     plantActionLoading = null;
   }
@@ -323,7 +532,11 @@
     if (result.success && result.plant) {
       appStore.upsertPlant(result.plant);
     } else {
-      alert(result.error || 'Erro ao atualizar pausa da planta');
+      showFeedbackModal({
+        type: 'error',
+        title: activePlant.paused ? 'Falha ao retomar planta' : 'Falha ao pausar planta',
+        message: result.error || 'Erro ao atualizar pausa da planta',
+      });
     }
     plantActionLoading = null;
   }
@@ -331,14 +544,22 @@
   function handleExportCSV() {
     const data = getPlantData(activePlantId);
     if (!activePlant || !exportPlantDataCSV(activePlant, data)) {
-      alert('Sem dados para exportar.');
+      showFeedbackModal({
+        type: 'info',
+        title: 'Nada para exportar',
+        message: 'Sem dados para exportar em CSV.',
+      });
     }
   }
 
   function handleExportJSON() {
     const data = getPlantData(activePlantId);
     if (!activePlant || !exportPlantDataJSON(activePlant, data)) {
-      alert('Sem dados para exportar.');
+      showFeedbackModal({
+        type: 'info',
+        title: 'Nada para exportar',
+        message: 'Sem dados para exportar em JSON.',
+      });
     }
   }
 
@@ -351,6 +572,21 @@
     chartState.yMode = 'manual';
     chartState.yMin = 0;
     chartState.yMax = 100;
+    chartState.xMin = null;
+    chartState.xMax = null;
+    manualRangesByPlant = {
+      ...manualRangesByPlant,
+      [activePlantId]: {},
+    };
+  }
+
+  function setXAxisMode(mode: XAxisMode) {
+    chartState.xMode = mode;
+
+    if (mode === 'manual') {
+      return;
+    }
+
     chartState.xMin = null;
     chartState.xMax = null;
     manualRangesByPlant = {
@@ -442,7 +678,11 @@
     if (!controller) return;
 
     if (activePlant.connected && controller.active) {
-      alert('Não é possível editar os vínculos enquanto o controlador estiver em execução.');
+      showFeedbackModal({
+        type: 'warning',
+        title: 'Edição bloqueada',
+        message: 'Não é possível editar os vínculos enquanto o controlador estiver em execução.',
+      });
       return;
     }
 
@@ -467,7 +707,11 @@
       );
 
       if (conflict) {
-        alert(conflict);
+        showFeedbackModal({
+          type: 'warning',
+          title: 'Conflito de controlador',
+          message: conflict,
+        });
         return;
       }
     }
@@ -600,9 +844,6 @@
   });
 
   function handleRangeChange(variableIndex: number, xMin: number, xMax: number) {
-    chartState.xMin = xMin;
-    chartState.xMax = xMax;
-    chartState.xMode = 'manual';
     manualRangesByPlant = {
       ...manualRangesByPlant,
       [activePlantId]: {
@@ -669,7 +910,11 @@
     if (!file) return;
 
     if (!file.name.toLowerCase().endsWith('.json')) {
-      alert('Apenas arquivos JSON exportados podem ser soltos no Plotter.');
+      showFeedbackModal({
+        type: 'warning',
+        title: 'Arquivo inválido',
+        message: 'Apenas arquivos JSON exportados podem ser soltos no Plotter.',
+      });
       return;
     }
 
@@ -678,7 +923,11 @@
       await importPlantFile(file);
     } catch (error) {
       console.error('Erro ao abrir arquivo arrastado:', error);
-      alert(error instanceof Error ? error.message : 'Erro ao abrir planta');
+      showFeedbackModal({
+        type: 'error',
+        title: 'Falha ao abrir planta',
+        message: error instanceof Error ? error.message : 'Erro ao abrir planta',
+      });
     } finally {
       openPlantLoading = false;
     }
@@ -794,6 +1043,7 @@
           x={contextMenu.x}
           y={contextMenu.y}
           {chartState}
+          onSetXAxisMode={setXAxisMode}
           seriesControls={contextSeriesControls}
           seriesTitle={contextSeriesTitle}
           onToggleSeries={toggleSeriesVisibility}
@@ -887,6 +1137,15 @@
 
       return result;
     }}
+  />
+
+  <GenericModal
+    visible={feedbackModal.visible}
+    type={feedbackModal.type}
+    title={feedbackModal.title}
+    message={feedbackModal.message}
+    confirmLabel={feedbackModal.confirmLabel}
+    onConfirm={hideFeedbackModal}
   />
 
   <CreatePlantModal

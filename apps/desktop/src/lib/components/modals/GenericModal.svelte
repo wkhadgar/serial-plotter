@@ -48,7 +48,7 @@
 
 {#if visible}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 animate-in fade-in duration-200">
-    <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-md mx-4 animate-in zoom-in-95 duration-200">
+    <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-lg mx-4 animate-in zoom-in-95 duration-200">
       <div class={`${color.bg} p-6 rounded-t-2xl border-b border-slate-200 dark:border-white/5`}>
         <div class="flex items-start gap-4">
           <div class={`${color.icon} flex-shrink-0`}>
@@ -56,7 +56,7 @@
           </div>
           <div class="flex-1">
             <h3 class="text-lg font-bold text-slate-800 dark:text-white mb-1">{title}</h3>
-            <p class="text-sm text-slate-600 dark:text-zinc-300">{message}</p>
+            <p class="max-h-[45vh] overflow-y-auto pr-1 text-sm text-slate-600 dark:text-zinc-300 whitespace-pre-line break-words">{message}</p>
           </div>
         </div>
       </div>

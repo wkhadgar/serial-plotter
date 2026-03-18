@@ -211,7 +211,8 @@ export function clearVariableStats(plantId: string): void {
 }
 
 export function clearPlant(plantId: string): void {
-  _data.set(plantId, []);
+  const data = getPlantData(plantId);
+  data.length = 0;
   _stats.set(plantId, { ...DEFAULT_STATS });
   _seriesCatalog.delete(plantId);
   _bufferConfig.delete(plantId);

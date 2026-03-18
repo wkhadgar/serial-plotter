@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ingestPlantTelemetry } from '$lib/stores/plantData';
 import {
   buildPlantSeriesCatalog,
@@ -20,6 +21,9 @@ import type {
   PlantActionResponse,
   PlantControllerDto,
   PlantDriverDto,
+  PlantRuntimeErrorEvent,
+  PlantRuntimeStatusEvent,
+  PlantRuntimeTelemetryEvent,
   PlantTelemetryPacket,
   PlantDto,
   SaveControllerInstanceConfigRequest,
@@ -46,6 +50,45 @@ const DEFAULT_WORKSPACE_STATE: PlantWorkspaceState = {
 };
 
 const DEFAULT_SAMPLE_TIME_MS = 100;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function resolveSerializedErrorMessage(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '[object Object]') return null;
+
+  try {
+    return extractErrorMessage(JSON.parse(trimmed), trimmed);
+  } catch {
+    return trimmed;
+  }
+}
+
+function extractErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === 'string') {
+    return resolveSerializedErrorMessage(error) ?? fallback;
+  }
+
+  if (error instanceof Error) {
+    return resolveSerializedErrorMessage(error.message) ?? fallback;
+  }
+
+  if (isRecord(error)) {
+    const message = resolveSerializedErrorMessage(error.message) ?? resolveSerializedErrorMessage(error.error);
+    if (message) return message;
+  }
+
+  return fallback;
+}
+
+function toFiniteNumber(value: unknown, fallback = 0): number {
+  const resolved = Number(value);
+  return Number.isFinite(resolved) ? resolved : fallback;
+}
 
 function normalizeSampleTimeMs(sampleTimeMs: number | null | undefined, fallback = DEFAULT_SAMPLE_TIME_MS): number {
   const resolved = Number(sampleTimeMs);
@@ -259,6 +302,81 @@ function computeVariableStats(data: PlantDataPoint[], variableIndex: number, var
   };
 }
 
+export async function subscribePlantRuntimeEvents(handlers: {
+  onTelemetry?: (event: PlantRuntimeTelemetryEvent) => void;
+  onStatus?: (event: PlantRuntimeStatusEvent) => void;
+  onError?: (event: PlantRuntimeErrorEvent) => void;
+}): Promise<() => void> {
+  const unlisteners: UnlistenFn[] = [];
+
+  if (handlers.onTelemetry) {
+    unlisteners.push(
+      await listen<PlantRuntimeTelemetryEvent>('plant://telemetry', (event) => {
+        handlers.onTelemetry?.(event.payload);
+      })
+    );
+  }
+
+  if (handlers.onStatus) {
+    unlisteners.push(
+      await listen<PlantRuntimeStatusEvent>('plant://status', (event) => {
+        handlers.onStatus?.(event.payload);
+      })
+    );
+  }
+
+  if (handlers.onError) {
+    unlisteners.push(
+      await listen<PlantRuntimeErrorEvent>('plant://error', (event) => {
+        handlers.onError?.(event.payload);
+      })
+    );
+  }
+
+  return () => {
+    for (const unlisten of unlisteners) {
+      unlisten();
+    }
+  };
+}
+
+export function buildTelemetryPacketFromRuntimeEvent(
+  plant: Plant,
+  event: PlantRuntimeTelemetryEvent
+): PlantTelemetryPacket {
+  const runtimePayload = event.payload ?? {};
+  const point: PlantDataPoint = {
+    time: Math.max(0, toFiniteNumber(runtimePayload.uptime_s, 0)),
+  };
+
+  for (const [index, variable] of plant.variables.entries()) {
+    const pvKey = `var_${index}_pv`;
+    const spKey = `var_${index}_sp`;
+    const sensorValue = toFiniteNumber(runtimePayload.sensors?.[variable.id], 0);
+    const actuatorValue = toFiniteNumber(
+      runtimePayload.actuators?.[variable.id] ?? runtimePayload.sensors?.[variable.id],
+      0
+    );
+
+    if (variable.type === 'sensor') {
+      point[pvKey] = sensorValue;
+      point[spKey] = toFiniteNumber(runtimePayload.setpoints?.[variable.id], variable.setpoint);
+      continue;
+    }
+
+    point[pvKey] = actuatorValue;
+  }
+
+  return {
+    plantId: plant.id,
+    points: [point],
+    stats: {
+      dt: Math.max(0, toFiniteNumber(event.effective_dt_ms, plant.sampleTimeMs) / 1000),
+      uptime: point.time,
+    },
+  };
+}
+
 function upsertWorkspacePlant(plant: Plant): Plant {
   const normalized = normalizePlant({ ...plant, source: 'workspace' });
   const state = loadWorkspaceState();
@@ -366,7 +484,7 @@ export async function createPlant(request: CreatePlantRequest): Promise<CreatePl
 
     return { success: true, plant };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Erro ao criar planta no backend';
+    const message = extractErrorMessage(error, 'Erro ao criar planta no backend');
     return { success: false, error: message };
   }
 }
@@ -424,7 +542,7 @@ export async function updatePlant(request: UpdatePlantRequest): Promise<PlantAct
         }),
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro ao atualizar planta no backend';
+      const message = extractErrorMessage(error, 'Erro ao atualizar planta no backend');
       return { success: false, error: message };
     }
   }
@@ -518,7 +636,7 @@ export async function removePlant(id: string): Promise<PlantActionResponse> {
       clearPlantLocalState(id);
       return { success: true, plant };
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro ao remover planta no backend';
+      const message = extractErrorMessage(error, 'Erro ao remover planta no backend');
       return { success: false, error: message };
     }
   }
@@ -542,7 +660,7 @@ async function invokePlantAction(command: string, id: string, merge: (current: P
     const merged = savePlantOverride(merge(current, mapDtoToPlant(response)));
     return { success: true, plant: merged };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Erro ao sincronizar ação da planta';
+    const message = extractErrorMessage(error, 'Erro ao sincronizar ação da planta');
     return { success: false, error: message };
   }
 }
@@ -717,7 +835,7 @@ export async function openPlant(request: OpenPlantRequest): Promise<OpenPlantRes
       seriesCatalog,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Erro ao abrir arquivo';
+    const errorMessage = extractErrorMessage(error, 'Erro ao abrir arquivo');
     return { success: false, error: errorMessage };
   }
 }

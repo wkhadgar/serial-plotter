@@ -10,7 +10,9 @@ export {
   resumePlant,
   openPlant,
   applyPlantTelemetryPacket,
+  buildTelemetryPacketFromRuntimeEvent,
   saveControllerInstanceConfig,
+  subscribePlantRuntimeEvents,
 } from './plantService';
 
 export type {
@@ -25,4 +27,7 @@ export type {
   CreatePlantDto,
   SaveControllerInstanceConfigRequest,
   SaveControllerInstanceConfigResponse,
+  PlantRuntimeErrorEvent,
+  PlantRuntimeStatusEvent,
+  PlantRuntimeTelemetryEvent,
 } from './types';

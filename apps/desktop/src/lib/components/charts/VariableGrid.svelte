@@ -113,13 +113,22 @@
   }
 
   function getVariableChartConfig(baseConfig: ChartConfig, variableIndex: number): ChartConfig {
+    const range = xRangeByVariableIndex[variableIndex];
+    if (range) {
+      return {
+        ...baseConfig,
+        xMode: 'manual',
+        xMin: range.xMin,
+        xMax: range.xMax,
+      };
+    }
+
     if (baseConfig.xMode !== 'manual') return baseConfig;
 
-    const range = xRangeByVariableIndex[variableIndex];
     return {
       ...baseConfig,
-      xMin: range?.xMin ?? null,
-      xMax: range?.xMax ?? null,
+      xMin: baseConfig.xMin ?? null,
+      xMax: baseConfig.xMax ?? null,
     };
   }
 </script>
