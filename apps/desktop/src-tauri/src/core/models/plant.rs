@@ -137,6 +137,8 @@ pub struct PlantDriver {
 pub struct PlantController {
     pub id: String,
     pub plugin_id: String,
+    #[serde(default)]
+    pub plugin_name: String,
     pub name: String,
     pub controller_type: String,
     pub active: bool,
@@ -146,6 +148,45 @@ pub struct PlantController {
     pub output_variable_ids: Vec<String>,
     #[serde(default)]
     pub params: HashMap<String, ControllerParam>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SavePlantControllerConfigRequest {
+    pub plant_id: String,
+    pub controller_id: String,
+    #[serde(default)]
+    pub plugin_id: Option<String>,
+    pub name: String,
+    pub controller_type: String,
+    pub active: bool,
+    #[serde(default)]
+    pub input_variable_ids: Vec<String>,
+    #[serde(default)]
+    pub output_variable_ids: Vec<String>,
+    #[serde(default)]
+    pub params: Vec<SavePlantControllerParamRequest>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SavePlantControllerParamRequest {
+    pub key: String,
+    #[serde(rename = "type")]
+    pub param_type: ControllerParamType,
+    pub value: SchemaFieldValue,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SavePlantSetpointRequest {
+    pub plant_id: String,
+    pub variable_id: String,
+    pub setpoint: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RemovePlantControllerRequest {
+    pub plant_id: String,
+    pub controller_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

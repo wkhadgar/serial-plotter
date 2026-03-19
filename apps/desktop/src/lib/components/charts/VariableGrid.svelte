@@ -134,14 +134,14 @@
 </script>
 
 <div
-  class="variable-grid-container w-full h-full overflow-y-auto p-2 {viewMode === 'single' ? '' : 'grid gap-2 ' + gridCols}"
+  class="variable-grid-container box-border w-full min-h-0 flex-1 overflow-y-auto p-2 {viewMode === 'single' ? '' : 'grid gap-2 ' + gridCols}"
   class:flex={viewMode === 'single'}
   class:items-stretch={viewMode === 'single'}
 >
   {#each visibleSensors as sensorEntry, displayIdx (sensorEntry.variable.id)}
     {@const cardPvConfig = getVariableChartConfig(pvConfig, sensorEntry.originalIndex)}
     {@const cardMvConfig = getVariableChartConfig(mvConfig, sensorEntry.originalIndex)}
-    <div class={viewMode === 'single' ? 'w-full h-full' : 'sensor-card-shell min-h-[300px]'} data-sensor-index={displayIdx}>
+    <div class={viewMode === 'single' ? 'w-full h-full min-h-0' : 'sensor-card-shell min-h-[300px]'} data-sensor-index={displayIdx}>
       <VariableCard
         title={sensorEntry.variable.name}
         unit={sensorEntry.variable.unit}

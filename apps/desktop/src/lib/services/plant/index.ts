@@ -12,6 +12,8 @@ export {
   applyPlantTelemetryPacket,
   buildTelemetryPacketFromRuntimeEvent,
   saveControllerInstanceConfig,
+  removeControllerInstance,
+  savePlantSetpoint,
   subscribePlantRuntimeEvents,
 } from './plantService';
 
@@ -27,6 +29,8 @@ export type {
   CreatePlantDto,
   SaveControllerInstanceConfigRequest,
   SaveControllerInstanceConfigResponse,
+  RemoveControllerInstanceRequest,
+  SavePlantSetpointRequest,
   PlantRuntimeErrorEvent,
   PlantRuntimeStatusEvent,
   PlantRuntimeTelemetryEvent,

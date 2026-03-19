@@ -5,3 +5,7 @@ pub mod plugin_store;
 pub use app_state::AppState;
 pub use plant_store::PlantStore;
 pub use plugin_store::PluginStore;
+
+pub(crate) fn normalized_name_key(name: &str) -> String {
+    name.trim().to_lowercase()
+}

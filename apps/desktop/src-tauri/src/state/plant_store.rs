@@ -1,5 +1,6 @@
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plant::Plant;
+use crate::state::normalized_name_key;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 
@@ -173,7 +174,7 @@ impl PlantStore {
     }
 
     fn name_key(name: &str) -> String {
-        name.trim().to_lowercase()
+        normalized_name_key(name)
     }
 }
 

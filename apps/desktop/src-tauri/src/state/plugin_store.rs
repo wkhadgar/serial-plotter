@@ -1,5 +1,6 @@
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plugin::PluginRegistry;
+use crate::state::normalized_name_key;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 
@@ -152,7 +153,7 @@ impl PluginStore {
     }
 
     fn name_key(name: &str) -> String {
-        name.trim().to_lowercase()
+        normalized_name_key(name)
     }
 }
 
@@ -167,6 +168,7 @@ mod tests {
             name: name.to_string(),
             plugin_type: PluginType::Driver,
             runtime: PluginRuntime::Python,
+            entry_class: "TestDriver".to_string(),
             schema: vec![],
             source_file: None,
             source_code: None,

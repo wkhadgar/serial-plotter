@@ -1,7 +1,7 @@
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plant::{
-    CreatePlantDriverRequest, CreatePlantRequest, CreatePlantVariableRequest, PlantResponse,
-    PlantStats, PlantVariable, VariableType,
+    ControllerParam, CreatePlantControllerRequest, CreatePlantDriverRequest, CreatePlantRequest,
+    CreatePlantVariableRequest, PlantResponse, PlantStats, PlantVariable, VariableType,
 };
 use crate::core::models::plugin::{PluginType, SchemaFieldValue};
 use crate::core::services::plant::PlantService;
@@ -45,6 +45,19 @@ pub struct ImportedWorkspaceDriverResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ImportedWorkspaceControllerResponse {
+    pub id: String,
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub name: String,
+    pub controller_type: String,
+    pub active: bool,
+    pub input_variable_ids: Vec<String>,
+    pub output_variable_ids: Vec<String>,
+    pub params: HashMap<String, ControllerParam>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ImportedWorkspacePlantResponse {
     pub id: String,
     pub name: String,
@@ -55,6 +68,8 @@ pub struct ImportedWorkspacePlantResponse {
     pub stats: PlantStats,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub driver: Option<ImportedWorkspaceDriverResponse>,
+    #[serde(default)]
+    pub controllers: Vec<ImportedWorkspaceControllerResponse>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -296,6 +311,7 @@ impl PlantImportService {
                 variables,
                 stats: stats.clone(),
                 driver: None,
+                controllers: vec![],
             },
             data: points,
             stats,
@@ -320,6 +336,8 @@ impl PlantImportService {
         PluginService::load_all(plugins)?;
 
         let driver = resolve_imported_driver_request(plugins, imported_plant.driver.as_ref())?;
+        let controllers =
+            resolve_imported_controller_requests(plugins, &imported_plant.controllers)?;
         let variables = imported_plant
             .variables
             .iter()
@@ -334,7 +352,7 @@ impl PlantImportService {
                 sample_time_ms: imported_plant.sample_time_ms,
                 variables,
                 driver,
-                controllers: vec![],
+                controllers,
             },
         )?;
 
@@ -500,6 +518,98 @@ fn parse_registry_driver(
     }))
 }
 
+fn parse_registry_controller(
+    value: &Value,
+    index: usize,
+) -> AppResult<ImportedWorkspaceControllerResponse> {
+    let controller_obj = expect_object(value, &format!("controllers[{index}]"))?;
+    let id = get_value_by_keys(controller_obj, &["id"])
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("ctrl_imported_{index}"));
+
+    let plugin_id = get_value_by_keys(controller_obj, &["plugin_id", "pluginId"])
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| invalid_argument(format!("controllers[{index}].plugin_id inválido")))?;
+
+    let plugin_name = get_value_by_keys(controller_obj, &["plugin_name", "pluginName"])
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(plugin_id.as_str())
+        .to_string();
+
+    let name = get_value_by_keys(controller_obj, &["name"])
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(plugin_name.as_str())
+        .to_string();
+
+    let controller_type = get_value_by_keys(controller_obj, &["controller_type", "controllerType"])
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(plugin_name.as_str())
+        .to_string();
+
+    let active = get_value_by_keys(controller_obj, &["active"])
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let input_variable_ids =
+        get_value_by_keys(controller_obj, &["input_variable_ids", "inputVariableIds"])
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+    let output_variable_ids = get_value_by_keys(
+        controller_obj,
+        &["output_variable_ids", "outputVariableIds"],
+    )
+    .and_then(Value::as_array)
+    .map(|items| {
+        items
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    })
+    .unwrap_or_default();
+
+    let params = match controller_obj.get("params") {
+        None => HashMap::new(),
+        Some(value) if value.is_null() => HashMap::new(),
+        Some(value) => serde_json::from_value::<HashMap<String, ControllerParam>>(value.clone())
+            .map_err(|error| {
+                invalid_argument(format!("controllers[{index}].params inválido: {error}"))
+            })?,
+    };
+
+    Ok(ImportedWorkspaceControllerResponse {
+        id,
+        plugin_id,
+        plugin_name,
+        name,
+        controller_type,
+        active,
+        input_variable_ids,
+        output_variable_ids,
+        params,
+    })
+}
+
 fn open_registry_plant_file(
     root: &serde_json::Map<String, Value>,
     request: &PlantImportFileRequest,
@@ -531,6 +641,14 @@ fn open_registry_plant_file(
         .and_then(Value::as_u64)
         .unwrap_or(100);
     let driver = parse_registry_driver(root)?;
+    let controllers = match root.get("controllers") {
+        None => vec![],
+        Some(value) => expect_array(value, "controllers")?
+            .iter()
+            .enumerate()
+            .map(|(index, controller)| parse_registry_controller(controller, index))
+            .collect::<Result<Vec<_>, _>>()?,
+    };
     let plant_id = format!("imported_{}", uuid::Uuid::new_v4().simple());
     let stats = PlantStats {
         dt: sample_time_ms as f64 / 1000.0,
@@ -553,6 +671,7 @@ fn open_registry_plant_file(
             variables,
             stats: stats.clone(),
             driver,
+            controllers,
         },
         data: vec![],
         stats,
@@ -744,13 +863,66 @@ fn resolve_imported_driver_request(
     })
 }
 
+fn resolve_imported_controller_requests(
+    plugins: &PluginStore,
+    imported_controllers: &[ImportedWorkspaceControllerResponse],
+) -> AppResult<Vec<CreatePlantControllerRequest>> {
+    imported_controllers
+        .iter()
+        .map(|controller| {
+            let resolved_plugin_id = match plugins.get(&controller.plugin_id) {
+                Ok(plugin) => {
+                    if plugin.plugin_type != PluginType::Controller {
+                        return Err(invalid_argument(format!(
+                            "Plugin '{}' não é um controlador válido",
+                            controller.plugin_name
+                        )));
+                    }
+                    plugin.id
+                }
+                Err(AppError::NotFound(_)) => {
+                    let Some(plugin) = plugins
+                        .list_by_type(PluginType::Controller)
+                        .into_iter()
+                        .find(|plugin| plugin.name.eq_ignore_ascii_case(&controller.plugin_name))
+                    else {
+                        return Err(invalid_argument(format!(
+                            "Controlador '{}' não está carregado no sistema",
+                            controller.plugin_name
+                        )));
+                    };
+                    plugin.id
+                }
+                Err(error) => return Err(error),
+            };
+
+            Ok(CreatePlantControllerRequest {
+                id: Some(controller.id.clone()),
+                plugin_id: resolved_plugin_id,
+                name: controller.name.clone(),
+                controller_type: controller.controller_type.clone(),
+                active: controller.active,
+                input_variable_ids: controller.input_variable_ids.clone(),
+                output_variable_ids: controller.output_variable_ids.clone(),
+                params: controller.params.clone(),
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::plugin::SchemaFieldValue;
+    use crate::core::models::plant::ControllerParamType;
+    use crate::core::models::plugin::{
+        PluginRegistry, PluginRuntime, PluginType, SchemaFieldValue,
+    };
+    use crate::core::services::workspace::WorkspaceService;
+    use crate::state::{PlantStore, PluginStore};
+    use uuid::Uuid;
 
     #[test]
-    fn open_file_reads_registry_shape_with_driver() {
+    fn open_file_reads_registry_shape_with_driver_and_controllers() {
         let json = r#"
         {
           "name": "Planta Registry",
@@ -772,7 +944,26 @@ mod tests {
             "config": {
               "baud": 9600
             }
-          }
+          },
+          "controllers": [
+            {
+              "id": "ctrl_pid_1",
+              "plugin_id": "controller_pid",
+              "plugin_name": "PID Controller",
+              "name": "PID Temperatura",
+              "controller_type": "PID",
+              "active": true,
+              "input_variable_ids": ["sensor_a"],
+              "output_variable_ids": ["var_1"],
+              "params": {
+                "kp": {
+                  "type": "number",
+                  "value": 1.5,
+                  "label": "Kp"
+                }
+              }
+            }
+          ]
         }
         "#;
 
@@ -787,6 +978,7 @@ mod tests {
         assert_eq!(response.plant.variables.len(), 1);
         assert_eq!(response.data.len(), 0);
         assert!(response.plant.driver.is_some());
+        assert_eq!(response.plant.controllers.len(), 1);
 
         let driver = response.plant.driver.expect("driver should be present");
         assert_eq!(driver.plugin_id, "driver_mock");
@@ -794,6 +986,21 @@ mod tests {
         assert!(matches!(
             driver.config.get("baud"),
             Some(SchemaFieldValue::Int(9600))
+        ));
+
+        let controller = &response.plant.controllers[0];
+        assert_eq!(controller.id, "ctrl_pid_1");
+        assert_eq!(controller.plugin_id, "controller_pid");
+        assert_eq!(controller.plugin_name, "PID Controller");
+        assert_eq!(controller.name, "PID Temperatura");
+        assert_eq!(controller.controller_type, "PID");
+        assert_eq!(controller.input_variable_ids, vec!["sensor_a".to_string()]);
+        assert_eq!(controller.output_variable_ids, vec!["var_1".to_string()]);
+        assert!(matches!(
+            controller.params.get("kp"),
+            Some(param)
+                if param.param_type == ControllerParamType::Number
+                    && matches!(param.value, SchemaFieldValue::Float(value) if (value - 1.5).abs() < f64::EPSILON)
         ));
     }
 
@@ -847,6 +1054,142 @@ mod tests {
         assert_eq!(response.plant.variables.len(), 2);
         assert_eq!(response.data.len(), 2);
         assert!(response.plant.driver.is_none());
+        assert!(response.plant.controllers.is_empty());
         assert_eq!(response.stats.dt, 1.0);
+    }
+
+    #[test]
+    fn import_file_preserves_registry_controllers() {
+        let plugins = PluginStore::new();
+        let plants = PlantStore::new();
+        let suffix = Uuid::new_v4().simple().to_string();
+        let driver_id = format!("driver_mock_{suffix}");
+        let driver_name = format!("Driver Mock {suffix}");
+        let controller_id = format!("controller_pid_{suffix}");
+        let controller_name = format!("PID Controller {suffix}");
+        let plant_name = format!("Planta Importada {suffix}");
+
+        let driver_plugin = PluginRegistry {
+            id: driver_id.clone(),
+            name: driver_name.clone(),
+            plugin_type: PluginType::Driver,
+            runtime: PluginRuntime::Python,
+            entry_class: "DriverMock".to_string(),
+            schema: vec![],
+            source_file: Some("main.py".to_string()),
+            source_code: Some("class DriverMock:\n    def connect(self):\n        return True\n    def stop(self):\n        return True\n    def read(self):\n        return {'sensors': {}, 'actuators': {}}\n    def write(self, outputs):\n        return True\n".to_string()),
+            dependencies: vec![],
+            description: None,
+            version: None,
+            author: None,
+        };
+
+        let controller_plugin = PluginRegistry {
+            id: controller_id.clone(),
+            name: controller_name.clone(),
+            plugin_type: PluginType::Controller,
+            runtime: PluginRuntime::Python,
+            entry_class: "PIDController".to_string(),
+            schema: vec![],
+            source_file: Some("main.py".to_string()),
+            source_code: Some(
+                "class PIDController:\n    def compute(self, snapshot):\n        return {}\n"
+                    .to_string(),
+            ),
+            dependencies: vec![],
+            description: None,
+            version: None,
+            author: None,
+        };
+
+        WorkspaceService::save_plugin_registry(
+            &driver_plugin,
+            driver_plugin.source_code.as_deref().unwrap(),
+        )
+        .expect("driver plugin should be saved to workspace");
+        WorkspaceService::save_plugin_registry(
+            &controller_plugin,
+            controller_plugin.source_code.as_deref().unwrap(),
+        )
+        .expect("controller plugin should be saved to workspace");
+
+        let json = format!(
+            r#"
+        {{
+          "name": "{plant_name}",
+          "sample_time_ms": 500,
+          "variables": [
+            {{
+              "id": "var_0",
+              "name": "Temperatura",
+              "type": "sensor",
+              "unit": "C",
+              "setpoint": 45.0,
+              "pv_min": 0.0,
+              "pv_max": 100.0
+            }},
+            {{
+              "id": "var_1",
+              "name": "Valvula",
+              "type": "atuador",
+              "unit": "%",
+              "setpoint": 0.0,
+              "pv_min": 0.0,
+              "pv_max": 100.0,
+              "linked_sensor_ids": ["var_0"]
+            }}
+          ],
+          "driver": {{
+            "plugin_id": "{driver_id}",
+            "plugin_name": "{driver_name}",
+            "config": {{
+              "baud": 9600
+            }}
+          }},
+          "controllers": [
+            {{
+              "id": "ctrl_pid_1",
+              "plugin_id": "{controller_id}",
+              "plugin_name": "{controller_name}",
+              "name": "PID Temperatura",
+              "controller_type": "PID",
+              "active": true,
+              "input_variable_ids": ["var_0"],
+              "output_variable_ids": ["var_1"],
+              "params": {{
+                "kp": {{
+                  "type": "number",
+                  "value": 1.5,
+                  "label": "Kp"
+                }}
+              }}
+            }}
+          ]
+        }}
+        "#
+        );
+
+        let response = PlantImportService::import_file(
+            &plants,
+            &plugins,
+            PlantImportFileRequest {
+                file_name: "registry.json".to_string(),
+                content: json,
+            },
+        )
+        .expect("import file should succeed");
+
+        assert_eq!(response.plant.controllers.len(), 1);
+        let controller = &response.plant.controllers[0];
+        assert_eq!(controller.id, "ctrl_pid_1");
+        assert_eq!(controller.plugin_id, controller_id);
+        assert_eq!(controller.plugin_name, controller_name);
+        assert_eq!(controller.input_variable_ids, vec!["var_0".to_string()]);
+        assert_eq!(controller.output_variable_ids, vec!["var_1".to_string()]);
+        assert!(!controller.active);
+
+        let _ = WorkspaceService::delete_plant_registry(&plant_name);
+        let _ = WorkspaceService::delete_plugin_registry(&driver_name, PluginType::Driver);
+        let _ = WorkspaceService::delete_plugin_registry(&controller_name, PluginType::Controller);
     }
 }

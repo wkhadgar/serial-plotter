@@ -70,6 +70,7 @@ export interface PlantDriverDto {
 export interface PlantControllerDto {
   id: string;
   plugin_id: string;
+  plugin_name?: string;
   name: string;
   controller_type: string;
   active: boolean;
@@ -215,12 +216,19 @@ export interface PlantRuntimeTelemetryPayload {
   effective_dt_ms?: number;
   cycle_duration_ms?: number;
   read_duration_ms?: number;
+  control_duration_ms?: number;
+  write_duration_ms?: number;
+  publish_duration_ms?: number;
   cycle_late?: boolean;
+  late_by_ms?: number;
   phase?: string;
   uptime_s?: number;
   sensors?: Record<string, number>;
   actuators?: Record<string, number>;
+  actuators_read?: Record<string, number>;
   setpoints?: Record<string, number>;
+  controller_outputs?: Record<string, number>;
+  written_outputs?: Record<string, number>;
 }
 
 export interface PlantRuntimeTelemetryEvent {
@@ -276,8 +284,20 @@ export interface SaveControllerInstanceConfigRequest {
 
 export interface SaveControllerInstanceConfigResponse {
   success: boolean;
+  plant?: import('$lib/types/plant').Plant;
   deferred?: boolean;
   error?: string;
+}
+
+export interface RemoveControllerInstanceRequest {
+  plantId: string;
+  controllerId: string;
+}
+
+export interface SavePlantSetpointRequest {
+  plantId: string;
+  variableId: string;
+  setpoint: number;
 }
 
 export interface ListPlantsResponse {

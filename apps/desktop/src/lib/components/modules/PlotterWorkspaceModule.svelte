@@ -36,9 +36,11 @@
     disconnectPlant,
     openPlant,
     pausePlant,
+    removeControllerInstance,
     removePlant,
     resumePlant,
     saveControllerInstanceConfig,
+    savePlantSetpoint,
     applyPlantTelemetryPacket,
     buildTelemetryPacketFromRuntimeEvent,
     subscribePlantRuntimeEvents,
@@ -677,13 +679,13 @@
     controllerConfigModal = true;
   }
 
-  function handleControllerConfigured(
+  async function handleControllerConfigured(
     instance: PluginInstance,
     bindings?: { inputVariableIds: string[]; outputVariableIds: string[] }
   ) {
     if (!activePlant || !controllerPluginToConfig) return;
 
-    const { id: _id, ...controller } = createConfiguredController(
+    const controller = createConfiguredController(
       controllerPluginToConfig,
       instance.config,
       {
@@ -692,17 +694,60 @@
       }
     );
 
-    appStore.addController(activePlant.id, {
+    const nextController = {
       ...controller,
       inputVariableIds: bindings?.inputVariableIds ?? [],
       outputVariableIds: bindings?.outputVariableIds ?? [],
-    });
+    };
+
+    if (activePlant.source === 'backend') {
+      const response = await saveControllerInstanceConfig({
+        plantId: activePlant.id,
+        controller: nextController,
+        source: activePlant.source,
+      });
+
+      if (response.success && response.plant) {
+        appStore.upsertPlant(response.plant);
+      } else {
+        showFeedbackModal({
+          type: 'error',
+          title: 'Falha ao adicionar controlador',
+          message: response.error ?? 'Não foi possível persistir o controlador na planta.',
+        });
+        return;
+      }
+    } else {
+      const { id: _id, ...localController } = nextController;
+      appStore.addController(activePlant.id, localController);
+    }
+
     controllerConfigModal = false;
     controllerPluginToConfig = null;
   }
 
-  function deleteController(controllerId: string) {
+  async function deleteController(controllerId: string) {
     if (!activePlant) return;
+
+    if (activePlant.source === 'backend') {
+      const response = await removeControllerInstance({
+        plantId: activePlant.id,
+        controllerId,
+      });
+
+      if (response.success && response.plant) {
+        appStore.upsertPlant(response.plant);
+        return;
+      }
+
+      showFeedbackModal({
+        type: 'error',
+        title: 'Falha ao remover controlador',
+        message: response.error ?? 'Não foi possível remover o controlador da planta.',
+      });
+      return;
+    }
+
     appStore.deleteController(activePlant.id, controllerId);
   }
 
@@ -801,16 +846,42 @@
       return { success: false, error: 'Controlador nao encontrado' };
     }
 
-    return saveControllerInstanceConfig({
+    const response = await saveControllerInstanceConfig({
       plantId: activePlant.id,
       controller,
       source: activePlant.source,
     });
+
+    if (response.success && response.plant) {
+      appStore.upsertPlant(response.plant);
+    }
+
+    return response;
   }
 
-  function updateSetpoint(varIndex: number, value: number) {
+  async function updateSetpoint(varIndex: number, value: number) {
     if (!activePlant) return;
     appStore.updateVariableSetpoint(activePlant.id, varIndex, value);
+
+    const variable = activePlant.variables[varIndex];
+    if (!variable || activePlant.source !== 'backend') return;
+
+    const response = await savePlantSetpoint({
+      plantId: activePlant.id,
+      variableId: variable.id,
+      setpoint: value,
+    });
+
+    if (response.success && response.plant) {
+      appStore.upsertPlant(response.plant);
+      return;
+    }
+
+    showFeedbackModal({
+      type: 'error',
+      title: 'Falha ao salvar setpoint',
+      message: response.error ?? 'Não foi possível sincronizar o setpoint com o backend.',
+    });
   }
 
   function handleKeyDown(event: KeyboardEvent) {
@@ -1053,8 +1124,8 @@
       </div>
     </div>
   {:else}
-  <div class="flex-1 flex flex-col md:flex-row overflow-hidden bg-slate-50 dark:bg-[#09090b] relative">
-    <div class="flex-1 flex flex-col min-w-0 relative">
+  <div class="flex-1 flex min-h-0 flex-col md:flex-row overflow-hidden bg-slate-50 dark:bg-[#09090b] relative">
+    <div class="flex-1 flex min-h-0 flex-col min-w-0 relative">
       <PlotterToolbar
         plant={activePlant}
         {currentStats}
@@ -1075,7 +1146,7 @@
 
       <div
         bind:this={graphContainerRef}
-        class="flex-1 flex flex-col p-3 gap-3 overflow-hidden relative cursor-crosshair"
+        class="flex-1 flex min-h-0 flex-col p-3 gap-3 overflow-hidden relative cursor-crosshair"
         oncontextmenu={handleContextMenu}
         ondblclick={resetZoom}
         role="application"

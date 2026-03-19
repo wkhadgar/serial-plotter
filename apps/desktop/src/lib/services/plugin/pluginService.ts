@@ -1,7 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Controller, ControllerParam, ControllerType } from '$lib/types/controller';
 import type { BuiltInPluginKind, PluginDefinition, PluginKind, SchemaFieldValue } from '$lib/types/plugin';
-import { getDefaultValueForType, isBuiltInPluginKind, normalizePluginKind, validatePluginJSON } from '$lib/types/plugin';
+import {
+  getDefaultValueForType,
+  isBuiltInPluginKind,
+  normalizePluginKind,
+  toPluginEntryClassName,
+  validatePluginJSON,
+} from '$lib/types/plugin';
 import type {
   CreatePluginRequest,
   CreatePluginResponse,
@@ -45,6 +51,7 @@ function normalizePlugin(plugin: PluginDefinition): PluginDefinition {
     ...plugin,
     id: plugin.id || generateId(),
     kind: normalizePluginKind(plugin.kind),
+    entryClass: plugin.entryClass || toPluginEntryClassName(plugin.name, plugin.kind),
     sourceFile: plugin.sourceFile || (plugin.runtime === 'python' ? 'main.py' : 'plugin.rs'),
     schema: plugin.schema ?? [],
     dependencies: plugin.dependencies ?? [],
@@ -79,6 +86,7 @@ function mapDtoToPlugin(dto: PluginRegistryDto): PluginDefinition {
     name: dto.name,
     kind: dto.type,
     runtime: dto.runtime,
+    entryClass: dto.entry_class?.trim() || toPluginEntryClassName(dto.name, dto.type),
     sourceFile: dto.source_file ?? (dto.runtime === 'python' ? 'main.py' : 'plugin.rs'),
     sourceCode: dto.source_code ?? undefined,
     schema: (dto.schema ?? []).map((field) => ({
@@ -191,6 +199,7 @@ export function toControllerTemplate(plugin: PluginDefinition): Controller {
   return {
     id: plugin.id,
     pluginId: plugin.id,
+    pluginName: plugin.name,
     name: plugin.name,
     type: inferControllerType(plugin),
     active: false,
@@ -214,6 +223,7 @@ export function createConfiguredController(
   return {
     id: options.id ?? generateId(),
     pluginId: plugin.id,
+    pluginName: plugin.name,
     name: options.name ?? plugin.name,
     type: inferControllerType(plugin),
     active: options.active ?? false,
@@ -245,6 +255,7 @@ export async function createPlugin(request: CreatePluginRequest): Promise<Create
           name: request.name.trim(),
           type: kind,
           runtime: request.runtime,
+          entry_class: request.entryClass.trim(),
           schema: request.schema.map((field) => ({
             name: field.name,
             type: field.type,
@@ -275,6 +286,7 @@ export async function createPlugin(request: CreatePluginRequest): Promise<Create
     name: request.name.trim(),
     kind,
     runtime: request.runtime,
+    entryClass: request.entryClass.trim(),
     sourceFile: request.sourceFile ?? (request.runtime === 'python' ? 'main.py' : 'plugin.rs'),
     sourceCode: request.sourceCode,
     schema: request.schema,
@@ -342,6 +354,10 @@ export async function validatePluginFile(json: unknown): Promise<{ success: bool
     name: parsed.name as string,
     kind: normalizePluginKind(parsed.kind as string),
     runtime: parsed.runtime as PluginDefinition['runtime'],
+    entryClass:
+      typeof parsed.entryClass === 'string' && parsed.entryClass.trim()
+        ? parsed.entryClass
+        : toPluginEntryClassName(parsed.name as string, normalizePluginKind(parsed.kind as string)),
     sourceFile: parsed.sourceFile as string,
     sourceCode: typeof parsed.sourceCode === 'string' ? parsed.sourceCode : undefined,
     schema: Array.isArray(parsed.schema) ? (parsed.schema as PluginDefinition['schema']) : [],
@@ -377,6 +393,7 @@ export async function registerPlugin(plugin: PluginDefinition): Promise<{ succes
     name: plugin.name,
     kind: plugin.kind,
     runtime: plugin.runtime,
+    entryClass: plugin.entryClass,
     schema: plugin.schema,
     sourceFile: plugin.sourceFile,
     sourceCode: plugin.sourceCode,
@@ -396,6 +413,7 @@ export async function updatePlugin(plugin: PluginDefinition): Promise<{ success:
           name: plugin.name.trim(),
           type: normalizePluginKind(plugin.kind),
           runtime: plugin.runtime,
+          entry_class: plugin.entryClass.trim(),
           schema: plugin.schema.map((field) => ({
             name: field.name,
             type: field.type,

@@ -3,60 +3,50 @@ use crate::core::models::plugin::{PluginRegistry, PluginType};
 use crate::core::services::workspace::{map_io_error, map_serde_error, normalize_entity_name};
 use std::fs;
 
+use super::io::{
+    create_dir_all, read_to_string, remove_dir_if_exists, write_json_pretty, write_string,
+};
 use super::paths::{
     plugin_directory, plugin_root_directory, plugin_source_path, REGISTRY_FILE, SOURCE_FILE,
 };
 
 pub(super) fn save(plugin: &PluginRegistry, source_code: &str) -> AppResult<()> {
     let plugin_dir = plugin_directory(&plugin.name, plugin.plugin_type)?;
-
-    fs::create_dir_all(&plugin_dir).map_err(|error| {
-        map_io_error(
-            &format!(
-                "Falha ao criar diretório do {:?} '{}'",
-                plugin.plugin_type, plugin.name
-            ),
-            error,
-        )
-    })?;
+    create_dir_all(
+        &plugin_dir,
+        &format!(
+            "Falha ao criar diretório do {:?} '{}'",
+            plugin.plugin_type, plugin.name
+        ),
+    )?;
 
     let source_path = plugin_dir.join(SOURCE_FILE);
-    fs::write(&source_path, source_code).map_err(|error| {
-        map_io_error(
-            &format!(
-                "Falha ao salvar código fonte do {:?} '{}' em '{}'",
-                plugin.plugin_type,
-                plugin.name,
-                source_path.display()
-            ),
-            error,
-        )
-    })?;
-
-    let registry_payload = serde_json::to_string_pretty(plugin).map_err(|error| {
-        map_serde_error(
-            &format!(
-                "Falha ao serializar registro do {:?} '{}'",
-                plugin.plugin_type, plugin.name
-            ),
-            error,
-        )
-    })?;
+    write_string(
+        &source_path,
+        source_code,
+        &format!(
+            "Falha ao salvar código fonte do {:?} '{}' em '{}'",
+            plugin.plugin_type,
+            plugin.name,
+            source_path.display()
+        ),
+    )?;
 
     let registry_path = plugin_dir.join(REGISTRY_FILE);
-    fs::write(&registry_path, registry_payload).map_err(|error| {
-        map_io_error(
-            &format!(
-                "Falha ao salvar registro do {:?} '{}' em '{}'",
-                plugin.plugin_type,
-                plugin.name,
-                registry_path.display()
-            ),
-            error,
-        )
-    })?;
-
-    Ok(())
+    write_json_pretty(
+        &registry_path,
+        plugin,
+        &format!(
+            "Falha ao serializar registro do {:?} '{}'",
+            plugin.plugin_type, plugin.name
+        ),
+        &format!(
+            "Falha ao salvar registro do {:?} '{}' em '{}'",
+            plugin.plugin_type,
+            plugin.name,
+            registry_path.display()
+        ),
+    )
 }
 
 pub(super) fn update(
@@ -68,16 +58,14 @@ pub(super) fn update(
     let previous_dir = plugin_directory(previous_plugin_name, previous_plugin_type)?;
     let next_dir = plugin_directory(&plugin.name, plugin.plugin_type)?;
 
-    if previous_dir != next_dir && previous_dir.exists() {
-        fs::remove_dir_all(&previous_dir).map_err(|error| {
-            map_io_error(
-                &format!(
-                    "Falha ao remover diretório antigo do plugin '{}'",
-                    previous_dir.display()
-                ),
-                error,
-            )
-        })?;
+    if previous_dir != next_dir {
+        remove_dir_if_exists(
+            &previous_dir,
+            &format!(
+                "Falha ao remover diretório antigo do plugin '{}'",
+                previous_dir.display()
+            ),
+        )?;
     }
 
     save(plugin, source_code)
@@ -85,16 +73,13 @@ pub(super) fn update(
 
 pub(super) fn read_source(plugin_name: &str, plugin_type: PluginType) -> AppResult<String> {
     let source_path = plugin_source_path(plugin_name, plugin_type)?;
-
-    fs::read_to_string(&source_path).map_err(|error| {
-        map_io_error(
-            &format!(
-                "Falha ao ler código fonte do plugin em '{}'",
-                source_path.display()
-            ),
-            error,
-        )
-    })
+    read_to_string(
+        &source_path,
+        &format!(
+            "Falha ao ler código fonte do plugin em '{}'",
+            source_path.display()
+        ),
+    )
 }
 
 pub(super) fn delete(plugin_name: &str, plugin_type: PluginType) -> AppResult<()> {
@@ -104,20 +89,14 @@ pub(super) fn delete(plugin_name: &str, plugin_type: PluginType) -> AppResult<()
     }
 
     let plugin_dir = plugin_directory(normalized_name, plugin_type)?;
-    if !plugin_dir.exists() {
-        return Ok(());
-    }
-
-    fs::remove_dir_all(&plugin_dir).map_err(|error| {
-        map_io_error(
-            &format!(
-                "Falha ao remover diretório do plugin '{}' em '{}'",
-                normalized_name,
-                plugin_dir.display()
-            ),
-            error,
-        )
-    })
+    remove_dir_if_exists(
+        &plugin_dir,
+        &format!(
+            "Falha ao remover diretório do plugin '{}' em '{}'",
+            normalized_name,
+            plugin_dir.display()
+        ),
+    )
 }
 
 pub(super) fn load() -> AppResult<Vec<PluginRegistry>> {
@@ -150,19 +129,16 @@ fn load_plugin_type(plugin_type: PluginType, plugins: &mut Vec<PluginRegistry>) 
             continue;
         }
 
-        let content = match fs::read_to_string(&registry_path) {
+        let content = match read_to_string(
+            &registry_path,
+            &format!(
+                "Falha ao ler registro do plugin em '{}'",
+                registry_path.display()
+            ),
+        ) {
             Ok(content) => content,
             Err(error) => {
-                eprintln!(
-                    "{}",
-                    map_io_error(
-                        &format!(
-                            "Falha ao ler registro do plugin em '{}'",
-                            registry_path.display()
-                        ),
-                        error,
-                    )
-                );
+                eprintln!("{}", error);
                 continue;
             }
         };

@@ -89,6 +89,7 @@ export interface PluginDefinition {
   name: string;
   kind: PluginKind;
   runtime: PluginRuntime;
+  entryClass: string;
   sourceFile: string;
   sourceCode?: string;
   schema: PluginSchemaField[];
@@ -110,6 +111,7 @@ export interface PluginFileJSON {
   name: string;
   kind: PluginKind;
   runtime: PluginRuntime;
+  entryClass?: string;
   sourceFile: string;
   schema: PluginSchemaField[];
   dependencies?: PluginDependency[];
@@ -124,18 +126,34 @@ export const DRIVER_REQUIRED_METHODS = [
   'read',
 ] as const;
 
-export function toDriverClassName(pluginName: string): string {
-  if (!pluginName.trim()) return 'MyDriver';
-  return pluginName
+export const CONTROLLER_REQUIRED_METHODS = [
+  'compute',
+] as const;
+
+export function toPluginEntryClassName(pluginName: string, kind: PluginKind): string {
+  const fallback = normalizePluginKind(kind) === 'controller' ? 'MyController' : 'MyDriver';
+  if (!pluginName.trim()) return fallback;
+
+  const className = pluginName
     .replace(/[^a-zA-Z0-9\s_]/g, '')
     .split(/[\s_]+/)
     .filter(Boolean)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
     .join('');
+
+  return className || fallback;
 }
 
-export function generateDriverTemplate(pluginName: string): string {
-  const className = toDriverClassName(pluginName);
+export function toDriverClassName(pluginName: string): string {
+  return toPluginEntryClassName(pluginName, 'driver');
+}
+
+export function toControllerClassName(pluginName: string): string {
+  return toPluginEntryClassName(pluginName, 'controller');
+}
+
+export function generateDriverTemplate(pluginName: string, entryClass?: string): string {
+  const className = (entryClass?.trim() || toDriverClassName(pluginName));
   return `from typing import Any, Dict
 
 class ${className}:
@@ -149,7 +167,7 @@ class ${className}:
         self.context = context
 
     def connect(self) -> bool:
-        # Exemplos úteis:
+        # Exemplos uteis:
         # port = self.context.config.get("port")
         # sensor_ids = self.context.plant.sensors.ids
         # sample_time_ms = self.context.runtime.timing.sample_time_ms
@@ -159,7 +177,7 @@ class ${className}:
         return True
 
     def read(self) -> Dict[str, Dict[str, float]]:
-        # O contrato atual de leitura é explícito:
+        # O contrato atual de leitura e explicito:
         # {
         #   "sensors": {"var_0": 0.0},
         #   "actuators": {"var_2": 0.0}
@@ -171,6 +189,41 @@ class ${className}:
             },
             "actuators": {}
         }
+
+    def write(self, outputs: Dict[str, float]) -> bool:
+        # outputs contem o mapa final de saidas do ciclo:
+        # {"var_2": 42.0}
+        return True
+`;
+}
+
+export function generateControllerTemplate(pluginName: string, entryClass?: string): string {
+  const className = (entryClass?.trim() || toControllerClassName(pluginName));
+  return `from typing import Any, Dict
+
+class ${className}:
+    """Controlador: ${pluginName || 'Novo Controlador'}"""
+
+    def __init__(self, context: Any) -> None:
+        # Contrato atual:
+        # - context.controller -> metadados da instancia, bindings e parametros
+        # - context.plant -> variaveis, sensores, atuadores e setpoints
+        # - context.runtime -> timing, paths e supervisao
+        self.context = context
+
+    def compute(self, snapshot: Dict[str, Any]) -> Dict[str, float]:
+        # snapshot contem os dados do ciclo atual:
+        # - snapshot["dt_s"]
+        # - snapshot["setpoints"]
+        # - snapshot["sensors"]
+        # - snapshot["actuators"]
+        # - snapshot["controller"]
+        #
+        # Retorne apenas saidas por variable_id de atuador.
+        outputs: Dict[str, float] = {}
+        for actuator_id in self.context.controller.output_variable_ids:
+            outputs[actuator_id] = 0.0
+        return outputs
 `;
 }
 
@@ -207,6 +260,10 @@ export function validatePluginJSON(obj: unknown): string | null {
 
   if (json.runtime !== 'python' && json.runtime !== 'rust-native') {
     return 'Campo "runtime" deve ser "python" ou "rust-native"';
+  }
+
+  if (json.entryClass !== undefined && (typeof json.entryClass !== 'string' || !json.entryClass.trim())) {
+    return 'Campo "entryClass" deve ser uma string não vazia';
   }
 
   if (typeof json.sourceFile !== 'string' || !json.sourceFile.trim()) {

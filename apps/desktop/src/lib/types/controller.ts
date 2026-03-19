@@ -50,6 +50,7 @@ export interface PIDParams {
 export interface Controller {
   id: string;
   pluginId?: string;
+  pluginName?: string;
   name: string;
   type: ControllerType;
   active: boolean;

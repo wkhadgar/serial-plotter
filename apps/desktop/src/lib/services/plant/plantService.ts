@@ -28,8 +28,10 @@ import type {
   PlantRuntimeTelemetryEvent,
   PlantTelemetryPacket,
   PlantDto,
+  RemoveControllerInstanceRequest,
   SaveControllerInstanceConfigRequest,
   SaveControllerInstanceConfigResponse,
+  SavePlantSetpointRequest,
   UpdatePlantDto,
   UpdatePlantRequest,
 } from './types';
@@ -85,6 +87,7 @@ function mapControllerDtoToFrontend(controller: PlantControllerDto): Controller 
   return {
     id: controller.id,
     pluginId: controller.plugin_id,
+    pluginName: controller.plugin_name,
     name: controller.name,
     type: controller.controller_type,
     active: controller.active,
@@ -323,7 +326,9 @@ export function buildTelemetryPacketFromRuntimeEvent(
     const spKey = `var_${index}_sp`;
     const sensorValue = toFiniteNumber(runtimePayload.sensors?.[variable.id], 0);
     const actuatorValue = toFiniteNumber(
-      runtimePayload.actuators?.[variable.id] ?? runtimePayload.sensors?.[variable.id],
+      runtimePayload.written_outputs?.[variable.id]
+        ?? runtimePayload.actuators?.[variable.id]
+        ?? runtimePayload.sensors?.[variable.id],
       0
     );
 
@@ -425,12 +430,13 @@ export async function saveControllerInstanceConfig(
 
   if (request.source === 'backend') {
     try {
-      await invoke('save_controller_instance_config', {
+      const response = await invoke<PlantDto>('save_controller_instance_config', {
         request: {
           plant_id: request.plantId,
           controller_id: request.controller.id,
           plugin_id: request.controller.pluginId ?? null,
           name: request.controller.name,
+          controller_type: request.controller.type,
           active: request.controller.active,
           input_variable_ids: request.controller.inputVariableIds ?? [],
           output_variable_ids: request.controller.outputVariableIds ?? [],
@@ -443,21 +449,51 @@ export async function saveControllerInstanceConfig(
         },
       });
 
-      return { success: true };
+      return { success: true, plant: mapDtoToPlant(response) };
     } catch (error) {
-      console.warn(
-        'Persistencia de instancia de controlador ainda nao esta disponivel no backend. Mantendo alteracoes localmente.',
-        error
-      );
-
-      return {
-        success: true,
-        deferred: true,
-      };
+      const message = extractServiceErrorMessage(error, 'Erro ao salvar configuração do controlador');
+      return { success: false, error: message };
     }
   }
 
   return { success: true };
+}
+
+export async function removeControllerInstance(
+  request: RemoveControllerInstanceRequest
+): Promise<PlantActionResponse> {
+  try {
+    const response = await invoke<PlantDto>('remove_controller_instance', {
+      request: {
+        plant_id: request.plantId,
+        controller_id: request.controllerId,
+      },
+    });
+
+    return { success: true, plant: mapDtoToPlant(response) };
+  } catch (error) {
+    const message = extractServiceErrorMessage(error, 'Erro ao remover controlador da planta');
+    return { success: false, error: message };
+  }
+}
+
+export async function savePlantSetpoint(
+  request: SavePlantSetpointRequest
+): Promise<PlantActionResponse> {
+  try {
+    const response = await invoke<PlantDto>('save_plant_setpoint', {
+      request: {
+        plant_id: request.plantId,
+        variable_id: request.variableId,
+        setpoint: request.setpoint,
+      },
+    });
+
+    return { success: true, plant: mapDtoToPlant(response) };
+  } catch (error) {
+    const message = extractServiceErrorMessage(error, 'Erro ao salvar setpoint da planta');
+    return { success: false, error: message };
+  }
 }
 
 export async function listPlants(): Promise<Plant[]> {

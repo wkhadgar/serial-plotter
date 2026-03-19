@@ -27,6 +27,8 @@ impl PluginImportService {
             get_string(root, &["runtime"])
                 .ok_or_else(|| invalid_argument("Campo \"runtime\" deve ser uma string"))?,
         )?;
+        let entry_class = get_optional_non_empty_string(root, &["entryClass", "entry_class"])
+            .unwrap_or_else(|| default_entry_class_for(&name, plugin_type));
 
         let source_file = get_optional_non_empty_string(root, &["sourceFile", "source_file"])
             .unwrap_or_else(|| DEFAULT_SOURCE_FILE.to_string());
@@ -59,6 +61,7 @@ impl PluginImportService {
             name,
             plugin_type,
             runtime,
+            entry_class,
             schema,
             source_file: Some(source_file),
             source_code,
@@ -215,6 +218,45 @@ fn parse_schema_field_value(value: &Value) -> AppResult<SchemaFieldValue> {
         _ => Err(invalid_argument(
             "schema.defaultValue possui tipo não suportado",
         )),
+    }
+}
+
+fn default_entry_class_for(plugin_name: &str, plugin_type: PluginType) -> String {
+    let fallback = match plugin_type {
+        PluginType::Driver => "MyDriver",
+        PluginType::Controller => "MyController",
+    };
+
+    let class_name = plugin_name
+        .chars()
+        .filter(|character| {
+            character.is_ascii_alphanumeric()
+                || character.is_ascii_whitespace()
+                || *character == '_'
+        })
+        .collect::<String>()
+        .split(|character: char| character.is_ascii_whitespace() || character == '_')
+        .filter(|token| !token.is_empty())
+        .map(|token| {
+            let mut chars = token.chars();
+            match chars.next() {
+                Some(first) => {
+                    let mut normalized = String::new();
+                    normalized.push(first.to_ascii_uppercase());
+                    for character in chars {
+                        normalized.push(character.to_ascii_lowercase());
+                    }
+                    normalized
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<String>();
+
+    if class_name.is_empty() {
+        fallback.to_string()
+    } else {
+        class_name
     }
 }
 

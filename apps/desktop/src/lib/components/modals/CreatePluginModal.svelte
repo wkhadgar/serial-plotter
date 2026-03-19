@@ -19,14 +19,45 @@
     isValidFieldName,
     AUTO_SCHEMA_FIELDS,
     RESERVED_FIELD_NAMES,
+    CONTROLLER_REQUIRED_METHODS,
+    DRIVER_REQUIRED_METHODS,
+    generateControllerTemplate,
     generateDriverTemplate,
     normalizePluginKind,
-    toDriverClassName,
+    toPluginEntryClassName,
   } from '$lib/types/plugin';
   import { createPlugin, updatePlugin } from '$lib/services/plugin';
   
-  async function validateDriverSourceCode(_code: string, _runtime: string): Promise<{ success: boolean; errors?: string[] }> {
-    return { success: true };
+  async function validatePythonPluginSourceCode(
+    code: string,
+    pluginKind: PluginKind,
+    entryClassName: string
+  ): Promise<{ success: boolean; errors?: string[] }> {
+    const errors: string[] = [];
+    const normalizedClass = entryClassName.trim();
+
+    if (!normalizedClass) {
+      errors.push('Nome da classe principal é obrigatório');
+      return { success: false, errors };
+    }
+
+    const classRegex = new RegExp(`class\\s+${normalizedClass}\\b`);
+    if (!classRegex.test(code)) {
+      errors.push(`Classe "${normalizedClass}" não encontrada no código`);
+    }
+
+    const requiredMethods = normalizePluginKind(pluginKind) === 'controller'
+      ? CONTROLLER_REQUIRED_METHODS
+      : DRIVER_REQUIRED_METHODS;
+
+    for (const methodName of requiredMethods) {
+      const methodRegex = new RegExp(`def\\s+${methodName}\\s*\\(`);
+      if (!methodRegex.test(code)) {
+        errors.push(`Método obrigatório ausente: ${methodName}()`);
+      }
+    }
+
+    return errors.length > 0 ? { success: false, errors } : { success: true };
   }
   import { openFileDialog, readFileAsText } from '$lib/services/fileDialog';
   import CodeEditorModal from './CodeEditorModal.svelte';
@@ -73,9 +104,11 @@
   let runtime = $state<PluginRuntime>('python');
   let sourceFileName = $state('');
   let sourceCode = $state('');
+  let entryClass = $state('');
   let description = $state('');
   let formFields = $state<FormField[]>([]);
   let dependencies = $state<PluginDependency[]>([]);
+  let lastSuggestedEntryClass = $state('');
 
   let isLoading = $state(false);
   let error = $state<string | null>(null);
@@ -105,6 +138,7 @@
     resolvedKind ? getPluginKindLabel(resolvedKind) : 'Plugin personalizado'
   );
   const isDriverKind = $derived(resolvedKind === 'driver');
+  const suggestedEntryClass = $derived.by(() => toPluginEntryClassName(pluginName, resolvedKind || 'driver'));
   const modalTitle = $derived(isEditing ? 'Editar Plugin' : 'Criar Novo Plugin');
   const modalDescription = $derived(
     isEditing
@@ -113,25 +147,13 @@
   );
   const submitLabel = $derived(isEditing ? 'Salvar Alterações' : 'Criar Plugin');
 
-  function applyKindPreset(nextKind?: PluginKind) {
-    if (!nextKind) {
-      kind = 'driver';
-      kindMode = 'builtin';
-      customKind = '';
-      return;
+  function updatePluginName(value: string) {
+    pluginName = value;
+    const suggestion = toPluginEntryClassName(value, resolvedKind || 'driver');
+    if (!entryClass.trim() || entryClass === lastSuggestedEntryClass) {
+      entryClass = suggestion;
     }
-
-    const normalized = normalizePluginKind(nextKind);
-    if (isBuiltInPluginKind(normalized)) {
-      kind = normalized;
-      kindMode = 'builtin';
-      customKind = '';
-      return;
-    }
-
-    kind = normalized;
-    kindMode = 'custom';
-    customKind = normalized;
+    lastSuggestedEntryClass = suggestion;
   }
 
   function schemaToFormFields(schema: PluginSchemaField[], pluginKind: PluginKind): FormField[] {
@@ -176,28 +198,79 @@
     return String(value);
   }
 
-  $effect(() => {
-    if (forceKind) applyKindPreset(forceKind);
-  });
+  let formSessionKey = $state('');
+
+  function initializeKindState(nextKind?: PluginKind) {
+    const normalized = normalizePluginKind(nextKind ?? 'driver');
+    if (isBuiltInPluginKind(normalized)) {
+      kind = normalized;
+      kindMode = 'builtin';
+      customKind = '';
+      return normalized;
+    }
+
+    kind = normalized;
+    kindMode = 'custom';
+    customKind = normalized;
+    return normalized;
+  }
+
+  function initializeNewForm() {
+    const nextKind = forceKind ?? initialKind ?? 'driver';
+    const normalizedKind = initializeKindState(nextKind);
+    const suggestedClass = toPluginEntryClassName('', normalizedKind);
+
+    pluginName = '';
+    runtime = 'python';
+    sourceFileName = '';
+    sourceCode = '';
+    entryClass = suggestedClass;
+    lastSuggestedEntryClass = suggestedClass;
+    description = '';
+    formFields = [];
+    dependencies = [];
+    error = null;
+    fieldErrors = {};
+  }
+
+  function initializeExistingForm(plugin: PluginDefinition) {
+    const normalizedKind = initializeKindState(forceKind ?? plugin.kind);
+    const effectiveEntryClass = plugin.entryClass || toPluginEntryClassName(plugin.name, normalizedKind);
+
+    pluginName = plugin.name;
+    runtime = 'python';
+    sourceFileName = plugin.sourceFile;
+    sourceCode = plugin.sourceCode ?? '';
+    entryClass = effectiveEntryClass;
+    lastSuggestedEntryClass = effectiveEntryClass;
+    description = plugin.description ?? '';
+    formFields = schemaToFormFields(plugin.schema, plugin.kind);
+    dependencies = [...(plugin.dependencies ?? [])];
+    error = null;
+    fieldErrors = {};
+  }
 
   $effect(() => {
-    if (!visible) return;
-
-    if (initialPlugin) {
-      pluginName = initialPlugin.name;
-      applyKindPreset(forceKind ?? initialPlugin.kind);
-      runtime = 'python';
-      sourceFileName = initialPlugin.sourceFile;
-      sourceCode = initialPlugin.sourceCode ?? '';
-      description = initialPlugin.description ?? '';
-      formFields = schemaToFormFields(initialPlugin.schema, initialPlugin.kind);
-      dependencies = [...(initialPlugin.dependencies ?? [])];
-      error = null;
-      fieldErrors = {};
+    if (!visible) {
+      formSessionKey = '';
       return;
     }
 
-    resetForm();
+    const nextSessionKey = [
+      initialPlugin?.id ?? '__new__',
+      forceKind ?? '',
+      initialKind ?? '',
+    ].join('|');
+
+    if (formSessionKey === nextSessionKey) return;
+    formSessionKey = nextSessionKey;
+
+    if (initialPlugin) {
+      initializeExistingForm(initialPlugin);
+      return;
+    }
+
+    initializeNewForm();
   });
 
   function handleKindSelectChange(value: string) {
@@ -497,8 +570,12 @@
   }
 
   function handleOpenCodeEditor() {
-    if (!sourceCode && !isEditing && isDriverKind && runtime === 'python') {
-      sourceCode = generateDriverTemplate(pluginName);
+    if (!sourceCode && !isEditing && runtime === 'python') {
+      const effectiveKind = resolvedKind || 'driver';
+      const effectiveEntryClass = entryClass.trim() || toPluginEntryClassName(pluginName, effectiveKind);
+      sourceCode = effectiveKind === 'controller'
+        ? generateControllerTemplate(pluginName, effectiveEntryClass)
+        : generateDriverTemplate(pluginName, effectiveEntryClass);
     }
     showCodeEditor = true;
   }
@@ -536,6 +613,11 @@
       return;
     }
 
+    if (!entryClass.trim()) {
+      error = 'Nome da classe principal é obrigatório';
+      return;
+    }
+
     if (!effectiveKind) {
       error = 'Defina um tipo de plugin válido';
       return;
@@ -546,9 +628,8 @@
       return;
     }
 
-    if (sourceCode && effectiveKind === 'driver' && runtime === 'python') {
-      const expectedClass = toDriverClassName(pluginName);
-      const codeValidation = await validateDriverSourceCode(sourceCode, expectedClass);
+    if (sourceCode && runtime === 'python') {
+      const codeValidation = await validatePythonPluginSourceCode(sourceCode, effectiveKind, entryClass);
       if (!codeValidation.success && codeValidation.errors) {
         error = codeValidation.errors.join('; ');
         return;
@@ -597,6 +678,7 @@
         name: pluginName.trim(),
         kind: effectiveKind,
         runtime: 'python' as PluginRuntime,
+        entryClass: entryClass.trim(),
         sourceFile: sourceFileName || 'main.py',
         sourceCode: sourceCode || undefined,
         schema: buildSchema(effectiveKind),
@@ -629,16 +711,8 @@
   }
 
   function resetForm() {
-    pluginName = '';
-    applyKindPreset(forceKind ?? initialKind ?? 'driver');
-    runtime = 'python';
-    sourceFileName = '';
-    sourceCode = '';
-    description = '';
-    formFields = [];
-    dependencies = [];
-    error = null;
-    fieldErrors = {};
+    initializeNewForm();
+    formSessionKey = '';
   }
 
   function handleClose() {
@@ -686,11 +760,21 @@
             <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Nome do Plugin *</span>
             <input
               type="text"
-              bind:value={pluginName}
+              value={pluginName}
+              oninput={(e) => updatePluginName((e.target as HTMLInputElement).value)}
               placeholder="Ex: Driver Modbus TCP"
               class="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-[#18181b] text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
             />
           </label>
+          <div class="block">
+            <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Classe Principal *</span>
+            <div class="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 font-mono text-sm text-slate-600 dark:border-white/10 dark:bg-[#18181b] dark:text-zinc-300">
+              {entryClass || suggestedEntryClass}
+            </div>
+            <p class="mt-1 text-[11px] text-slate-400 dark:text-zinc-500">
+              Gerada automaticamente em CamelCase a partir do nome do plugin e persistida no backend para a runtime carregar o plugin de forma explícita.
+            </p>
+          </div>
           <label class="block">
             <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Descrição</span>
             <input

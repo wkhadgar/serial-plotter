@@ -110,7 +110,7 @@
   });
 </script>
 
-<div class="variable-card flex flex-col h-full bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm">
+<div class="variable-card flex h-full min-h-0 flex-col bg-white dark:bg-[#0c0c0e] rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden shadow-sm">
   <div class="variable-card__header px-3 py-2 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-zinc-900/50 flex items-center justify-between gap-2 shrink-0">
     <div class="flex min-w-0 items-center gap-2 sm:gap-3">
       <h3 class="truncate text-sm font-bold text-slate-700 dark:text-zinc-300">

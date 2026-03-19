@@ -1,798 +1,482 @@
-# Senamby Desktop — Arquitetura da UI e Guia de Integração
-
-> Documento focado no frontend do desktop. A UI opera hoje em modo híbrido: já consome comandos Tauri que existem no backend e mantém fallback local nos fluxos que ainda não foram fechados no Rust.
+# Senamby Desktop - Arquitetura Atual
 
 ## 1. Objetivo
 
-O frontend foi organizado para cumprir três metas:
+Este documento descreve a arquitetura real implementada hoje no desktop:
 
-- entregar uma experiência completa para o usuário final mesmo antes do backend estar fechado;
-- manter contratos estáveis de domínio para que a troca de persistência local por IPC seja previsível;
-- escalar para novos módulos, novas abas e novos fluxos sem reescrever a base atual.
+- frontend Svelte;
+- shell Tauri;
+- backend Rust;
+- runtime Python para driver e controladores da planta.
 
-Hoje a aplicação já oferece:
+O foco e deixar claro:
 
-- navegação modular;
-- catálogo de plugins com criação, edição, exclusão e importação;
-- criação e edição de plantas com driver configurável;
-- criação de plugins com tipos personalizados além de driver e controlador;
-- sincronização automática de `num_sensors` e `num_actuators` no driver a partir das variáveis da planta;
-- plotagem e análise histórica;
-- importação de JSON exportado para inspeção no Plotter;
-- drag and drop funcional em Plotter, Analyzer e Plugins;
-- padrão visual compartilhado de abas de workspace entre módulos;
-- superfícies principais mais compactas, com uma coluna dominante por módulo e ações concentradas no topo;
-- hierarquia visual mais enxuta, com menos texto secundário e menor ruído em áreas de operação.
+- onde cada responsabilidade vive;
+- como dados entram e saem da runtime;
+- como a aplicacao se organiza para manter performance, seguranca e escalabilidade.
 
-## 2. Estrutura Geral
+## 2. Principio arquitetural central
 
-```text
-routes/+page.svelte
-|- Sidebar
-|- PlotterModule
-|- AnalyzerModule
-`- PluginsModule
-```
+Regra do sistema:
 
-### Princípio de composição
+- frontend = UX, composicao visual, cache local e interacao;
+- backend Rust = dominio, validacao, persistencia, reconciliacao e supervisao;
+- runtime Python = ciclo fino de execucao dos plugins.
 
-Os módulos principais ficam montados e a página alterna visibilidade. Isso evita perda de contexto quando o usuário navega entre Plotter, Analyzer e Plugins.
+O frontend nao participa do hot loop de amostragem.
 
-### Pastas centrais
+## 3. Mapa de camadas
 
 ```text
-src/lib/
-|- components/
-|- services/
-|- stores/
-|- types/
-`- utils/
+UI Svelte
+  -> services TS (invoke/listen)
+    -> commands Tauri
+      -> services de dominio em Rust
+        -> stores + workspace + runtime manager
+          -> runner Python + plugins Python
 ```
 
-## 3. Camadas do Frontend
+## 4. Frontend
 
-## 3.1 Componentes
+Estrutura principal:
 
-Responsáveis por apresentação, interação e composição visual.
+```text
+src/routes/+page.svelte
+|- PlotterWorkspaceModule.svelte
+|- AnalyzerModule.svelte
+`- PluginsModule.svelte
+```
 
-- `components/modules/*`: telas principais.
-- `components/modals/*`: fluxos de criação, edição e configuração.
-- `components/charts/*`: gráficos reutilizáveis.
-- `components/layout/*`: shell global.
-- `components/ui/*`: primitives reutilizáveis para tabs, toggles e entradas.
+Camadas internas:
 
-Os componentes não devem conhecer `invoke`, `listen` ou detalhes do backend. Eles consomem stores, services e tipos.
+- `components/*`: renderizacao e interacao;
+- `services/*`: fronteira com Tauri;
+- `stores/*`: estado reativo e buffers de plotagem;
+- `types/*`: contratos espelhados do dominio.
 
-### Padrão visual adotado
+Pontos importantes:
 
-Para manter homogeneidade e escalar sem retrabalho, os módulos seguem estas regras:
+- `services/plant/plantService.ts` integra commands de planta e eventos `plant://*`;
+- `services/plugin/pluginService.ts` integra CRUD e carga de plugins;
+- `components/modules/PlotterWorkspaceModule.svelte` concentra a jornada da planta no frontend;
+- o frontend nao calcula `dt`, nao executa controle e nao faz polling do driver.
 
-- cabeçalho curto com ação primária e filtros;
-- conteúdo principal em uma única superfície dominante;
-- abas reutilizáveis para workspaces;
-- estados vazios com a mesma hierarquia visual;
-- menus auxiliares só aparecem quando reduzem esforço real do usuário;
-- contadores e métricas rápidas devem ser legíveis sem depender de subtítulos longos;
-- interações recorrentes devem ficar no primeiro nível visual, sem sidebars informativas redundantes.
+## 5. Backend Rust/Tauri
 
-### Diretrizes de usabilidade e performance
+Entrada oficial:
 
-- evitar recarregamentos redundantes quando o dado já está na memória do módulo;
-- privilegiar grids simples e cartões leves, sem camadas visuais desnecessárias;
-- manter overlays e menus contextuais apenas sob demanda;
-- reaproveitar primitives visuais para evitar divergência entre módulos.
+- `apps/desktop/src-tauri/src/lib.rs`
 
-## 3.2 Stores
+## 5.1 Commands expostos
 
-### `appStore`
+### Commands de planta
 
-Arquivo: `src/lib/stores/data.svelte.ts`
+- `create_plant`
+- `update_plant`
+- `list_plants`
+- `get_plant`
+- `remove_plant`
+- `connect_plant`
+- `disconnect_plant`
+- `pause_plant`
+- `resume_plant`
+- `save_controller_instance_config`
+- `remove_controller_instance`
+- `save_plant_setpoint`
+- `open_plant_file`
+- `import_plant_file`
 
-Responsável por:
+### Commands de plugin
 
-- tema;
-- módulo ativo;
-- planta ativa;
-- lista de plantas abertas;
-- visibilidade da sidebar;
-- estado do painel de controladores;
-- modal de ajustes globais.
+- `create_plugin`
+- `get_plugin`
+- `update_plugin`
+- `delete_plugin`
+- `list_plugins`
+- `list_plugins_by_type`
+- `load_plugins`
+- `import_plugin_file`
 
-### `plantData`
+## 5.2 Services de dominio
 
-Arquivo: `src/lib/stores/plantData.ts`
+Principais services:
 
-Responsável por:
+- `PlantService`: CRUD de planta, validacoes e persistencia;
+- `PluginService`: CRUD de plugin, carga e persistencia;
+- `PlantImportService`: parse/import de plantas;
+- `PluginImportService`: parse/import de plugins;
+- `DriverRuntimeService`: API de dominio para connect, disconnect, pause, resume e hot updates;
+- `PlantRuntimeManager`: gerenciamento de processo, handshake, streams e eventos;
+- `WorkspaceService`: caminhos, IO de workspace e persistencia fisica.
 
-- armazenar as séries temporais por planta;
-- armazenar o catálogo de séries por planta com `key`, `label` e `role`;
-- armazenar a política de retenção do buffer usado pelo Plotter;
-- armazenar estatísticas globais por planta;
-- armazenar estatísticas por variável;
-- hidratar dados importados pelo Plotter;
-- receber ingestão incremental pronta para streaming em tempo real.
+## 5.3 Estado em memoria
 
-Funções importantes:
+`AppState` agrega:
 
-- `getPlantData`
-- `setPlantData`
-- `appendPlantData`
-- `setPlantBufferConfig`
-- `getPlantBufferConfig`
-- `setPlantSeriesCatalog`
-- `seedPlantSeriesCatalog`
-- `getPlantSeriesCatalog`
-- `getPlantSeriesLabel`
-- `ingestPlantTelemetry`
-- `getPlantStats`
-- `setPlantStats`
-- `getVariableStats`
-- `setVariableStats`
-- `clearVariableStats`
-- `clearPlant`
+- `PlantStore`
+- `PluginStore`
+- `PlantRuntimeManager`
 
-### `analyzerStore`
+Ownership do estado:
 
-Arquivo: `src/lib/stores/analyzerStore.svelte.ts`
+- plugins persistidos: workspace + `PluginStore`;
+- plantas abertas/importadas: `PlantStore` + workspace;
+- runtime conectada: `PlantRuntimeManager`;
+- historico e buffers de grafico: frontend.
 
-Responsável por:
+Regra importante:
 
-- abas do Analyzer;
-- variáveis selecionadas;
-- zoom/range;
-- modo de visualização dos gráficos;
-- visibilidade do painel lateral.
+- plugins sao carregados do workspace no startup do backend;
+- plantas nao sao auto-carregadas no startup.
 
-## 3.3 Services
+## 6. Modelos de dominio principais
 
-Os serviços são a fronteira entre UI, persistência local e backend.
+## 6.1 Plugin
 
-### `services/plant/plantService.ts`
+`PluginRegistry` representa um plugin persistido.
 
-Hoje já opera em modo híbrido:
-
-- usa Tauri para `list_plants`, `create_plant`, `remove_plant`, `connect_plant`, `disconnect_plant`, `pause_plant` e `resume_plant`;
-- mantém fallback local para workspace e overrides de edição quando o backend ainda não cobre o fluxo completo;
-- continua fazendo parsing de exportação JSON no frontend para abrir plantas no Plotter;
-- ao abrir dados históricos, já devolve também o catálogo de séries do Plotter para manter legendas e tooltips coerentes.
-
-Pontos que ainda podem migrar depois:
-
-- streaming de dados;
-- CRUD completo de edição no backend;
-- importação real quando o backend assumir essa responsabilidade.
-
-### `services/plugin/pluginService.ts`
-
-Hoje já opera em modo híbrido:
-
-- usa Tauri para listar e criar plugins dos tipos nativos do backend;
-- usa `list_plugins_by_type` quando a UI precisa apenas de drivers;
-- mantém catálogo local para tipos personalizados, edição local e remoção lógica de itens vindos do backend;
-- continua fazendo importação/exportação e validação estrutural no frontend.
-
-Pontos que ainda podem migrar depois:
-
-- atualização e remoção reais no backend;
-- publicação/instanciação completa;
-- validações executadas pelo runtime Rust.
-
-### `services/fileDialog.ts`
-
-Utilitário de interface para seleção de arquivos.
-
-### `services/export.ts`
-
-Exportação local de CSV/JSON.
-
-### `services/analyzerBackend.ts`
-
-Camada de processamento histórico usada pelo Analyzer.
-
-## 4. Modelos de Domínio que Devem Permanecer Estáveis
-
-Esses tipos já sustentam a UI e devem ser preservados mesmo quando a implementação interna mudar:
-
-- `Plant`
-- `PlantVariable`
-- `PlantDataPoint`
-- `PlantStats`
-- `VariableStats`
-- `PlantSeriesDescriptor`
-- `PlantSeriesCatalog`
-- `PluginDefinition`
-- `PluginInstance`
-- `CreatePlantRequest`
-- `CreatePluginRequest`
-- `Controller`
-- `ControllerParam`
-
-Em outras palavras: o backend pode mudar a fonte dos dados, mas não deveria obrigar a UI a mudar a forma como renderiza cada fluxo.
-
-## 5. Guia de Integração por Módulo
-
-## 5.1 Shell, navegação e estado global
-
-### Arquivos principais
-
-- `src/routes/+page.svelte`
-- `src/lib/components/layout/Sidebar.svelte`
-- `src/lib/stores/data.svelte.ts`
-
-### Papel
-
-Controla:
-
-- qual módulo está visível;
-- tema;
-- modais globais;
-- sincronização da planta ativa.
-
-### Como integrar com o backend
-
-O shell não deve fazer chamadas de negócio diretamente. Ele só precisa reagir a:
-
-- estado inicial da aplicação;
-- preferências persistidas;
-- eventos globais como falhas de conexão ou notificações.
-
-### Sugestão de integração
-
-1. Criar um comando `get_app_bootstrap`.
-2. Esse comando retorna:
-   - tema salvo;
-   - lista de plantas restauráveis;
-   - plugin catalog resumido;
-   - preferências globais.
-3. Popular `appStore` no carregamento da página.
-
-### Eventos recomendados
-
-- `app:error`
-- `app:notification`
-- `app:theme-updated`
-
-## 5.2 Plotter
-
-### Arquivos centrais
-
-- `src/lib/components/modules/PlotterModule.svelte`
-- `src/lib/components/plotter/PlotterToolbar.svelte`
-- `src/lib/components/plotter/PlantTabs.svelte`
-- `src/lib/components/plotter/ControllerPanel.svelte`
-- `src/lib/components/charts/VariableGrid.svelte`
-- `src/lib/stores/plantData.ts`
-
-### Papel
-
-É o módulo operacional em tempo quase real. Ele mostra:
-
-- plantas abertas;
-- variáveis de processo;
-- curvas PV/SP/MV;
-- estado de conexão;
-- controladores e setpoints.
-
-### Estado atual da UI
-
-O Plotter já está pronto para:
-
-- hidratar plantas iniciais do backend no carregamento da página;
-- não ter nenhuma planta ativa;
-- manter uma aba de workspace `Unnamed` quando não houver planta aberta;
-- exibir uma área vazia com opção de criar ou abrir sem quebrar a navegação por abas;
-- abrir exportações JSON por seletor e por drag and drop;
-- conectar, desconectar, pausar e remover plantas via service;
-- editar a planta atualmente selecionada;
-- abrir exportações JSON e reconstruir a planta na interface;
-- trocar visualização das curvas;
-- exportar dados locais;
-- usar legendas dinâmicas por série em vez de labels fixos `PV/SP/MV`;
-- receber catálogo de séries separado da definição da planta;
-- operar em sessões longas com buffer de retenção configurável e renderização adaptativa.
-
-### O que o backend precisa alimentar
-
-#### 1. Lista de plantas
-
-Ao iniciar o app ou abrir uma planta, o backend deve fornecer:
+Campos relevantes:
 
 - `id`
 - `name`
+- `type`: `driver` ou `controller`
+- `runtime`: `python` ou `rust_native`
+- `entry_class`
+- `schema`
+- `source_file`
+- `source_code`
+- `dependencies`
+
+Papel arquitetural de `entry_class`:
+
+- o backend persiste explicitamente a classe principal do plugin;
+- o runner recebe isso como `class_name`;
+- a runtime nao depende de heuristica baseada no nome visual do plugin.
+
+Papel arquitetural de `schema`:
+
+- define os campos configuraveis apresentados para a instancia do plugin;
+- para drivers, os valores escolhidos acabam em `PlantDriver.config`;
+- para controladores, os valores da instancia acabam em `PlantController.params`;
+- no `connect_plant`, esses dados viram `bootstrap.driver.config` e `bootstrap.controllers[*].params`.
+
+## 6.2 Planta
+
+`Plant` representa a definicao persistida da planta.
+
+Campos relevantes:
+
+- `id`
+- `name`
+- `sample_time_ms`
+- `variables`
+- `driver`
+- `controllers`
 - `connected`
 - `paused`
-- `variables`
-- `controllers`
 - `stats`
 
-Hoje o frontend já hidrata `appStore.state.plants` chamando `list_plants` no carregamento da rota.
+Subestruturas importantes:
 
-#### 2. Séries temporais
+- `PlantVariable`: sensor ou atuador, com unidade, limites e `setpoint`;
+- `PlantDriver`: plugin vinculado e `config` da instancia;
+- `PlantController`: instancia de controlador vinculada a variaveis e parametros.
 
-O Plotter espera dados no formato `PlantDataPoint[]`, por exemplo:
+## 7. Workspace e persistencia
 
-```ts
-{
-  time: 12.4,
-  var_0_pv: 35.2,
-  var_0_sp: 40,
-  var_1_pv: 18.7
-}
+Raiz de workspace:
+
+- `Documents/Senamby/workspace`
+
+Estrutura atual:
+
+```text
+workspace/
+|- drivers/<plugin_name>/
+|  |- registry.json
+|  `- main.py
+|- controllers/<plugin_name>/
+|  |- registry.json
+|  `- main.py
+|- plants/<plant_name>/
+|  `- registry.json
+|- envs/<env_hash>/
+|  |- .venv/
+|  |- metadata.json
+|  `- requirements.lock.txt
+`- runtimes/<runtime_id>/
+   |- runtime.json
+   |- plant.json
+   |- bootstrap.json
+   |- runner.py
+   |- logs/
+   `- ipc/
 ```
 
-Esses dados devem ir para `plantData`.
+Persistente:
 
-Para operação contínua, o caminho preferencial agora é ingestão em lote:
+- registries de plugin;
+- registries de planta;
+- ambientes Python reutilizaveis.
 
-```ts
-{
-  plantId: string;
-  points: PlantDataPoint[];
-  stats?: PlantStats;
-  variableStats?: VariableStats[];
-  series?: [
-    { key: 'var_0_pv', label: 'Temperatura PV', role: 'pv' },
-    { key: 'var_0_sp', label: 'Temperatura SP', role: 'sp' },
-    { key: 'var_2_pv', label: 'Válvula Abertura', role: 'mv' }
-  ];
-}
-```
+Efemero:
 
-Esse payload pode ser aplicado diretamente com `ingestPlantTelemetry`.
+- uma pasta por runtime conectada.
 
-#### 2.1. Catálogo de séries
+## 8. Runtime da planta
 
-O frontend agora trabalha com um catálogo por planta:
+A runtime da planta hoje executa no mesmo processo:
 
-```ts
-{
-  plantId: string;
-  series: [
-    { key: 'var_0_pv', label: 'Temperatura PV', role: 'pv' },
-    { key: 'var_0_sp', label: 'Temperatura SP', role: 'sp' },
-    { key: 'var_2_pv', label: 'Válvula Abertura', role: 'mv' }
-  ]
-}
-```
+- 1 driver Python;
+- 0..N controladores Python ativos.
 
-Uso desse catálogo:
+Motivacao:
 
-- nomear legendas, tooltip e menu contextual;
-- desacoplar a UI de labels fixos como `PV`, `SP` e `MV`;
-- permitir que sensores, setpoints, atuadores e futuras curvas derivadas cheguem com nomes estáveis;
-- manter fallback automático gerado a partir de `Plant.variables` quando o backend ainda não enviar metadados.
+- reduzir latencia entre leitura, controle e escrita;
+- evitar round-trip por amostra com frontend;
+- manter sequencia deterministica;
+- reduzir acoplamento de UX com timing operacional.
 
-#### 3. Estatísticas
+## 9. Ownership por camada
 
-O toolbar e os cards consomem:
+### Frontend
 
-- `PlantStats`
-- `VariableStats`
+Responsavel por:
 
-O backend pode:
+- fluxo de usuario;
+- formularios de planta, driver e controlador;
+- visualizacao de runtime;
+- reacao a eventos do backend.
 
-- calcular isso nativamente e enviar pronto;
-- ou enviar apenas dados crus e deixar a UI calcular.
+### Backend Rust
 
-Se a frequência for alta, o ideal é enviar estatísticas já agregadas.
+Responsavel por:
 
-### Como alimentar os gráficos em tempo real
+- validar requests;
+- garantir integridade de dominio;
+- persistir no workspace;
+- reconciliar plugins referenciados por snapshots de planta;
+- preparar `.venv` e runtime scaffold;
+- supervisionar processo Python;
+- emitir eventos para a UI.
 
-Fluxo recomendado:
+### Runtime Python
 
-1. Usuário conecta a planta.
-2. Frontend chama `connect_plant`.
-3. Backend inicia a aquisição.
-4. Backend publica eventos por planta.
-5. Frontend escuta e atualiza `plantData`.
+Responsavel por:
 
-### Eventos recomendados
+- carregar classes Python do driver e dos controladores;
+- instanciar componentes com contexto pronto;
+- executar `read -> control -> write -> publish`;
+- aplicar hot updates de setpoints e controladores;
+- emitir telemetria e diagnostico operacional.
 
-#### `plant:data`
+## 10. Protocolo entre Rust e runner
 
-Payload sugerido:
+Canal:
 
-```ts
-{
-  plantId: string;
-  points: PlantDataPoint[];
-  stats?: PlantStats;
-  variableStats?: VariableStats[];
-  series?: [
-    { key: 'var_0_pv', label: 'Temperatura PV', role: 'pv' },
-    { key: 'var_0_sp', label: 'Temperatura SP', role: 'sp' },
-    { key: 'var_2_pv', label: 'Válvula Abertura', role: 'mv' }
-  ];
-}
-```
+- JSON Lines por `stdin/stdout`.
 
-Uso:
+Comandos suportados hoje:
 
-- `append` ou ingestão em lote no buffer da planta correspondente;
-- atualização do gráfico sem remontar o módulo;
-- refresh de labels quando o catálogo de séries vier no payload.
+- `init`
+- `start`
+- `pause`
+- `resume`
+- `update_setpoints`
+- `update_controllers`
+- `shutdown`
+- `stop`
+- `write_outputs` reservado
 
-#### `plant:stats`
+Eventos emitidos pelo runner:
 
-Payload sugerido:
+- `ready`
+- `connected`
+- `telemetry`
+- `cycle_overrun`
+- `warning`
+- `error`
+- `stopped`
 
-```ts
-{
-  plantId: string;
-  stats: PlantStats;
-  variableStats: VariableStats[];
-}
-```
+Eventos emitidos pelo backend para a UI:
 
-Uso:
+- `plant://telemetry`
+- `plant://status`
+- `plant://error`
 
-- atualizar toolbar;
-- atualizar cards laterais e indicadores.
+## 11. Bootstrap da runtime
 
-#### `plant:connection`
+O bootstrap entregue ao runner contem quatro blocos:
 
-Payload sugerido:
+- `driver`
+- `controllers`
+- `plant`
+- `runtime`
 
-```ts
-{
-  plantId: string;
-  connected: boolean;
-  paused: boolean;
-  reason?: string;
-}
-```
+### `driver`
 
-Uso:
+Contem:
 
-- badges de conexão;
-- travar/destravar ações locais.
+- identidade do plugin;
+- `plugin_dir`;
+- `source_file`;
+- `class_name`;
+- `config` da instancia.
 
-### Como alimentar novas curvas
+### `controllers`
 
-A UI já suporta múltiplas curvas por variável, desde que o backend mantenha a convenção de chave.
+Contem apenas os controladores ativos.
 
-#### Convenção atual
+Cada item leva:
 
-- sensor PV: `var_{index}_pv`
-- sensor SP: `var_{index}_sp`
-- atuador/MV: `var_{index}_pv` para a variável do tipo `atuador`
+- identidade da instancia;
+- identidade do plugin;
+- `plugin_dir`;
+- `source_file`;
+- `class_name`;
+- `name`;
+- `controller_type`;
+- `input_variable_ids`;
+- `output_variable_ids`;
+- `params`.
 
-### Estratégias para escalar curvas
+### `plant`
 
-#### Estratégia A: manter convenção atual
+Contem:
 
-Mais simples para curto prazo.
+- `variables`;
+- `variables_by_id`;
+- `sensors`;
+- `actuators`;
+- `setpoints`.
 
-#### Estratégia B: introduzir metadados de série
+### `runtime`
 
-Criar um evento complementar com a definição das séries:
+Contem:
 
-```ts
-{
-  plantId: string;
-  series: [
-    { key: 'var_0_pv', label: 'Temperatura PV', role: 'pv' },
-    { key: 'var_0_sp', label: 'Temperatura SP', role: 'sp' },
-    { key: 'var_2_pv', label: 'Válvula Abertura', role: 'mv' }
-  ]
-}
-```
+- `runtime.id`;
+- `timing.sample_time_ms`;
+- `timing.owner = runtime`;
+- `supervision.owner = rust`;
+- paths da runtime efemera e da `.venv` reutilizada.
 
-Essa estratégia passa a ser a preferencial no frontend atual.
+## 12. Fluxo de `connect_plant`
 
-Ela é melhor se futuramente houver:
+Resumo arquitetural:
 
-- curvas derivadas;
-- predição;
-- alarmes;
-- envelopes;
-- múltiplos controladores por variável.
+1. command recebe `plant_id`;
+2. `DriverRuntimeService` resolve planta, driver e controladores;
+3. backend reconcilia referencias de plugins por id/nome;
+4. backend escolhe ou cria a `.venv` pelo `env_hash`;
+5. backend materializa a runtime efemera;
+6. backend sobe o runner;
+7. aguarda `ready`;
+8. envia `init` e `start`;
+9. recebe `connected`;
+10. marca a planta como conectada.
 
-Na implementação atual:
+## 13. Fluxo do ciclo por amostra
 
-- o Plotter usa `label` em legendas, tooltips e menu contextual;
-- o store faz seed automático de labels a partir da planta para manter compatibilidade;
-- quando o backend mandar esse catálogo, ele prevalece sobre o fallback local.
+`PlantRuntimeEngine.run_cycle()` executa:
 
-### Retenção e performance para sessões longas
+1. esperar deadline;
+2. `driver.read()`;
+3. normalizar sensores e atuadores lidos;
+4. `controller.compute(snapshot)` para cada controlador ativo;
+5. agregar saidas dos controladores;
+6. `driver.write(outputs)` uma unica vez por ciclo, se houver saidas;
+7. montar telemetria;
+8. emitir `telemetry`;
+9. emitir `cycle_overrun` quando necessario.
 
-O frontend foi preparado para operar continuamente sem crescimento ilimitado do custo de renderização:
+## 14. Contrato dos plugins Python
 
-- o buffer de telemetria do Plotter suporta política de retenção por planta via `setPlantBufferConfig`;
-- a ingestão incremental usa `appendPlantData` e `ingestPlantTelemetry`, evitando recriar arrays completos a cada amostra;
-- o gráfico renderiza uma amostragem adaptativa da janela visível, reduzindo o custo quando a planta acumula muitos pontos;
-- a detecção de atualização do gráfico considera assinatura temporal da série, então continua funcionando mesmo com buffer fixo e trim.
+### Driver
 
-Diretriz prática:
+Recebe `DriverPluginContext` com:
 
-- o frontend deve manter um working set para operação;
-- o backend deve continuar sendo o responsável por histórico completo, persistência e replay quando isso for requisito.
+- `config`
+- `plant`
+- `runtime`
 
-### Como integrar o painel de controladores
+Metodos obrigatorios:
 
-`ControllerPanel.svelte` já possui UI para:
+- `connect()`
+- `stop()`
+- `read()`
 
-- ativar/desativar controlador;
-- renomear controlador;
-- editar parâmetros;
-- ajustar setpoints;
-- remover controlador.
+Metodo obrigatorio quando houver controladores ativos:
 
-### Fluxo recomendado
+- `write(outputs)`
 
-1. UI altera um parâmetro.
-2. Frontend envia comando específico.
-3. Backend confirma com snapshot atualizado do controlador.
-4. UI reconcilia o estado local.
+### Controlador
 
-### Comandos sugeridos
+Recebe `ControllerPluginContext` com:
 
-- `add_controller`
-- `update_controller_meta`
-- `update_controller_param`
-- `remove_controller`
-- `update_setpoint`
+- `controller`
+- `plant`
+- `runtime`
 
-### Importação de planta no Plotter
+Metodo obrigatorio:
 
-Hoje `openPlant` já permite abrir exportação JSON sem Rust.
-Esse fluxo já é usado tanto pelo botão de abrir quanto pelo drag and drop.
+- `compute(snapshot)`
 
-Quando integrar com backend, há duas opções:
+Metodos opcionais:
 
-#### Opção A: manter parsing no frontend
+- `connect()`
+- `stop()`
 
-Vantagens:
+## 15. Hot updates em runtime
 
-- menor latência para abrir arquivo;
-- menos acoplamento com Rust.
+### Setpoints
 
-#### Opção B: mover parsing para Rust
+- persistem no backend;
+- sao refletidos para a runtime via `update_setpoints`;
+- entram no proximo ciclo sem restart.
 
-Vantagens:
+### Controladores
 
-- validação única;
-- possibilidade de formatos adicionais;
-- melhor controle de erros e versionamento.
+- persistem no backend;
+- sao refletidos para a runtime via `update_controllers`;
+- o runner faz hot-swap das instancias ativas.
 
-Se escolher a opção B, manter o shape de `OpenPlantResponse`.
+Limitacao arquitetural importante:
 
-## 5.3 Analyzer
+- hot update nao reconstrui a `.venv`;
+- se um plugin novo nao participou da composicao do ambiente no momento do `connect`, a operacao mais segura continua sendo reconectar a planta.
 
-### Arquivos centrais
+## 16. Performance e escalabilidade
 
-- `src/lib/components/modules/AnalyzerModule.svelte`
-- `src/lib/components/analyzer/AnalyzerTabs.svelte`
-- `src/lib/components/analyzer/VariableChart.svelte`
-- `src/lib/components/analyzer/VariableSelectorPanel.svelte`
-- `src/lib/stores/analyzerStore.svelte.ts`
+Decisoes que ajudam a escalar:
 
-### Papel
+- pacing monotonic no runner, nao no frontend;
+- ambiente Python deduplicado por `env_hash`;
+- driver e controladores no mesmo processo para reduzir latencia;
+- comando incremental para setpoints e controladores, evitando restart em alteracoes simples;
+- eventos incrementais do backend para a UI, em vez de polling bruto.
 
-Analisar arquivos históricos fora da operação em tempo real.
+## 17. Seguranca e previsibilidade
 
-### O que o backend precisa alimentar
+Regras arquiteturais importantes:
 
-O Analyzer trabalha melhor com payload já processado por variável.
+- o backend valida sintaxe Python antes do spawn;
+- o backend valida `write(outputs)` antes de permitir controlador ativo;
+- o runner revalida esse contrato defensivamente;
+- o backend reconcilia snapshots antigos com plugins reais do workspace;
+- warnings operacionais nao derrubam o processo automaticamente;
+- erros estruturais viram eventos de erro e podem encerrar a runtime.
 
-Estrutura esperada:
+## 18. Pontos de extensao futuros
 
-- nome da variável/sensor;
-- unidade;
-- amostras de sensor;
-- amostras de setpoint;
-- amostras de atuadores vinculados.
+A arquitetura atual ja deixa espaco para:
 
-### Estratégias de integração
+- novos tipos de runtime alem de Python;
+- commands adicionais de IO em runtime;
+- telemetria mais rica por controlador;
+- multiplas estrategias de scheduler no runner;
+- modularizacao adicional do `runtime.rs` e do `runner.py` sem mudar o contrato externo.
 
-#### Estratégia A: processamento no frontend
+## 19. Documentos complementares
 
-Manter o formato atual e usar `analyzerBackend.ts`.
-Hoje é isso que acontece, inclusive no drag and drop do módulo.
-
-#### Estratégia B: processamento no backend
-
-Backend recebe arquivo cru, processa e devolve:
-
-- `plantName`
-- `processedVariables`
-- metadados do experimento
-
-Essa estratégia é melhor se houver:
-
-- arquivos grandes;
-- parsing pesado;
-- filtros avançados;
-- análise estatística nativa.
-
-### Eventos/comandos sugeridos
-
-- `analyzer_process_file`
-- `analyzer_load_session`
-- `analyzer_export_selection`
-
-### O que não precisa mudar na UI
-
-- multiabas;
-- seleção de variáveis;
-- range/zoom;
-- context menu de séries.
-
-Tudo isso já opera sobre estruturas tipadas e independe da origem do dado.
-
-## 5.4 Plugins
-
-### Arquivos centrais
-
-- `src/lib/components/modules/PluginsModule.svelte`
-- `src/lib/components/plugins/PluginCard.svelte`
-- `src/lib/components/modals/CreatePluginModal.svelte`
-- `src/lib/components/modals/PluginInstanceConfigModal.svelte`
-- `src/lib/services/plugin/pluginService.ts`
-
-### Papel
-
-Gerenciar a biblioteca de:
-
-- drivers;
-- controladores reutilizáveis;
-- tipos personalizados adicionais;
-- schemas de configuração;
-- código associado.
-
-### Estado atual da UI
-
-A UI já possui:
-
-- listagem;
-- busca;
-- filtros por categoria;
-- criação;
-- edição;
-- exclusão;
-- importação por JSON;
-- visualização de código;
-- criação de kind personalizado normalizado em `snake_case`.
-
-O módulo foi simplificado para priorizar fluxo: filtros e ações no topo, métricas rápidas em cards e grade principal ocupando toda a largura útil.
-
-### O que o backend precisa fornecer
-
-#### Catálogo
-
-Lista de `PluginDefinition`.
-
-Hoje a UI já mistura:
-
-- plugins vindos do backend para tipos nativos;
-- plugins locais para tipos personalizados e overrides.
-
-#### Operações
-
-- criar;
-- atualizar;
-- remover;
-- listar;
-- importar/exportar;
-- validar;
-- instanciar para uso em plantas.
-
-### Comandos sugeridos
-
-- `create_plugin`
-- `update_plugin`
-- `delete_plugin`
-- `list_plugins`
-- `list_plugins_by_type`
-- `validate_plugin_file`
-- `register_plugin`
-- `instantiate_plugin`
-
-### Instância de plugin em planta
-
-`PluginInstanceConfigModal.svelte` já está pronto para renderizar campos com base no schema. O backend só precisa respeitar:
-
-- nome do campo;
-- tipo do campo;
-- valor padrão;
-- obrigatoriedade implícita.
-
-Para drivers, a UI também reserva:
-
-- `num_sensors`
-- `num_actuators`
-
-Esses campos são preenchidos automaticamente a partir das variáveis da planta, ficam bloqueados no modal de instância e são sincronizados em tempo real durante a criação/edição da planta.
-
-### Fluxo recomendado
-
-1. UI lista plugins.
-2. Usuário cria ou edita.
-3. Backend valida e persiste.
-4. UI atualiza o catálogo com o objeto normalizado retornado.
-
-Não é necessário refazer a tela ao integrar. Basta trocar a implementação do service.
-
-## 6. Como Escalar para Novos Módulos
-
-O padrão atual deve ser repetido:
-
-1. criar um novo `type` para o domínio;
-2. criar um novo service dedicado;
-3. criar store apenas se houver estado compartilhado do módulo;
-4. manter a tela principal em `components/modules`;
-5. plugar o módulo em `+page.svelte` e na `Sidebar`.
-
-### Regra prática
-
-Se um fluxo for reutilizável, vira componente.
-
-Se um fluxo falar com backend ou persistência, vira service.
-
-Se o estado precisar sobreviver à navegação interna, vira store.
-
-## 7. Contratos Recomendados para o Backend Tauri
-
-## 7.1 Commands
-
-Sugestão mínima:
-
-- `get_app_bootstrap`
-- `list_plants`
-- `create_plant`
-- `open_plant`
-- `remove_plant`
-- `connect_plant`
-- `disconnect_plant`
-- `pause_plant`
-- `resume_plant`
-- `add_controller`
-- `update_controller_meta`
-- `update_controller_param`
-- `update_setpoint`
-- `list_plugins`
-- `create_plugin`
-- `update_plugin`
-- `delete_plugin`
-- `validate_plugin_file`
-- `register_plugin`
-- `analyzer_process_file`
-
-Comandos já integrados no frontend atual:
-
-- `list_plants`
-- `create_plant`
-- `remove_plant`
-- `connect_plant`
-- `disconnect_plant`
-- `pause_plant`
-- `resume_plant`
-- `list_plugins`
-- `list_plugins_by_type`
-- `create_plugin`
-
-## 7.2 Events
-
-Sugestão mínima:
-
-- `plant:data`
-- `plant:stats`
-- `plant:connection`
-- `plugin:updated`
-- `plugin:removed`
-- `app:error`
-- `app:notification`
-
-## 8. Resumo Técnico
-
-O frontend já está pronto para integração porque:
-
-- os módulos estão separados;
-- a UI não depende diretamente de `invoke`;
-- os dados fluem por tipos previsíveis;
-- o Plotter já sabe lidar com planta ausente via workspace `Unnamed`, importação por arquivo e drag and drop;
-- plugins e controladores já possuem telas de edição/configuração;
-- plantas já podem ser criadas, editadas e reconciliadas em modo híbrido;
-- a UI já aceita tipos personalizados de plugin sem ficar acoplada aos tipos nativos do backend;
-- o sistema visual já usa primitives reutilizáveis para abas e composição de workspace;
-- a troca para backend real pode acontecer na camada de services sem quebrar a experiência do usuário final.
+- [payload.md](/home/higor/Documents/programacao/python/serial-plotter-app/payload.md)
+- [connection.md](/home/higor/Documents/programacao/python/serial-plotter-app/connection.md)

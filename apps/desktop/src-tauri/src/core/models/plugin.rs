@@ -73,6 +73,9 @@ pub struct PluginRegistry {
 
     pub runtime: PluginRuntime,
 
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub entry_class: String,
+
     #[serde(default)]
     pub schema: Vec<PluginSchemaField>,
 
@@ -105,6 +108,9 @@ pub struct CreatePluginRequest {
     pub runtime: PluginRuntime,
 
     #[serde(default)]
+    pub entry_class: Option<String>,
+
+    #[serde(default)]
     pub schema: Vec<PluginSchemaField>,
 
     #[serde(default)]
@@ -135,6 +141,9 @@ pub struct UpdatePluginRequest {
     pub plugin_type: PluginType,
 
     pub runtime: PluginRuntime,
+
+    #[serde(default)]
+    pub entry_class: Option<String>,
 
     #[serde(default)]
     pub schema: Vec<PluginSchemaField>,

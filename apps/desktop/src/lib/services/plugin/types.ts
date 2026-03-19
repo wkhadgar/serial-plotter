@@ -4,6 +4,7 @@ export interface CreatePluginDto {
   name: string;
   type: PluginKind;
   runtime: PluginRuntime;
+  entry_class?: string | null;
   schema: PluginSchemaFieldDto[];
   source_file?: string | null;
   source_code?: string | null;
@@ -34,6 +35,7 @@ export interface PluginRegistryDto {
   name: string;
   type: PluginKind;
   runtime: PluginRuntime;
+  entry_class?: string | null;
   schema: PluginSchemaFieldDto[];
   source_file?: string | null;
   source_code?: string | null;
@@ -47,6 +49,7 @@ export interface CreatePluginRequest {
   name: string;
   kind: PluginKind;
   runtime: PluginRuntime;
+  entryClass: string;
   schema: PluginSchemaField[];
   sourceFile?: string;
   sourceCode?: string;

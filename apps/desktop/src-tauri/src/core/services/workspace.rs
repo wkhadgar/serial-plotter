@@ -3,6 +3,7 @@ use crate::core::models::plant::Plant;
 use crate::core::models::plugin::{PluginRegistry, PluginType};
 use std::path::{Component, Path, PathBuf};
 
+mod io;
 mod paths;
 mod plant_registry;
 mod plugin_registry;

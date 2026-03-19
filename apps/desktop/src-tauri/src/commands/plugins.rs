@@ -14,19 +14,23 @@ pub struct ImportPluginFileRequest {
     pub content: String,
 }
 
+fn into_plugin_result(
+    result: crate::core::error::AppResult<PluginRegistry>,
+) -> Result<PluginRegistry, ErrorDto> {
+    result.map_err(ErrorDto::from)
+}
+
 #[tauri::command]
 pub fn create_plugin(
     state: State<'_, AppState>,
     request: CreatePluginRequest,
 ) -> Result<PluginRegistry, ErrorDto> {
-    let plugin = PluginService::create(state.plugins(), request).map_err(ErrorDto::from)?;
-
-    Ok(plugin)
+    into_plugin_result(PluginService::create(state.plugins(), request))
 }
 
 #[tauri::command]
 pub fn get_plugin(state: State<'_, AppState>, id: String) -> Result<PluginRegistry, ErrorDto> {
-    PluginService::get(state.plugins(), &id).map_err(ErrorDto::from)
+    into_plugin_result(PluginService::get(state.plugins(), &id))
 }
 
 #[tauri::command]
@@ -34,7 +38,7 @@ pub fn update_plugin(
     state: State<'_, AppState>,
     request: UpdatePluginRequest,
 ) -> Result<PluginRegistry, ErrorDto> {
-    PluginService::update(state.plugins(), request).map_err(ErrorDto::from)
+    into_plugin_result(PluginService::update(state.plugins(), request))
 }
 
 #[tauri::command]
@@ -49,12 +53,12 @@ pub fn load_plugins(state: State<'_, AppState>) -> Result<Vec<PluginRegistry>, E
 
 #[tauri::command]
 pub fn delete_plugin(state: State<'_, AppState>, id: String) -> Result<PluginRegistry, ErrorDto> {
-    PluginService::remove(state.plugins(), &id).map_err(ErrorDto::from)
+    into_plugin_result(PluginService::remove(state.plugins(), &id))
 }
 
 #[tauri::command]
 pub fn import_plugin_file(request: ImportPluginFileRequest) -> Result<PluginRegistry, ErrorDto> {
-    PluginImportService::parse_file(&request.content).map_err(ErrorDto::from)
+    into_plugin_result(PluginImportService::parse_file(&request.content))
 }
 
 #[tauri::command]

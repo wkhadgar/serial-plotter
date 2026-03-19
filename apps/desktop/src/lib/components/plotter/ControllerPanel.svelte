@@ -32,7 +32,7 @@
     onToggleControllerActive: (id: string, nextActive: boolean) => void;
     onUpdateControllerMeta: (id: string, field: string, value: any) => void;
     onUpdateControllerParam: (id: string, paramKey: string, value: any) => void;
-    onUpdateSetpoint: (varIndex: number, value: number) => void;
+    onUpdateSetpoint: (varIndex: number, value: number) => void | Promise<void>;
   } = $props();
 
   let setpointsExpanded = $state(true);
