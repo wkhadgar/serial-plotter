@@ -9,6 +9,7 @@
     name: string;
     dataKey: string;
     color: string;
+    unit?: string;
   }
 
   interface Props {
@@ -107,6 +108,15 @@
   const isCollapsedActuator = $derived(hasActuatorChart && layoutMode === 'collapsed');
   const showActuatorChart = $derived(hasActuatorChart && (!isCollapsedActuator || actuatorExpanded));
   const sensorXAxisMode = $derived(showActuatorChart ? 'grid-only' : 'full');
+  const currentPvValue = $derived.by(() => getCurrentValue(pvData, pvKey));
+  const currentSpValue = $derived.by(() => getCurrentValue(pvData, spKey));
+  const currentActuatorValueById = $derived.by(() => {
+    const values: Record<string, number | null> = {};
+    for (const actuator of actuators) {
+      values[actuator.id] = getCurrentValue(mvData, actuator.dataKey);
+    }
+    return values;
+  });
   const resolvedStats = $derived.by(() => {
     if (!stats) return null;
 
@@ -139,6 +149,24 @@
     if (nextMode !== 'collapsed') {
       actuatorExpanded = false;
     }
+  }
+
+  function getCurrentValue(data: ChartDataPoint[], key: string): number | null {
+    for (let index = data.length - 1; index >= 0; index -= 1) {
+      const candidate = data[index]?.[key];
+      if (Number.isFinite(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  function formatLegendValue(value: number | null, valueUnit = ''): string {
+    if (value == null) return '--';
+
+    const precision = Math.abs(value) >= 100 ? 1 : 2;
+    const formatted = value.toFixed(precision);
+    return valueUnit ? `${formatted} ${valueUnit}` : formatted;
   }
 
   onMount(() => {
@@ -198,15 +226,24 @@
         <div class="flex shrink-0 items-center gap-1">
           <div class="w-2 h-2 rounded-full" style="background-color: {pvStyle?.color ?? colors.pv}"></div>
           <span class="text-slate-500 dark:text-zinc-400">{pvLabel}</span>
+          <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700 dark:bg-white/10 dark:text-zinc-200">
+            {formatLegendValue(currentPvValue, unit)}
+          </span>
         </div>
         <div class="flex shrink-0 items-center gap-1">
           <div class="w-2 h-2 rounded-full" style="background-color: {spStyle?.color ?? colors.sp}"></div>
           <span class="text-slate-500 dark:text-zinc-400">{spLabel}</span>
+          <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700 dark:bg-white/10 dark:text-zinc-200">
+            {formatLegendValue(currentSpValue, unit)}
+          </span>
         </div>
         {#each actuators as act, idx}
           <div class="flex shrink-0 items-center gap-1">
             <div class="w-2 h-2 rounded-full" style="background-color: {lineStyles[act.dataKey]?.color || act.color || actuatorColors[idx % actuatorColors.length]}"></div>
             <span class="text-slate-500 dark:text-zinc-400">{lineStyles[act.dataKey]?.label ?? act.name}</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700 dark:bg-white/10 dark:text-zinc-200">
+              {formatLegendValue(currentActuatorValueById[act.id] ?? null, act.unit)}
+            </span>
           </div>
         {/each}
       </div>

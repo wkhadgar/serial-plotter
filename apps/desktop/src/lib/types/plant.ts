@@ -104,12 +104,12 @@ export function buildPlantSeriesCatalog(plantId: string, variables: PlantVariabl
     if (variable.type === 'sensor') {
       series.push({
         key: keys.pv,
-        label: `${variable.name} PV`,
+        label: `${variable.name}`,
         role: 'pv',
       });
       series.push({
         key: keys.sp,
-        label: `${variable.name} SP`,
+        label: `${variable.name}`,
         role: 'sp',
       });
       return;

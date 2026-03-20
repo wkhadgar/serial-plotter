@@ -23,6 +23,7 @@
     name: string;
     dataKey: string;
     color: string;
+    unit?: string;
   }
 
   interface SensorEntry {
@@ -79,6 +80,7 @@
           name: variable.name,
           dataKey: getVariableKeys(index).pv,
           color: ACTUATOR_COLORS[actuatorList.length % ACTUATOR_COLORS.length],
+          unit: variable.unit,
         });
       }
     }

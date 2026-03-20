@@ -77,7 +77,7 @@ export function buildContextSeriesControls(params: {
 
   controls.push({
     key: sensorKeys.pv,
-    label: pvStyle?.label ?? getSeriesLabel(catalogByKey, sensorKeys.pv, `${contextSensor.variable.name} PV`),
+    label: pvStyle?.label ?? getSeriesLabel(catalogByKey, sensorKeys.pv, `${contextSensor.variable.name}`),
     color: pvStyle?.color ?? DEFAULT_LINE_COLORS.pv,
     visible: pvStyle?.visible ?? true,
   });
