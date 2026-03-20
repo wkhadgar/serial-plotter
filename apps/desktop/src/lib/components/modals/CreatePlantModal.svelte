@@ -604,35 +604,134 @@
               </p>
             </label>
 
-            {#if driverInstance}
+            <div class="space-y-3 pt-2">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <h3 class="text-sm font-semibold text-slate-800 dark:text-white">Resumo da configuração</h3>
+                  <p class="text-xs text-slate-500 dark:text-zinc-400">
+                    Revise rapidamente as etapas da planta antes de salvar.
+                  </p>
+                </div>
+              </div>
+
               <div class="p-4 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10">
-                <div class="flex items-center gap-3">
-                  <div class="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                    <Cpu size={20} class="text-blue-600 dark:text-blue-400" />
+                <div class="flex items-start gap-3">
+                  <div class="w-10 h-10 rounded-lg bg-cyan-100 dark:bg-cyan-900/30 flex items-center justify-center shrink-0">
+                    <Gauge size={20} class="text-cyan-600 dark:text-cyan-400" />
                   </div>
                   <div class="flex-1">
-                    <div class="font-medium text-slate-800 dark:text-white">{driverInstance.pluginName}</div>
-                    <div class="text-xs text-slate-500 dark:text-zinc-400">
-                      Driver pronto · {sensorCount} sensor(es) · {actuatorCount} atuador(es) · {normalizedSampleTimeMs > 0 ? `${normalizedSampleTimeMs} ms` : 'sem amostragem'}
+                    <div class="flex flex-wrap items-center gap-2">
+                      <div class="font-medium text-slate-800 dark:text-white">Variáveis</div>
+                      <span class="rounded-full bg-cyan-100 px-2 py-0.5 text-[11px] font-medium text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">
+                        {variables.length} no total
+                      </span>
+                    </div>
+                    <div class="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+                      {sensorCount} sensor(es) · {actuatorCount} atuador(es)
+                    </div>
+                    <div class="mt-3 flex flex-wrap gap-2">
+                      {#each variables as variable (variable.id)}
+                        <span class={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                          variable.type === 'sensor'
+                            ? 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
+                            : 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
+                        }`}>
+                          {#if variable.type === 'sensor'}
+                            <Gauge size={11} />
+                          {:else}
+                            <Zap size={11} />
+                          {/if}
+                          {variable.name}
+                        </span>
+                      {/each}
                     </div>
                   </div>
                   <button
-                    onclick={() => currentStep = 'driver'}
+                    onclick={() => currentStep = 'variables'}
                     class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
                   >
                     Alterar
                   </button>
                 </div>
               </div>
-            {:else}
-              <button
-                onclick={() => currentStep = 'driver'}
-                class="w-full p-4 rounded-xl border-2 border-dashed border-slate-200 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 transition-colors text-slate-500 dark:text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400"
-              >
-                <Cpu size={24} class="mx-auto mb-2 opacity-50" />
-                <div class="text-sm font-medium">Selecionar driver da planta</div>
-              </button>
-            {/if}
+
+              <div class="p-4 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10">
+                <div class="flex items-start gap-3">
+                  <div class="w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                    <Cpu size={20} class="text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div class="flex-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <div class="font-medium text-slate-800 dark:text-white">Driver</div>
+                      <span class={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        driverInstance
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                          : 'bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-300'
+                      }`}>
+                        {driverInstance ? 'configurado' : 'pendente'}
+                      </span>
+                    </div>
+                    {#if driverInstance}
+                      <div class="mt-1 text-sm text-slate-700 dark:text-zinc-200">{driverInstance.pluginName}</div>
+                      <div class="text-xs text-slate-500 dark:text-zinc-400">
+                        {sensorCount} sensor(es) · {actuatorCount} atuador(es) · {normalizedSampleTimeMs > 0 ? `${normalizedSampleTimeMs} ms` : 'sem amostragem'}
+                      </div>
+                    {:else}
+                      <div class="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+                        Nenhum driver selecionado ainda.
+                      </div>
+                    {/if}
+                  </div>
+                  <button
+                    onclick={() => currentStep = 'driver'}
+                    class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    {driverInstance ? 'Alterar' : 'Selecionar'}
+                  </button>
+                </div>
+              </div>
+
+              <div class="p-4 rounded-xl bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10">
+                <div class="flex items-start gap-3">
+                  <div class="w-10 h-10 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
+                    <Settings size={20} class="text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div class="flex-1">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <div class="font-medium text-slate-800 dark:text-white">Controladores</div>
+                      <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                        {selectedControllers.length} configurado(s)
+                      </span>
+                    </div>
+                    {#if selectedControllers.length > 0}
+                      <div class="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+                        Revise entradas, saídas e nomes dos controladores adicionados.
+                      </div>
+                      <div class="mt-3 space-y-2">
+                        {#each selectedControllers as controller (controller.id)}
+                          <div class="rounded-lg border border-slate-200/80 bg-white/80 px-3 py-2 text-xs dark:border-white/10 dark:bg-[#18181b]/80">
+                            <div class="font-medium text-slate-700 dark:text-zinc-200">{controller.name}</div>
+                            <div class="mt-1 text-slate-500 dark:text-zinc-400">
+                              {controller.type} · {controller.inputVariableIds.length} entrada(s) · {controller.outputVariableIds.length} saída(s)
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    {:else}
+                      <div class="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+                        Nenhum controlador configurado ainda.
+                      </div>
+                    {/if}
+                  </div>
+                  <button
+                    onclick={() => currentStep = 'controllers'}
+                    class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    Alterar
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
         {:else if currentStep === 'driver'}
