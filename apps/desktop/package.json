@@ -1,7 +1,7 @@
 {
   "name": "senamby",
   "version": "0.1.0",
-  "description": "",
+  "description": "Senamby desktop plotter workspace",
   "type": "module",
   "scripts": {
     "dev": "vite dev",

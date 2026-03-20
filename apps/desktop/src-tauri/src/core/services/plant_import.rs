@@ -1186,7 +1186,7 @@ mod tests {
         assert_eq!(controller.plugin_name, controller_name);
         assert_eq!(controller.input_variable_ids, vec!["var_0".to_string()]);
         assert_eq!(controller.output_variable_ids, vec!["var_1".to_string()]);
-        assert!(!controller.active);
+        assert!(controller.active);
 
         let _ = WorkspaceService::delete_plant_registry(&plant_name);
         let _ = WorkspaceService::delete_plugin_registry(&driver_name, PluginType::Driver);

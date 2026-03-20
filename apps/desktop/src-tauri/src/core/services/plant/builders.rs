@@ -2,8 +2,9 @@ use super::controller_params::fill_missing_controller_params;
 use super::validation::resolve_plugin;
 use crate::core::error::AppResult;
 use crate::core::models::plant::{
-    CreatePlantControllerRequest, CreatePlantDriverRequest, CreatePlantRequest,
-    CreatePlantVariableRequest, Plant, PlantController, PlantDriver, PlantStats, PlantVariable,
+    ControllerRuntimeStatus, CreatePlantControllerRequest, CreatePlantDriverRequest,
+    CreatePlantRequest, CreatePlantVariableRequest, Plant, PlantController, PlantDriver,
+    PlantStats, PlantVariable,
 };
 use crate::core::models::plugin::{PluginRegistry, PluginType};
 use crate::state::PluginStore;
@@ -121,9 +122,10 @@ fn build_controller(
         plugin_name: plugin.name,
         name: request.name.trim().to_string(),
         controller_type: request.controller_type.trim().to_string(),
-        active: false,
+        active: request.active,
         input_variable_ids: request.input_variable_ids,
         output_variable_ids: request.output_variable_ids,
         params,
+        runtime_status: ControllerRuntimeStatus::Synced,
     })
 }

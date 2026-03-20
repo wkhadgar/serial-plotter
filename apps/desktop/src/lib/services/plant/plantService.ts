@@ -37,6 +37,19 @@ import type {
 } from './types';
 
 const DEFAULT_SAMPLE_TIME_MS = 100;
+const telemetrySeriesKeyCache = new Map<
+  string,
+  {
+    signature: string;
+    descriptors: Array<{
+      id: string;
+      type: PlantVariable['type'];
+      pvKey: string;
+      spKey: string | null;
+      fallbackSetpoint: number;
+    }>;
+  }
+>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -51,6 +64,26 @@ function normalizeSampleTimeMs(sampleTimeMs: number | null | undefined, fallback
   const resolved = Number(sampleTimeMs);
   if (!Number.isFinite(resolved)) return fallback;
   return Math.max(1, Math.round(resolved));
+}
+
+function getTelemetrySeriesKeyDescriptors(plant: Plant) {
+  const signature = plant.variables
+    .map((variable) => `${variable.id}:${variable.type}:${variable.setpoint}`)
+    .join('|');
+  const cached = telemetrySeriesKeyCache.get(plant.id);
+  if (cached && cached.signature === signature) {
+    return cached.descriptors;
+  }
+
+  const descriptors = plant.variables.map((variable, index) => ({
+    id: variable.id,
+    type: variable.type,
+    pvKey: `var_${index}_pv`,
+    spKey: variable.type === 'sensor' ? `var_${index}_sp` : null,
+    fallbackSetpoint: variable.setpoint,
+  }));
+  telemetrySeriesKeyCache.set(plant.id, { signature, descriptors });
+  return descriptors;
 }
 
 function mapVariableDtoToFrontend(variable: PlantDto['variables'][number], index: number): PlantVariable {
@@ -96,6 +129,7 @@ function mapControllerDtoToFrontend(controller: PlantControllerDto): Controller 
     params: Object.fromEntries(
       Object.entries(controller.params ?? {}).map(([key, param]) => [key, mapControllerParamDtoToFrontend(param)])
     ),
+    runtimeStatus: controller.runtime_status ?? 'synced',
   };
 }
 
@@ -316,29 +350,25 @@ export function buildTelemetryPacketFromRuntimeEvent(
   plant: Plant,
   event: PlantRuntimeTelemetryEvent
 ): PlantTelemetryPacket {
-  const runtimePayload = event.payload ?? {};
+  const descriptors = getTelemetrySeriesKeyDescriptors(plant);
   const point: PlantDataPoint = {
-    time: Math.max(0, toFiniteNumber(runtimePayload.uptime_s, 0)),
+    time: Math.max(0, toFiniteNumber(event.uptime_s, 0)),
   };
 
-  for (const [index, variable] of plant.variables.entries()) {
-    const pvKey = `var_${index}_pv`;
-    const spKey = `var_${index}_sp`;
-    const sensorValue = toFiniteNumber(runtimePayload.sensors?.[variable.id], 0);
-    const actuatorValue = toFiniteNumber(
-      runtimePayload.written_outputs?.[variable.id]
-        ?? runtimePayload.actuators?.[variable.id]
-        ?? runtimePayload.sensors?.[variable.id],
-      0
-    );
+  for (const descriptor of descriptors) {
+    const sensorValue = toFiniteNumber(event.sensors?.[descriptor.id], 0);
+    const actuatorValue = toFiniteNumber(event.actuators_read?.[descriptor.id], 0);
 
-    if (variable.type === 'sensor') {
-      point[pvKey] = sensorValue;
-      point[spKey] = toFiniteNumber(runtimePayload.setpoints?.[variable.id], variable.setpoint);
+    if (descriptor.type === 'sensor') {
+      point[descriptor.pvKey] = sensorValue;
+      point[descriptor.spKey!] = toFiniteNumber(
+        event.setpoints?.[descriptor.id],
+        descriptor.fallbackSetpoint
+      );
       continue;
     }
 
-    point[pvKey] = actuatorValue;
+    point[descriptor.pvKey] = actuatorValue;
   }
 
   return {
@@ -421,7 +451,7 @@ export async function updatePlant(request: UpdatePlantRequest): Promise<PlantAct
   }
 }
 
-export async function saveControllerInstanceConfig(
+export async function saveController(
   request: SaveControllerInstanceConfigRequest
 ): Promise<SaveControllerInstanceConfigResponse> {
   if (!request.controller.id) {
@@ -430,7 +460,7 @@ export async function saveControllerInstanceConfig(
 
   if (request.source === 'backend') {
     try {
-      const response = await invoke<PlantDto>('save_controller_instance_config', {
+      const response = await invoke<PlantDto>('save_controller', {
         request: {
           plant_id: request.plantId,
           controller_id: request.controller.id,
@@ -459,11 +489,11 @@ export async function saveControllerInstanceConfig(
   return { success: true };
 }
 
-export async function removeControllerInstance(
+export async function removeController(
   request: RemoveControllerInstanceRequest
 ): Promise<PlantActionResponse> {
   try {
-    const response = await invoke<PlantDto>('remove_controller_instance', {
+    const response = await invoke<PlantDto>('remove_controller', {
       request: {
         plant_id: request.plantId,
         controller_id: request.controllerId,
@@ -477,11 +507,11 @@ export async function removeControllerInstance(
   }
 }
 
-export async function savePlantSetpoint(
+export async function saveSetpoint(
   request: SavePlantSetpointRequest
 ): Promise<PlantActionResponse> {
   try {
-    const response = await invoke<PlantDto>('save_plant_setpoint', {
+    const response = await invoke<PlantDto>('save_setpoint', {
       request: {
         plant_id: request.plantId,
         variable_id: request.variableId,
@@ -519,6 +549,16 @@ export async function removePlant(id: string): Promise<PlantActionResponse> {
   }
 }
 
+export async function closePlant(id: string): Promise<PlantActionResponse> {
+  try {
+    const response = await invoke<PlantDto>('close_plant', { id });
+    return { success: true, plant: mapDtoToPlant(response) };
+  } catch (error) {
+    const message = extractServiceErrorMessage(error, 'Erro ao fechar planta no backend');
+    return { success: false, error: message };
+  }
+}
+
 async function invokePlantAction(command: string, id: string, merge: (current: Plant, backend: Plant) => Plant): Promise<PlantActionResponse> {
   const current = await getPlant(id);
   if (!current) {
@@ -536,10 +576,17 @@ async function invokePlantAction(command: string, id: string, merge: (current: P
 }
 
 function mergeBackendRuntimeState(currentPlant: Plant, backendPlant: Plant): Plant {
+  const backendControllersById = new Map(
+    (backendPlant.controllers ?? []).map((controller) => [controller.id, controller])
+  );
+
   return {
     ...backendPlant,
     driver: currentPlant.driver ?? backendPlant.driver,
-    controllers: currentPlant.controllers ?? backendPlant.controllers,
+    controllers: (currentPlant.controllers ?? backendPlant.controllers).map((controller) => ({
+      ...controller,
+      runtimeStatus: backendControllersById.get(controller.id)?.runtimeStatus ?? controller.runtimeStatus ?? 'synced',
+    })),
     source: 'backend',
   };
 }

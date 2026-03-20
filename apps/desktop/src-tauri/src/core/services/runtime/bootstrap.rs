@@ -1,7 +1,7 @@
 use super::{
-    DriverBootstrapController, DriverBootstrapDriver, DriverBootstrapIoGroup,
-    DriverBootstrapPayload, DriverBootstrapPlant, DriverBootstrapRuntime,
-    DriverBootstrapRuntimePaths, DriverBootstrapRuntimeSupervision, DriverBootstrapRuntimeTiming,
+    DriverBootstrapController, DriverBootstrapDriver, DriverBootstrapPayload,
+    DriverBootstrapPlant, DriverBootstrapRuntime, DriverBootstrapRuntimePaths,
+    DriverBootstrapRuntimeSupervision, DriverBootstrapRuntimeTiming, DriverBootstrapVariable,
     ResolvedRuntimeController,
 };
 use crate::core::error::{AppError, AppResult};
@@ -133,19 +133,22 @@ pub(super) fn resolve_plugin_for_runtime(
     loaded_from_workspace: &mut bool,
 ) -> AppResult<Option<PluginRegistry>> {
     let find_by_name = |plugins: &PluginStore, plugin_name: &str| {
-        plugins
-            .list_by_type(expected_type)
-            .into_iter()
-            .find(|plugin| plugin.name.eq_ignore_ascii_case(plugin_name.trim()))
+        plugins.find_by_type_and_name(expected_type, plugin_name, Clone::clone)
     };
 
     let try_resolve = |plugins: &PluginStore| -> AppResult<Option<PluginRegistry>> {
-        match plugins.get(plugin_id) {
-            Ok(plugin) if plugin.plugin_type == expected_type => Ok(Some(plugin)),
-            Ok(_) | Err(AppError::NotFound(_)) if !plugin_name.trim().is_empty() => {
+        match plugins.read(plugin_id, |plugin| {
+            if plugin.plugin_type == expected_type {
+                Some(plugin.clone())
+            } else {
+                None
+            }
+        }) {
+            Ok(Some(plugin)) => Ok(Some(plugin)),
+            Ok(None) | Err(AppError::NotFound(_)) if !plugin_name.trim().is_empty() => {
                 Ok(find_by_name(plugins, plugin_name))
             }
-            Ok(_) | Err(AppError::NotFound(_)) => Ok(None),
+            Ok(None) | Err(AppError::NotFound(_)) => Ok(None),
             Err(error) => Err(error),
         }
     };
@@ -177,37 +180,22 @@ pub(super) fn build_bootstrap_payload(
     shutdown_timeout_ms: u64,
 ) -> AppResult<DriverBootstrapPayload> {
     let mut variables = Vec::new();
-    let mut variables_by_id = HashMap::new();
     let mut sensor_ids = Vec::new();
     let mut actuator_ids = Vec::new();
-    let mut sensor_variables = Vec::new();
-    let mut sensor_variables_by_id = HashMap::new();
-    let mut actuator_variables = Vec::new();
-    let mut actuator_variables_by_id = HashMap::new();
     let mut setpoints = HashMap::new();
 
     for variable in &plant.variables {
-        let serialized_variable = serde_json::to_value(variable).map_err(|error| {
-            AppError::IoError(format!(
-                "Falha ao serializar variável '{}' da planta: {error}",
-                variable.id
-            ))
-        })?;
+        let serialized_variable = DriverBootstrapVariable::from(variable);
 
-        variables.push(serialized_variable.clone());
-        variables_by_id.insert(variable.id.clone(), serialized_variable.clone());
+        variables.push(serialized_variable);
         setpoints.insert(variable.id.clone(), variable.setpoint);
 
         match variable.var_type {
             VariableType::Sensor => {
                 sensor_ids.push(variable.id.clone());
-                sensor_variables.push(serialized_variable.clone());
-                sensor_variables_by_id.insert(variable.id.clone(), serialized_variable);
             }
             VariableType::Atuador => {
                 actuator_ids.push(variable.id.clone());
-                actuator_variables.push(serialized_variable.clone());
-                actuator_variables_by_id.insert(variable.id.clone(), serialized_variable);
             }
         }
     }
@@ -231,19 +219,8 @@ pub(super) fn build_bootstrap_payload(
             id: plant.id.clone(),
             name: plant.name.clone(),
             variables,
-            variables_by_id,
-            sensors: DriverBootstrapIoGroup {
-                ids: sensor_ids,
-                count: sensor_variables.len(),
-                variables: sensor_variables,
-                variables_by_id: sensor_variables_by_id,
-            },
-            actuators: DriverBootstrapIoGroup {
-                ids: actuator_ids,
-                count: actuator_variables.len(),
-                variables: actuator_variables,
-                variables_by_id: actuator_variables_by_id,
-            },
+            sensor_ids,
+            actuator_ids,
             setpoints,
         },
         runtime: DriverBootstrapRuntime {
@@ -308,4 +285,19 @@ pub(super) fn collect_runtime_setpoints(plant: &Plant) -> HashMap<String, f64> {
         .iter()
         .map(|variable| (variable.id.clone(), variable.setpoint))
         .collect()
+}
+
+impl From<&crate::core::models::plant::PlantVariable> for DriverBootstrapVariable {
+    fn from(variable: &crate::core::models::plant::PlantVariable) -> Self {
+        Self {
+            id: variable.id.clone(),
+            name: variable.name.clone(),
+            var_type: variable.var_type,
+            unit: variable.unit.clone(),
+            setpoint: variable.setpoint,
+            pv_min: variable.pv_min,
+            pv_max: variable.pv_max,
+            linked_sensor_ids: variable.linked_sensor_ids.clone().unwrap_or_default(),
+        }
+    }
 }

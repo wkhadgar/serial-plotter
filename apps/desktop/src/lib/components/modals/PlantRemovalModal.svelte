@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AlertTriangle, Trash2 } from 'lucide-svelte';
+  import { AlertTriangle, X } from 'lucide-svelte';
 
   let {
     visible = $bindable(false),
@@ -33,22 +33,22 @@
       role="document"
     >
       <div class="flex items-start gap-4 mb-4">
-        <div class={`p-3 rounded-lg ${reason === 'min-units' ? 'bg-amber-100 dark:bg-amber-900/20' : 'bg-red-100 dark:bg-red-900/20'}`}>
+        <div class={`p-3 rounded-lg ${reason === 'min-units' ? 'bg-amber-100 dark:bg-amber-900/20' : 'bg-slate-100 dark:bg-slate-800/60'}`}>
           {#if reason === 'min-units'}
             <AlertTriangle size={24} class="text-amber-600 dark:text-amber-400" />
           {:else}
-            <Trash2 size={24} class="text-red-600 dark:text-red-400" />
+            <X size={24} class="text-slate-600 dark:text-slate-300" />
           {/if}
         </div>
         <div class="flex-1">
           <h3 class="text-lg font-bold text-slate-900 dark:text-white mb-1">
-            {reason === 'min-units' ? 'Ação não permitida' : 'Confirmar remoção'}
+            {reason === 'min-units' ? 'Ação não permitida' : 'Fechar planta'}
           </h3>
           <p class="text-sm text-slate-600 dark:text-slate-300">
             {#if reason === 'min-units'}
               É necessário manter ao menos uma unidade ativa no sistema.
             {:else}
-              Deseja realmente remover a planta <strong class="font-semibold text-slate-900 dark:text-white">{plantName}</strong>? Os dados não salvos serão perdidos.
+              Deseja fechar a planta <strong class="font-semibold text-slate-900 dark:text-white">{plantName}</strong>? A runtime será encerrada, a planta sairá da sessão atual e continuará salva nos arquivos.
             {/if}
           </p>
         </div>
@@ -70,10 +70,10 @@
           </button>
           <button
             onclick={onConfirm}
-            class="px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white transition-colors flex items-center gap-2"
+            class="px-4 py-2 rounded-lg text-sm font-medium bg-slate-900 hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 text-white transition-colors flex items-center gap-2"
           >
-            <Trash2 size={14} />
-            Remover planta
+            <X size={14} />
+            Fechar aba
           </button>
         {/if}
       </div>

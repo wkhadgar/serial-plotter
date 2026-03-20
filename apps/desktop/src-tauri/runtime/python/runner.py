@@ -199,6 +199,7 @@ class ControllerProtocol(Protocol):
 @dataclass
 class LoadedController:
     metadata: ControllerMetadata
+    public_metadata: Dict[str, Any]
     instance: ControllerProtocol
 
 
@@ -215,6 +216,7 @@ class PlantRuntimeEngine:
         self.should_exit = False
         self.cycle_id = 0
         self.runtime_started_at: Optional[float] = None
+        self.first_cycle_started_at: Optional[float] = None
         self.last_cycle_started_at: Optional[float] = None
         self.next_cycle_deadline: Optional[float] = None
         self.paused_started_at: Optional[float] = None
@@ -232,6 +234,7 @@ class PlantRuntimeEngine:
         self.should_exit = False
         self.cycle_id = 0
         self.runtime_started_at = None
+        self.first_cycle_started_at = None
         self.last_cycle_started_at = None
         self.next_cycle_deadline = None
         self.paused_started_at = None
@@ -278,6 +281,7 @@ class PlantRuntimeEngine:
         now = time.monotonic()
         if self.runtime_started_at is None:
             self.runtime_started_at = now
+        self.first_cycle_started_at = None
         self.next_cycle_deadline = now
         self.last_cycle_started_at = None
 
@@ -300,7 +304,13 @@ class PlantRuntimeEngine:
                 context,
                 f"controlador '{controller_meta.name}'",
             )
-            loaded.append(LoadedController(metadata=controller_meta, instance=cast(ControllerProtocol, instance)))
+            loaded.append(
+                LoadedController(
+                    metadata=controller_meta,
+                    public_metadata=build_public_controller_metadata(controller_meta).serialize(),
+                    instance=cast(ControllerProtocol, instance),
+                )
+            )
         return loaded
 
     def pause(self) -> None:
@@ -312,7 +322,10 @@ class PlantRuntimeEngine:
 
     def resume(self) -> None:
         if self.paused_started_at is not None:
-            self.paused_duration_s += max(0.0, time.monotonic() - self.paused_started_at)
+            paused_elapsed = max(0.0, time.monotonic() - self.paused_started_at)
+            self.paused_duration_s += paused_elapsed
+            if self.first_cycle_started_at is not None:
+                self.first_cycle_started_at += paused_elapsed
             self.paused_started_at = None
         self.paused = False
         self.next_cycle_deadline = time.monotonic() + (self.sample_time_ms / 1000.0)
@@ -328,12 +341,17 @@ class PlantRuntimeEngine:
         self.should_exit = True
         self.running = False
 
-    def idle_sleep(self) -> None:
-        time.sleep(0.01)
+    def next_wait_timeout(self) -> Optional[float]:
+        if self.should_exit:
+            return 0.0
+        if not self.running or self.paused:
+            return None
+        if self.next_cycle_deadline is None:
+            return 0.0
+        return max(0.0, self.next_cycle_deadline - time.monotonic())
 
     def run_cycle(self) -> None:
         if not self.running or self.paused:
-            self.idle_sleep()
             return
 
         if self.next_cycle_deadline is None:
@@ -345,12 +363,17 @@ class PlantRuntimeEngine:
 
         cycle_started_at = time.monotonic()
         self.cycle_id += 1
+        if self.first_cycle_started_at is None:
+            self.first_cycle_started_at = cycle_started_at
+        effective_dt_ms = self._resolve_effective_dt_ms(cycle_started_at)
 
-        sensors, actuators_read, durations, controller_outputs, written_outputs = self._execute_cycle(cycle_started_at)
+        sensors, actuators_read, durations, controller_outputs, written_outputs = self._execute_cycle(
+            cycle_started_at,
+            effective_dt_ms,
+        )
 
         cycle_finished_at = time.monotonic()
         cycle_duration_ms = (cycle_finished_at - cycle_started_at) * 1000.0
-        effective_dt_ms = self._resolve_effective_dt_ms(cycle_started_at)
 
         sample_step = self.sample_time_ms / 1000.0
         planned_next_deadline = (self.next_cycle_deadline or cycle_started_at) + sample_step
@@ -403,6 +426,7 @@ class PlantRuntimeEngine:
     def _execute_cycle(
         self,
         cycle_started_at: float,
+        effective_dt_ms: float,
     ) -> tuple[SensorPayload, ActuatorPayload, CycleDurations, ControllerOutputPayload, ActuatorPayload]:
         sensors: SensorPayload = {}
         actuators_read: ActuatorPayload = {}
@@ -429,9 +453,9 @@ class PlantRuntimeEngine:
                 snapshot = build_controller_snapshot(
                     cycle_id=self.cycle_id,
                     cycle_started_at=cycle_started_at,
-                    dt_ms=self._resolve_effective_dt_ms(cycle_started_at),
+                    dt_ms=effective_dt_ms,
                     plant=self.bootstrap.plant,
-                    controller=controller.metadata,
+                    controller_public_metadata=controller.public_metadata,
                     sensors=sensors,
                     actuators=actuators_read,
                 )
@@ -496,8 +520,8 @@ class PlantRuntimeEngine:
     def _resolve_uptime_s(self, cycle_started_at: float) -> float:
         if self.cycle_id == 1:
             return 0.0
-        runtime_started_at = self.runtime_started_at or cycle_started_at
-        return max(0.0, time.monotonic() - runtime_started_at - self.paused_duration_s)
+        first_cycle_started_at = self.first_cycle_started_at or cycle_started_at
+        return max(0.0, cycle_started_at - first_cycle_started_at)
 
     def stop(self) -> None:
         for controller in self.controllers:
@@ -695,19 +719,38 @@ def normalize_io_group(raw_value: Any, context: str) -> IOGroup:
 def normalize_plant_context(raw_value: Any) -> PlantContext:
     raw = expect_dict(raw_value, "bootstrap.plant")
     variables = normalize_variable_list(raw.get("variables"), "bootstrap.plant.variables")
-    variables_by_id = normalize_variable_map(raw.get("variables_by_id"), "bootstrap.plant.variables_by_id")
-    if not variables_by_id:
-        variables_by_id = build_variable_map(variables)
     if not variables:
-        variables = list(variables_by_id.values())
+        raise RuntimeError("bootstrap.plant.variables deve conter pelo menos uma variável")
+    variables_by_id = build_variable_map(variables)
+    sensor_ids = normalize_string_list(raw.get("sensor_ids"), "bootstrap.plant.sensor_ids")
+    actuator_ids = normalize_string_list(raw.get("actuator_ids"), "bootstrap.plant.actuator_ids")
+    if not sensor_ids:
+        sensor_ids = [variable.id for variable in variables if variable.type == "sensor"]
+    if not actuator_ids:
+        actuator_ids = [variable.id for variable in variables if variable.type == "atuador"]
+
+    sensor_variables = [variables_by_id[variable_id] for variable_id in sensor_ids if variable_id in variables_by_id]
+    actuator_variables = [
+        variables_by_id[variable_id] for variable_id in actuator_ids if variable_id in variables_by_id
+    ]
 
     return PlantContext(
         id=normalize_string(raw.get("id"), "bootstrap.plant.id"),
         name=normalize_string(raw.get("name"), "bootstrap.plant.name"),
         variables=variables,
         variables_by_id=variables_by_id,
-        sensors=normalize_io_group(raw.get("sensors"), "bootstrap.plant.sensors"),
-        actuators=normalize_io_group(raw.get("actuators"), "bootstrap.plant.actuators"),
+        sensors=IOGroup(
+            ids=sensor_ids,
+            count=len(sensor_variables),
+            variables=sensor_variables,
+            variables_by_id=build_variable_map(sensor_variables),
+        ),
+        actuators=IOGroup(
+            ids=actuator_ids,
+            count=len(actuator_variables),
+            variables=actuator_variables,
+            variables_by_id=build_variable_map(actuator_variables),
+        ),
         setpoints=normalize_float_map(raw.get("setpoints"), "bootstrap.plant.setpoints"),
     )
 
@@ -1023,11 +1066,10 @@ def build_controller_snapshot(
     cycle_started_at: float,
     dt_ms: float,
     plant: PlantContext,
-    controller: ControllerMetadata,
+    controller_public_metadata: Dict[str, Any],
     sensors: SensorPayload,
     actuators: ActuatorPayload,
 ) -> Dict[str, Any]:
-    public_controller = build_public_controller_metadata(controller)
     return {
         "cycle_id": cycle_id,
         "timestamp": cycle_started_at,
@@ -1052,7 +1094,7 @@ def build_controller_snapshot(
             }
             for variable_id, variable in plant.variables_by_id.items()
         },
-        "controller": public_controller.serialize(),
+        "controller": copy.deepcopy(controller_public_metadata),
     }
 
 
@@ -1178,7 +1220,20 @@ def run() -> int:
 
     try:
         while not engine.should_exit:
-            while True:
+            wait_timeout = engine.next_wait_timeout()
+            try:
+                command = command_queue.get(timeout=0.5 if wait_timeout is None else wait_timeout)
+                try:
+                    handle_command(command, engine)
+                except Exception as exc:  # noqa: BLE001
+                    log_exception(exc)
+                    emit("error", {"message": f"Falha ao processar comando '{command.get('type', '')}': {exc}"})
+                    engine.request_shutdown()
+                    continue
+            except queue.Empty:
+                pass
+
+            while not engine.should_exit:
                 try:
                     command = command_queue.get_nowait()
                 except queue.Empty:

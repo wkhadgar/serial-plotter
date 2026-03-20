@@ -3,6 +3,7 @@ export {
   updatePlant,
   listPlants,
   getPlant,
+  closePlant,
   removePlant,
   connectPlant,
   disconnectPlant,
@@ -11,9 +12,9 @@ export {
   openPlant,
   applyPlantTelemetryPacket,
   buildTelemetryPacketFromRuntimeEvent,
-  saveControllerInstanceConfig,
-  removeControllerInstance,
-  savePlantSetpoint,
+  saveController,
+  removeController,
+  saveSetpoint,
   subscribePlantRuntimeEvents,
 } from './plantService';
 

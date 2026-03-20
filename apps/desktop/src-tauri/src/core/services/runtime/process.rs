@@ -1,9 +1,8 @@
 use super::{
     RuntimeCyclePhase, RuntimeEnvelope, RuntimeLifecycleState, RuntimeStatusEvent,
-    RuntimeTelemetryEvent, SharedHandshake, SharedMetrics,
+    RuntimeTelemetryEvent, RuntimeTelemetryPayload, SharedHandshake, SharedMetrics,
 };
 use crate::core::error::{AppError, AppResult};
-use crate::state::PlantStore;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -11,7 +10,7 @@ use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
 pub(super) fn spawn_driver_process(
     venv_python_path: &std::path::Path,
@@ -38,9 +37,8 @@ pub(super) fn spawn_driver_process(
         })
 }
 
-pub(super) fn spawn_stdout_task(
-    app: AppHandle,
-    plant_store: Arc<PlantStore>,
+pub(super) fn spawn_stdout_task<R: Runtime + 'static>(
+    app: AppHandle<R>,
     plant_id: String,
     runtime_id: String,
     configured_sample_time_ms: u64,
@@ -105,7 +103,6 @@ pub(super) fn spawn_stdout_task(
                 ),
                 "telemetry" => process_telemetry(
                     &app,
-                    &plant_store,
                     &plant_id,
                     &runtime_id,
                     configured_sample_time_ms,
@@ -153,8 +150,8 @@ pub(super) fn spawn_stderr_task(
     })
 }
 
-fn handle_ready_event(
-    app: &AppHandle,
+fn handle_ready_event<R: Runtime>(
+    app: &AppHandle<R>,
     plant_id: &str,
     runtime_id: &str,
     configured_sample_time_ms: u64,
@@ -183,8 +180,8 @@ fn handle_ready_event(
     );
 }
 
-fn handle_connected_event(
-    app: &AppHandle,
+fn handle_connected_event<R: Runtime>(
+    app: &AppHandle<R>,
     plant_id: &str,
     runtime_id: &str,
     configured_sample_time_ms: u64,
@@ -214,8 +211,8 @@ fn handle_connected_event(
     );
 }
 
-fn handle_runtime_error_event(
-    app: &AppHandle,
+fn handle_runtime_error_event<R: Runtime>(
+    app: &AppHandle<R>,
     plant_id: &str,
     runtime_id: &str,
     configured_sample_time_ms: u64,
@@ -252,8 +249,8 @@ fn handle_runtime_error_event(
     let _ = emit_error_event(app, plant_id, runtime_id, message);
 }
 
-fn handle_stopped_event(
-    app: &AppHandle,
+fn handle_stopped_event<R: Runtime>(
+    app: &AppHandle<R>,
     plant_id: &str,
     runtime_id: &str,
     configured_sample_time_ms: u64,
@@ -275,36 +272,43 @@ fn handle_stopped_event(
     );
 }
 
-fn process_telemetry(
-    app: &AppHandle,
-    plant_store: &PlantStore,
+fn process_telemetry<R: Runtime>(
+    app: &AppHandle<R>,
     plant_id: &str,
     runtime_id: &str,
     configured_sample_time_ms: u64,
     payload: Value,
     metrics: &SharedMetrics,
 ) {
-    let effective_dt_ms = payload
-        .get("effective_dt_ms")
-        .and_then(Value::as_f64)
-        .unwrap_or(configured_sample_time_ms as f64);
-    let cycle_duration_ms = payload
-        .get("cycle_duration_ms")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0);
-    let read_duration_ms = payload
-        .get("read_duration_ms")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0);
-    let cycle_late = payload
-        .get("cycle_late")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let uptime = payload
-        .get("uptime_s")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.0)
-        .max(0.0) as u64;
+    let payload = match serde_json::from_value::<RuntimeTelemetryPayload>(payload) {
+        Ok(payload) => payload,
+        Err(error) => {
+            let _ = emit_error_event(
+                app,
+                plant_id,
+                runtime_id,
+                format!("Payload de telemetria inválido: {error}"),
+            );
+            return;
+        }
+    };
+
+    let effective_dt_ms = if payload.effective_dt_ms.is_finite() {
+        payload.effective_dt_ms
+    } else {
+        configured_sample_time_ms as f64
+    };
+    let cycle_duration_ms = if payload.cycle_duration_ms.is_finite() {
+        payload.cycle_duration_ms
+    } else {
+        0.0
+    };
+    let read_duration_ms = if payload.read_duration_ms.is_finite() {
+        payload.read_duration_ms
+    } else {
+        0.0
+    };
+    let cycle_late = payload.cycle_late;
 
     {
         let mut lock = metrics.lock();
@@ -313,6 +317,7 @@ fn process_telemetry(
         lock.effective_dt_ms = effective_dt_ms;
         lock.cycle_duration_ms = cycle_duration_ms;
         lock.read_duration_ms = read_duration_ms;
+        lock.uptime_s = payload.uptime_s.max(0.0);
         lock.cycle_late = cycle_late;
         if cycle_late {
             lock.late_cycle_count = lock.late_cycle_count.saturating_add(1);
@@ -325,20 +330,31 @@ fn process_telemetry(
         );
     }
 
-    let _ = plant_store.update(plant_id, |plant| {
-        plant.stats.dt = (effective_dt_ms / 1000.0).max(0.0);
-        plant.stats.uptime = uptime;
-    });
-
     let event = RuntimeTelemetryEvent {
         plant_id: plant_id.to_string(),
         runtime_id: runtime_id.to_string(),
         lifecycle_state: RuntimeLifecycleState::Running,
         cycle_phase: RuntimeCyclePhase::PublishTelemetry,
+        timestamp: payload.timestamp,
+        cycle_id: payload.cycle_id,
         configured_sample_time_ms,
         effective_dt_ms,
+        cycle_duration_ms,
+        read_duration_ms,
+        control_duration_ms: payload.control_duration_ms,
+        write_duration_ms: payload.write_duration_ms,
+        publish_duration_ms: payload.publish_duration_ms,
         cycle_late,
-        payload,
+        late_by_ms: payload.late_by_ms,
+        phase: payload.phase,
+        uptime_s: payload.uptime_s,
+        sensors: payload.sensors,
+        actuators: payload.actuators,
+        actuators_read: payload.actuators_read,
+        setpoints: payload.setpoints,
+        controller_outputs: payload.controller_outputs,
+        written_outputs: payload.written_outputs,
+        controller_durations_ms: payload.controller_durations_ms,
     };
     let _ = app.emit("plant://telemetry", event);
 }
@@ -401,12 +417,12 @@ pub(super) fn send_command(
     Ok(())
 }
 
-pub(super) fn emit_status_event(app: &AppHandle, event: RuntimeStatusEvent) {
+pub(super) fn emit_status_event<R: Runtime>(app: &AppHandle<R>, event: RuntimeStatusEvent) {
     let _ = app.emit("plant://status", event);
 }
 
-pub(super) fn emit_error_event(
-    app: &AppHandle,
+pub(super) fn emit_error_event<R: Runtime>(
+    app: &AppHandle<R>,
     plant_id: &str,
     runtime_id: &str,
     message: String,

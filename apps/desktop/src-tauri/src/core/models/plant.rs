@@ -10,6 +10,10 @@ fn default_controller_active() -> bool {
     false
 }
 
+fn default_controller_runtime_status() -> ControllerRuntimeStatus {
+    ControllerRuntimeStatus::Synced
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VariableType {
@@ -94,6 +98,19 @@ pub enum ControllerParamType {
     String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ControllerRuntimeStatus {
+    Synced,
+    PendingRestart,
+}
+
+impl Default for ControllerRuntimeStatus {
+    fn default() -> Self {
+        Self::Synced
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ControllerParam {
     #[serde(rename = "type")]
@@ -148,6 +165,8 @@ pub struct PlantController {
     pub output_variable_ids: Vec<String>,
     #[serde(default)]
     pub params: HashMap<String, ControllerParam>,
+    #[serde(default = "default_controller_runtime_status")]
+    pub runtime_status: ControllerRuntimeStatus,
 }
 
 #[derive(Debug, Clone, Deserialize)]

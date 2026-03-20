@@ -77,6 +77,7 @@ export interface PlantControllerDto {
   input_variable_ids: string[];
   output_variable_ids: string[];
   params: Record<string, ControllerParamDto>;
+  runtime_status?: 'synced' | 'pending_restart';
 }
 
 export interface PlantDto {
@@ -209,37 +210,31 @@ export type PlantRuntimeCyclePhase =
   | 'publish_telemetry'
   | 'sleep_until_deadline';
 
-export interface PlantRuntimeTelemetryPayload {
-  timestamp?: number;
-  cycle_id?: number;
-  configured_sample_time_ms?: number;
-  effective_dt_ms?: number;
-  cycle_duration_ms?: number;
-  read_duration_ms?: number;
-  control_duration_ms?: number;
-  write_duration_ms?: number;
-  publish_duration_ms?: number;
-  cycle_late?: boolean;
-  late_by_ms?: number;
-  phase?: string;
-  uptime_s?: number;
-  sensors?: Record<string, number>;
-  actuators?: Record<string, number>;
-  actuators_read?: Record<string, number>;
-  setpoints?: Record<string, number>;
-  controller_outputs?: Record<string, number>;
-  written_outputs?: Record<string, number>;
-}
-
 export interface PlantRuntimeTelemetryEvent {
   plant_id: string;
   runtime_id: string;
   lifecycle_state: PlantRuntimeLifecycleState;
   cycle_phase: PlantRuntimeCyclePhase;
+  timestamp: number;
+  cycle_id: number;
   configured_sample_time_ms: number;
   effective_dt_ms: number;
+  cycle_duration_ms: number;
+  read_duration_ms: number;
+  control_duration_ms: number;
+  write_duration_ms: number;
+  publish_duration_ms: number;
   cycle_late: boolean;
-  payload: PlantRuntimeTelemetryPayload;
+  late_by_ms: number;
+  phase: string;
+  uptime_s: number;
+  sensors: Record<string, number>;
+  actuators: Record<string, number>;
+  actuators_read: Record<string, number>;
+  setpoints: Record<string, number>;
+  controller_outputs: Record<string, number>;
+  written_outputs: Record<string, number>;
+  controller_durations_ms: Record<string, number>;
 }
 
 export interface PlantRuntimeStatusEvent {

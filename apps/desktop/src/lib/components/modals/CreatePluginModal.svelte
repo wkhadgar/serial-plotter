@@ -771,9 +771,6 @@
             <div class="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 font-mono text-sm text-slate-600 dark:border-white/10 dark:bg-[#18181b] dark:text-zinc-300">
               {entryClass || suggestedEntryClass}
             </div>
-            <p class="mt-1 text-[11px] text-slate-400 dark:text-zinc-500">
-              Gerada automaticamente em CamelCase a partir do nome do plugin e persistida no backend para a runtime carregar o plugin de forma explícita.
-            </p>
           </div>
           <label class="block">
             <span class="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase mb-1.5 block">Descrição</span>

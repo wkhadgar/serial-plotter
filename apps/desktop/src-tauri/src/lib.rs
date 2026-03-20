@@ -4,9 +4,9 @@ mod core;
 mod state;
 
 use crate::commands::plants::{
-    connect_plant, create_plant, disconnect_plant, get_plant, import_plant_file, list_plants,
-    open_plant_file, pause_plant, remove_controller_instance, remove_plant, resume_plant,
-    save_controller_instance_config, save_plant_setpoint, update_plant,
+    close_plant, connect_plant, create_plant, disconnect_plant, get_plant, import_plant_file,
+    list_plants, open_plant_file, pause_plant, remove_controller, remove_plant, resume_plant,
+    save_controller, save_setpoint, update_plant,
 };
 use crate::commands::plugins::{
     create_plugin, delete_plugin, get_plugin, import_plugin_file, list_plugins,
@@ -26,14 +26,15 @@ pub fn run() {
             get_plant,
             open_plant_file,
             import_plant_file,
+            close_plant,
             remove_plant,
             connect_plant,
             disconnect_plant,
             pause_plant,
             resume_plant,
-            save_controller_instance_config,
-            remove_controller_instance,
-            save_plant_setpoint,
+            save_controller,
+            remove_controller,
+            save_setpoint,
             create_plugin,
             delete_plugin,
             get_plugin,

@@ -74,8 +74,10 @@ impl PluginService {
             request.source_code.as_deref(),
         )?;
 
-        let existing = store.get(&request.id)?;
-        if request.plugin_type != existing.plugin_type {
+        let (previous_name, previous_type) = store.read(&request.id, |existing| {
+            (existing.name.clone(), existing.plugin_type)
+        })?;
+        if request.plugin_type != previous_type {
             return Err(AppError::InvalidArgument(
                 "Tipo do plugin não pode ser alterado".into(),
             ));
@@ -83,11 +85,9 @@ impl PluginService {
 
         let resolved_source_code = match normalize_source_code(request.source_code.as_deref()) {
             Some(code) => code,
-            None => WorkspaceService::read_plugin_source(&existing.name, existing.plugin_type)?,
+            None => WorkspaceService::read_plugin_source(&previous_name, previous_type)?,
         };
 
-        let previous_name = existing.name.clone();
-        let previous_type = existing.plugin_type;
         let next_plugin = build_updated_plugin(request, previous_type, PYTHON_SOURCE_FILE_NAME);
 
         WorkspaceService::update_plugin_registry(
@@ -114,8 +114,9 @@ impl PluginService {
     }
 
     pub fn remove(store: &PluginStore, id: &str) -> AppResult<PluginRegistry> {
-        let existing = store.get(id)?;
-        WorkspaceService::delete_plugin_registry(&existing.name, existing.plugin_type)?;
+        let (plugin_name, plugin_type) =
+            store.read(id, |existing| (existing.name.clone(), existing.plugin_type))?;
+        WorkspaceService::delete_plugin_registry(&plugin_name, plugin_type)?;
         store.remove(id)
     }
 }

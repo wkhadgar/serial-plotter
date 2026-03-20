@@ -37,6 +37,18 @@ impl PlantStore {
             .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))
     }
 
+    pub fn read<T, F>(&self, id: &str, reader: F) -> AppResult<T>
+    where
+        F: FnOnce(&Plant) -> T,
+    {
+        let state = self.state.read();
+        let plant = state
+            .plants
+            .get(id)
+            .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
+        Ok(reader(plant))
+    }
+
     pub fn list(&self) -> Vec<Plant> {
         self.state.read().plants.values().cloned().collect()
     }

@@ -1,4 +1,6 @@
-use super::{PYTHON_CLASS_METHOD_CHECK_SCRIPT, PYTHON_SYNTAX_CHECK_SCRIPT};
+use super::{
+    PYTHON_CLASS_METHOD_CHECK_SCRIPT, PYTHON_IMPORT_CLASS_CHECK_SCRIPT, PYTHON_SYNTAX_CHECK_SCRIPT,
+};
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plugin::{PluginRegistry, PluginRuntime, PluginType};
 use crate::core::services::workspace::WorkspaceService;
@@ -109,6 +111,50 @@ fn validate_python_class_methods(
     )))
 }
 
+fn validate_python_importable_class(
+    python_path: &Path,
+    source_path: &Path,
+    class_name: &str,
+    required_methods: &[&str],
+    component_label: &str,
+) -> AppResult<()> {
+    let mut command = Command::new(python_path);
+    command
+        .arg("-c")
+        .arg(PYTHON_IMPORT_CLASS_CHECK_SCRIPT)
+        .arg(source_path)
+        .arg(class_name);
+
+    for method in required_methods {
+        command.arg(method);
+    }
+
+    let output = command.output().map_err(|error| {
+        AppError::IoError(format!(
+            "Falha ao validar carregamento Python do {component_label} '{}': {error}",
+            source_path.display()
+        ))
+    })?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let detail = stderr
+        .lines()
+        .chain(stdout.lines())
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .last()
+        .unwrap_or("Falha ao carregar classe Python");
+
+    Err(AppError::InvalidArgument(format!(
+        "Falha ao carregar {component_label}: {detail}"
+    )))
+}
+
 pub(super) fn ensure_driver_supports_write(driver_plugin: &PluginRegistry) -> AppResult<()> {
     if driver_plugin.runtime != PluginRuntime::Python {
         return Err(AppError::InvalidArgument(
@@ -157,6 +203,37 @@ pub(super) fn validate_controller_plugin_source(
 
     validate_python_source_file(Path::new("python3"), &source_path, &component_label)?;
     validate_python_class_methods(
+        &source_path,
+        &controller_plugin.entry_class,
+        &["compute"],
+        &component_label,
+    )?;
+
+    Ok(())
+}
+
+pub(super) fn validate_controller_plugin_source_with_python(
+    python_path: &Path,
+    controller_plugin: &PluginRegistry,
+    controller_name: &str,
+) -> AppResult<()> {
+    if controller_plugin.runtime != PluginRuntime::Python {
+        return Err(AppError::InvalidArgument(format!(
+            "O controlador '{}' precisa ser Python para executar na runtime atual",
+            controller_name
+        )));
+    }
+
+    let controller_dir =
+        WorkspaceService::plugin_directory(&controller_plugin.name, PluginType::Controller)?;
+    validate_plugin_workspace_files(&controller_dir, "controlador")?;
+
+    let source_path = resolve_plugin_source_path(controller_plugin, PluginType::Controller)?;
+    let component_label = format!("controlador '{}'", controller_name);
+
+    validate_python_source_file(python_path, &source_path, &component_label)?;
+    validate_python_importable_class(
+        python_path,
         &source_path,
         &controller_plugin.entry_class,
         &["compute"],

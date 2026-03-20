@@ -8,9 +8,9 @@ use self::validation::{
 };
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plant::{
-    ControllerParam, CreatePlantControllerRequest, CreatePlantRequest, CreatePlantVariableRequest,
-    Plant, PlantController, RemovePlantControllerRequest, SavePlantControllerConfigRequest,
-    SavePlantSetpointRequest, UpdatePlantRequest, VariableType,
+    ControllerParam, ControllerRuntimeStatus, CreatePlantControllerRequest, CreatePlantRequest,
+    CreatePlantVariableRequest, Plant, PlantController, RemovePlantControllerRequest,
+    SavePlantControllerConfigRequest, SavePlantSetpointRequest, UpdatePlantRequest, VariableType,
 };
 use crate::core::models::plugin::{PluginRegistry, PluginType};
 use crate::core::services::workspace::WorkspaceService;
@@ -62,14 +62,13 @@ impl PlantService {
             plugins,
         )?;
 
-        let existing = store.get(&request.id)?;
-        let runtime = PlantRuntimeSnapshot {
+        let runtime = store.read(&request.id, |existing| PlantRuntimeSnapshot {
             previous_name: existing.name.clone(),
             previous_sample_time_ms: existing.sample_time_ms,
             connected: existing.connected,
             paused: existing.paused,
-            stats: existing.stats,
-        };
+            stats: existing.stats.clone(),
+        })?;
 
         let previous_name = runtime.previous_name.clone();
         let updated_plant = build_updated_plant(request, plugins, runtime)?;
@@ -95,8 +94,19 @@ impl PlantService {
     }
 
     pub fn remove(store: &PlantStore, id: &str) -> AppResult<Plant> {
-        let plant = store.get(id)?;
-        WorkspaceService::delete_plant_registry(&plant.name)?;
+        let plant_name = store.read(id, |plant| plant.name.clone())?;
+        WorkspaceService::delete_plant_registry(&plant_name)?;
+        store.remove(id)
+    }
+
+    pub fn close(store: &PlantStore, id: &str) -> AppResult<Plant> {
+        let closed = store.update(id, |plant| {
+            for controller in &mut plant.controllers {
+                controller.active = false;
+                controller.runtime_status = ControllerRuntimeStatus::Synced;
+            }
+        })?;
+        WorkspaceService::update_plant_registry(&closed, &closed.name)?;
         store.remove(id)
     }
 
@@ -105,18 +115,29 @@ impl PlantService {
         plugins: &PluginStore,
         request: SavePlantControllerConfigRequest,
     ) -> AppResult<Plant> {
-        let plant = store.get(&request.plant_id)?;
-        let controller_index = plant
-            .controllers
-            .iter()
-            .position(|controller| controller.id == request.controller_id);
-        let existing_controller = controller_index.map(|index| plant.controllers[index].clone());
+        let plant_snapshot = store.read(&request.plant_id, |plant| {
+            let controller_index = plant
+                .controllers
+                .iter()
+                .position(|controller| controller.id == request.controller_id);
+            let existing_controller =
+                controller_index.map(|index| plant.controllers[index].clone());
 
-        if plant.connected && existing_controller.is_none() {
-            return Err(AppError::InvalidArgument(
-                "Não é permitido adicionar controladores com a planta ligada".into(),
-            ));
-        }
+            (
+                plant.connected,
+                map_current_variables(&plant.variables),
+                plant.controllers.clone(),
+                controller_index,
+                existing_controller,
+            )
+        })?;
+        let (
+            plant_connected,
+            current_variables,
+            existing_controllers,
+            controller_index,
+            existing_controller,
+        ) = plant_snapshot;
 
         let plugin_id = request
             .plugin_id
@@ -132,7 +153,7 @@ impl PlantService {
             })?;
         let plugin = resolve_plugin(plugins, plugin_id, PluginType::Controller)?;
 
-        if plant.connected
+        if plant_connected
             && existing_controller
                 .as_ref()
                 .is_some_and(|controller| controller.plugin_id != plugin.id)
@@ -142,7 +163,6 @@ impl PlantService {
             ));
         }
 
-        let current_variables = map_current_variables(&plant.variables);
         let mut controller_request = CreatePlantControllerRequest {
             id: Some(request.controller_id.clone()),
             plugin_id: plugin.id.clone(),
@@ -170,8 +190,7 @@ impl PlantService {
 
         validate_controller(&controller_request, &current_variables, plugins)?;
 
-        let mut conflict_requests = plant
-            .controllers
+        let mut conflict_requests = existing_controllers
             .iter()
             .enumerate()
             .map(|(index, controller)| {
@@ -221,10 +240,11 @@ impl PlantService {
                 plugin_name: plugin.name.clone(),
                 name: request.name.trim().to_string(),
                 controller_type: request.controller_type.trim().to_string(),
-                active: false,
+                active: request.active,
                 input_variable_ids: request.input_variable_ids.clone(),
                 output_variable_ids: request.output_variable_ids.clone(),
                 params: controller_request.params.clone(),
+                runtime_status: ControllerRuntimeStatus::Synced,
             });
         })?;
 
@@ -236,17 +256,20 @@ impl PlantService {
         store: &PlantStore,
         request: RemovePlantControllerRequest,
     ) -> AppResult<Plant> {
-        let plant = store.get(&request.plant_id)?;
-        if !plant
-            .controllers
-            .iter()
-            .any(|controller| controller.id == request.controller_id)
-        {
-            return Err(AppError::NotFound(format!(
-                "Controlador '{}' não encontrado na planta '{}'",
-                request.controller_id, plant.name
-            )));
-        }
+        store.read(&request.plant_id, |plant| {
+            if plant
+                .controllers
+                .iter()
+                .any(|controller| controller.id == request.controller_id)
+            {
+                Ok(())
+            } else {
+                Err(AppError::NotFound(format!(
+                    "Controlador '{}' não encontrado na planta '{}'",
+                    request.controller_id, plant.name
+                )))
+            }
+        })??;
 
         let updated = store.update(&request.plant_id, |plant| {
             plant
@@ -262,29 +285,32 @@ impl PlantService {
         store: &PlantStore,
         request: SavePlantSetpointRequest,
     ) -> AppResult<Plant> {
-        let plant = store.get(&request.plant_id)?;
-        let variable = plant
-            .variables
-            .iter()
-            .find(|variable| variable.id == request.variable_id)
-            .ok_or_else(|| {
-                AppError::NotFound(format!(
-                    "Variável '{}' não encontrada na planta '{}'",
-                    request.variable_id, plant.name
-                ))
-            })?;
+        store.read(&request.plant_id, |plant| {
+            let variable = plant
+                .variables
+                .iter()
+                .find(|variable| variable.id == request.variable_id)
+                .ok_or_else(|| {
+                    AppError::NotFound(format!(
+                        "Variável '{}' não encontrada na planta '{}'",
+                        request.variable_id, plant.name
+                    ))
+                })?;
 
-        if variable.var_type != VariableType::Sensor {
-            return Err(AppError::InvalidArgument(
-                "Apenas sensores podem ter setpoint editado".into(),
-            ));
-        }
+            if variable.var_type != VariableType::Sensor {
+                return Err(AppError::InvalidArgument(
+                    "Apenas sensores podem ter setpoint editado".into(),
+                ));
+            }
 
-        if request.setpoint < variable.pv_min || request.setpoint > variable.pv_max {
-            return Err(AppError::InvalidArgument(
-                "Setpoint deve estar entre pv_min e pv_max".into(),
-            ));
-        }
+            if request.setpoint < variable.pv_min || request.setpoint > variable.pv_max {
+                return Err(AppError::InvalidArgument(
+                    "Setpoint deve estar entre pv_min e pv_max".into(),
+                ));
+            }
+
+            Ok(())
+        })??;
 
         let updated = store.update(&request.plant_id, |plant| {
             if let Some(variable) = plant

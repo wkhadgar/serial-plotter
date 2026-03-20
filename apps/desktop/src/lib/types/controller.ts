@@ -1,4 +1,5 @@
 export type ControllerType = 'PID' | 'Flow' | 'Level' | (string & {});
+export type ControllerRuntimeStatus = 'synced' | 'pending_restart';
 
 export type ParamType = 'number' | 'boolean' | 'string';
 
@@ -57,4 +58,5 @@ export interface Controller {
   inputVariableIds: string[];
   outputVariableIds: string[];
   params: PIDParams | Record<string, ControllerParam>;
+  runtimeStatus?: ControllerRuntimeStatus;
 }

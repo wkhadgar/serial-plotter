@@ -64,6 +64,10 @@ impl WorkspaceService {
     pub fn runtime_directory(runtime_id: &str) -> AppResult<PathBuf> {
         paths::runtime_directory(runtime_id)
     }
+
+    pub fn runtime_root_directory() -> AppResult<PathBuf> {
+        paths::runtime_root_directory()
+    }
 }
 
 pub(crate) fn map_serde_error(context: &str, error: serde_json::Error) -> AppError {

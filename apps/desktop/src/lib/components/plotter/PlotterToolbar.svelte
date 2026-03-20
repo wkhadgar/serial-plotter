@@ -80,7 +80,7 @@
       onclick={onTogglePause}
       disabled={!plant?.connected}
       class="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 disabled:opacity-30 transition-colors"
-      title={plant?.paused ? 'Retomar' : 'Pausar'}
+      title={plant?.paused ? 'Retomar gráfico' : 'Pausar gráfico'}
     >
       {#if plant?.paused}
         <Play size={20} class="text-blue-500" fill="currentColor" />

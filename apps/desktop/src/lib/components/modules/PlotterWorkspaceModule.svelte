@@ -32,15 +32,15 @@
   import type { PluginDefinition, PluginInstance } from '$lib/types/plugin';
   import { type ChartStateType, type XAxisMode, defaultChartState, nextViewState, resetToGridView } from '$lib/types/chart';
   import {
+    closePlant,
     connectPlant,
     disconnectPlant,
     openPlant,
     pausePlant,
-    removeControllerInstance,
-    removePlant,
+    removeController,
     resumePlant,
-    saveControllerInstanceConfig,
-    savePlantSetpoint,
+    saveController,
+    saveSetpoint,
     applyPlantTelemetryPacket,
     buildTelemetryPacketFromRuntimeEvent,
     subscribePlantRuntimeEvents,
@@ -70,7 +70,10 @@
 
   let chartStates: Record<string, ChartStateType> = $state({});
   let manualRangesByPlant: Record<string, Record<number, { xMin: number; xMax: number }>> = $state({});
-  let runtimeSessionByPlant: Record<string, string> = $state({});
+  const runtimeSessionByPlant = new Map<string, string>();
+  const telemetryBacklogByPlant = new Map<string, { runtimeId: string; packets: ReturnType<typeof buildTelemetryPacketFromRuntimeEvent>[] }>();
+  const liveTelemetryByPlant = new Map<string, { plant: Plant; packets: ReturnType<typeof buildTelemetryPacketFromRuntimeEvent>[]; latestStats: Plant['stats'] }>();
+  let telemetryFlushFrame = 0;
 
   function countSensors(variables: PlantVariable[]): number {
     let count = 0;
@@ -97,6 +100,9 @@
 
   const chartState = $derived(chartStates[activePlantId] ?? defaultChartState());
   const activeManualRanges = $derived(manualRangesByPlant[activePlantId] ?? {});
+  const plantsById = $derived.by<Map<string, Plant>>(
+    () => new Map(plants.map((plant: Plant) => [plant.id, plant]))
+  );
 
   let seriesStyles = $state<Record<string, SeriesStyle>>({});
 
@@ -128,6 +134,11 @@
     title: '',
     message: '',
     confirmLabel: 'Entendi',
+  });
+  let controllerRestartModal = $state({
+    visible: false,
+    plantId: '',
+    controllerName: '',
   });
 
   const activePlant = $derived(plants.find((p: Plant) => p.id === activePlantId));
@@ -247,24 +258,109 @@
     clearVariableStats(plant.id);
   }
 
-  function forgetRuntimeSession(plantId: string) {
-    if (!(plantId in runtimeSessionByPlant)) return;
+  function clearTelemetryBacklog(plantId: string) {
+    telemetryBacklogByPlant.delete(plantId);
+  }
 
-    const nextSessions = { ...runtimeSessionByPlant };
-    delete nextSessions[plantId];
-    runtimeSessionByPlant = nextSessions;
+  function forgetRuntimeSession(plantId: string) {
+    clearTelemetryBacklog(plantId);
+    liveTelemetryByPlant.delete(plantId);
+    runtimeSessionByPlant.delete(plantId);
   }
 
   function rememberRuntimeSession(plantId: string, runtimeId: string): boolean {
-    if (runtimeSessionByPlant[plantId] === runtimeId) {
+    if (runtimeSessionByPlant.get(plantId) === runtimeId) {
       return false;
     }
 
-    runtimeSessionByPlant = {
-      ...runtimeSessionByPlant,
-      [plantId]: runtimeId,
-    };
+    clearTelemetryBacklog(plantId);
+    liveTelemetryByPlant.delete(plantId);
+    runtimeSessionByPlant.set(plantId, runtimeId);
     return true;
+  }
+
+  function queueTelemetryPacket(plantId: string, runtimeId: string, packet: ReturnType<typeof buildTelemetryPacketFromRuntimeEvent>) {
+    const current = telemetryBacklogByPlant.get(plantId);
+    if (!current || current.runtimeId !== runtimeId) {
+      telemetryBacklogByPlant.set(plantId, {
+        runtimeId,
+        packets: [packet],
+      });
+      return;
+    }
+
+    current.packets.push(packet);
+  }
+
+  function flushTelemetryBacklog(plantId: string, basePlant?: Plant) {
+    const backlog = telemetryBacklogByPlant.get(plantId);
+    if (!backlog || backlog.packets.length === 0) {
+      clearTelemetryBacklog(plantId);
+      return;
+    }
+
+    clearTelemetryBacklog(plantId);
+    const plant = basePlant ?? findPlantById(plantId);
+    if (!plant) {
+      return;
+    }
+
+    let latestStats = plant.stats;
+    for (const packet of backlog.packets) {
+      applyPlantTelemetryPacket(packet);
+      if (packet.stats) {
+        latestStats = packet.stats;
+      }
+    }
+
+    appStore.upsertPlant({
+      ...plant,
+      stats: latestStats,
+    });
+  }
+
+  function flushLiveTelemetry() {
+    telemetryFlushFrame = 0;
+
+    for (const [plantId, queued] of liveTelemetryByPlant.entries()) {
+      let latestStats = queued.latestStats;
+      for (const packet of queued.packets) {
+        applyPlantTelemetryPacket(packet);
+        if (packet.stats) {
+          latestStats = packet.stats;
+        }
+      }
+
+      appStore.upsertPlant({
+        ...queued.plant,
+        stats: latestStats,
+      });
+      liveTelemetryByPlant.delete(plantId);
+    }
+  }
+
+  function scheduleLiveTelemetryFlush() {
+    if (telemetryFlushFrame !== 0) return;
+    telemetryFlushFrame = requestAnimationFrame(() => {
+      flushLiveTelemetry();
+    });
+  }
+
+  function enqueueLiveTelemetryPacket(plant: Plant, packet: ReturnType<typeof buildTelemetryPacketFromRuntimeEvent>) {
+    const current = liveTelemetryByPlant.get(plant.id);
+    if (!current) {
+      liveTelemetryByPlant.set(plant.id, {
+        plant,
+        packets: [packet],
+        latestStats: packet.stats ?? plant.stats,
+      });
+    } else {
+      current.plant = plant;
+      current.packets.push(packet);
+      current.latestStats = packet.stats ?? current.latestStats;
+    }
+
+    scheduleLiveTelemetryFlush();
   }
 
   function resetPlantZoomState(plantId: string) {
@@ -300,7 +396,7 @@
   }
 
   function findPlantById(plantId: string): Plant | undefined {
-    return plants.find((plant: Plant) => plant.id === plantId);
+    return plantsById.get(plantId);
   }
 
   function handleRuntimeTelemetry(event: PlantRuntimeTelemetryEvent) {
@@ -312,20 +408,12 @@
     }
 
     const packet = buildTelemetryPacketFromRuntimeEvent(plant, event);
-    if (getPlantData(plant.id).length === 0 && packet.points[0]) {
-      packet.points[0].time = 0;
-      if (packet.stats) {
-        packet.stats.uptime = 0;
-      }
+    if (plant.paused) {
+      queueTelemetryPacket(plant.id, event.runtime_id, packet);
+      return;
     }
-    applyPlantTelemetryPacket(packet);
 
-    if (packet.stats) {
-      appStore.upsertPlant({
-        ...plant,
-        stats: packet.stats,
-      });
-    }
+    enqueueLiveTelemetryPacket(plant, packet);
   }
 
   function handleRuntimeStatus(event: PlantRuntimeStatusEvent) {
@@ -343,7 +431,7 @@
       paused: isOffline ? false : plant.paused,
       stats: {
         ...plant.stats,
-        dt: Math.max(0, event.effective_dt_ms / 1000),
+        dt: plant.paused && !isOffline ? plant.stats.dt : Math.max(0, event.effective_dt_ms / 1000),
       },
     });
   }
@@ -409,6 +497,9 @@
 
     return () => {
       disposed = true;
+      if (telemetryFlushFrame !== 0) {
+        cancelAnimationFrame(telemetryFlushFrame);
+      }
       unsubscribe?.();
       window.removeEventListener('pointerdown', handleGlobalPointerDown);
       window.removeEventListener('scroll', handleGlobalScroll, true);
@@ -505,7 +596,7 @@
   async function confirmRemovePlant() {
     if (removeModal.reason === 'confirm') {
       plantActionLoading = 'remove';
-      const result = await removePlant(removeModal.plantId);
+      const result = await closePlant(removeModal.plantId);
       if (result.success) {
         appStore.removePlant(removeModal.plantId);
         clearPlant(removeModal.plantId);
@@ -516,10 +607,11 @@
       } else {
         showFeedbackModal({
           type: 'error',
-          title: 'Falha ao remover planta',
-          message: result.error || 'Erro ao remover planta',
+          title: 'Falha ao fechar planta',
+          message: result.error || 'Erro ao descarregar a planta do backend',
         });
       }
+
       plantActionLoading = null;
     }
     removeModal.visible = false;
@@ -547,7 +639,9 @@
       : await connectPlant(activePlant.id);
 
     if (result.success && result.plant) {
-      if (!wasConnected) {
+      if (wasConnected) {
+        forgetRuntimeSession(result.plant.id);
+      } else {
         forgetRuntimeSession(result.plant.id);
         resetPlantTelemetryState(result.plant);
         resetPlantZoomState(result.plant.id);
@@ -566,6 +660,7 @@
 
   async function handleTogglePause() {
     if (!activePlant) return;
+    const wasPaused = activePlant.paused;
     plantActionLoading = 'pause';
     const result = activePlant.paused
       ? await resumePlant(activePlant.id)
@@ -573,6 +668,9 @@
 
     if (result.success && result.plant) {
       appStore.upsertPlant(result.plant);
+      if (wasPaused) {
+        flushTelemetryBacklog(result.plant.id, result.plant);
+      }
     } else {
       showFeedbackModal({
         type: 'error',
@@ -701,7 +799,7 @@
     };
 
     if (activePlant.source === 'backend') {
-      const response = await saveControllerInstanceConfig({
+      const response = await saveController({
         plantId: activePlant.id,
         controller: nextController,
         source: activePlant.source,
@@ -730,7 +828,7 @@
     if (!activePlant) return;
 
     if (activePlant.source === 'backend') {
-      const response = await removeControllerInstance({
+      const response = await removeController({
         plantId: activePlant.id,
         controllerId,
       });
@@ -761,15 +859,6 @@
 
     const controller = activePlant.controllers.find((entry: Controller) => entry.id === controllerId);
     if (!controller) return;
-
-    if (activePlant.connected && controller.active) {
-      showFeedbackModal({
-        type: 'warning',
-        title: 'Edição bloqueada',
-        message: 'Não é possível editar os vínculos enquanto o controlador estiver em execução.',
-      });
-      return;
-    }
 
     controllerToEditBindings = controller;
     controllerBindingsModal = true;
@@ -846,7 +935,7 @@
       return { success: false, error: 'Controlador nao encontrado' };
     }
 
-    const response = await saveControllerInstanceConfig({
+    const response = await saveController({
       plantId: activePlant.id,
       controller,
       source: activePlant.source,
@@ -854,9 +943,62 @@
 
     if (response.success && response.plant) {
       appStore.upsertPlant(response.plant);
+      const savedController = response.plant.controllers.find((entry: Controller) => entry.id === controllerId);
+      const deferred = savedController?.runtimeStatus === 'pending_restart';
+
+      if (deferred) {
+        controllerRestartModal = {
+          visible: true,
+          plantId: response.plant.id,
+          controllerName: savedController?.name ?? controller.name,
+        };
+      }
+
+      return {
+        ...response,
+        deferred,
+      };
     }
 
     return response;
+  }
+
+  async function handleRestartPendingController() {
+    const plantId = controllerRestartModal.plantId;
+    controllerRestartModal.visible = false;
+    if (!plantId) return;
+
+    plantActionLoading = 'connect';
+
+    const disconnectResult = await disconnectPlant(plantId);
+    if (!disconnectResult.success || !disconnectResult.plant) {
+      showFeedbackModal({
+        type: 'error',
+        title: 'Falha ao desligar planta',
+        message: disconnectResult.error || 'Não foi possível desligar a planta para aplicar o controlador.',
+      });
+      plantActionLoading = null;
+      return;
+    }
+
+    forgetRuntimeSession(plantId);
+    appStore.upsertPlant(disconnectResult.plant);
+
+    const connectResult = await connectPlant(plantId);
+    if (connectResult.success && connectResult.plant) {
+      forgetRuntimeSession(connectResult.plant.id);
+      resetPlantTelemetryState(connectResult.plant);
+      resetPlantZoomState(connectResult.plant.id);
+      appStore.upsertPlant(connectResult.plant);
+    } else {
+      showFeedbackModal({
+        type: 'error',
+        title: 'Falha ao religar planta',
+        message: connectResult.error || 'Não foi possível religar a planta para aplicar o controlador.',
+      });
+    }
+
+    plantActionLoading = null;
   }
 
   async function updateSetpoint(varIndex: number, value: number) {
@@ -866,7 +1008,7 @@
     const variable = activePlant.variables[varIndex];
     if (!variable || activePlant.source !== 'backend') return;
 
-    const response = await savePlantSetpoint({
+    const response = await saveSetpoint({
       plantId: activePlant.id,
       variableId: variable.id,
       setpoint: value,
@@ -1250,6 +1392,18 @@
       }
 
       return result;
+    }}
+  />
+
+  <GenericModal
+    visible={controllerRestartModal.visible}
+    type="warning"
+    title="Restart necessário"
+    message={`O controlador "${controllerRestartModal.controllerName}" foi salvo, mas precisa de um restart da planta para entrar em execução.\n\nDeseja religar a planta agora?`}
+    confirmLabel="Religar agora"
+    onConfirm={handleRestartPendingController}
+    onClose={() => {
+      controllerRestartModal.visible = false;
     }}
   />
 

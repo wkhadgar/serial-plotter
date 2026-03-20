@@ -205,6 +205,7 @@ export function toControllerTemplate(plugin: PluginDefinition): Controller {
     active: false,
     inputVariableIds: [],
     outputVariableIds: [],
+    runtimeStatus: 'synced',
     params: Object.fromEntries(
       plugin.schema.map((field) => [field.name, mapSchemaFieldToControllerParam(field)])
     ),
@@ -229,6 +230,7 @@ export function createConfiguredController(
     active: options.active ?? false,
     inputVariableIds: [],
     outputVariableIds: [],
+    runtimeStatus: 'synced',
     params: Object.fromEntries(
       plugin.schema.map((field) => [
         field.name,

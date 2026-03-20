@@ -37,6 +37,38 @@ impl PluginStore {
             .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))
     }
 
+    pub fn read<T, F>(&self, id: &str, reader: F) -> AppResult<T>
+    where
+        F: FnOnce(&PluginRegistry) -> T,
+    {
+        let state = self.state.read();
+        let plugin = state
+            .registries
+            .get(id)
+            .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))?;
+        Ok(reader(plugin))
+    }
+
+    pub fn find_by_type_and_name<T, F>(
+        &self,
+        plugin_type: crate::core::models::plugin::PluginType,
+        name: &str,
+        reader: F,
+    ) -> Option<T>
+    where
+        F: FnOnce(&PluginRegistry) -> T,
+    {
+        let normalized_name = Self::name_key(name);
+        if normalized_name.is_empty() {
+            return None;
+        }
+
+        let state = self.state.read();
+        let plugin_id = state.names.get(&normalized_name)?;
+        let plugin = state.registries.get(plugin_id)?;
+        (plugin.plugin_type == plugin_type).then(|| reader(plugin))
+    }
+
     pub fn list(&self) -> Vec<PluginRegistry> {
         self.state.read().registries.values().cloned().collect()
     }

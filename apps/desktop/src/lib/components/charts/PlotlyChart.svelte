@@ -285,12 +285,22 @@
     };
   }
 
+  function padManualYRange(min: number, max: number): { min: number; max: number } {
+    const lower = Math.min(min, max);
+    const upper = Math.max(min, max);
+    const span = Math.max(upper - lower, 1);
+    const topPad = Math.max(span * 0.04, 1);
+    const bottomPad = lower === 0 ? 0 : Math.max(span * 0.02, 0.5);
+
+    return {
+      min: lower - bottomPad,
+      max: upper + topPad,
+    };
+  }
+
   function resolveYRange(data: uPlot.AlignedData): { min: number; max: number } | null {
     if (_scaleRef.yMode === 'manual') {
-      return {
-        min: _scaleRef.yMin,
-        max: _scaleRef.yMax,
-      };
+      return padManualYRange(_scaleRef.yMin, _scaleRef.yMax);
     }
 
     let dataMin = Number.POSITIVE_INFINITY;
@@ -436,7 +446,8 @@
           auto: true,
           range: (_u: uPlot, dataMin: number, dataMax: number): [number, number] => {
             if (_scaleRef.yMode === 'manual') {
-              return [_scaleRef.yMin, _scaleRef.yMax];
+              const padded = padManualYRange(_scaleRef.yMin, _scaleRef.yMax);
+              return [padded.min, padded.max];
             }
             const pad = (dataMax - dataMin) * 0.05 || 1;
             return [dataMin - pad, dataMax + pad];

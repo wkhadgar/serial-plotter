@@ -3,17 +3,13 @@ use crate::core::error::{AppError, AppResult};
 use crate::core::models::plugin::PluginRegistry;
 use crate::core::services::workspace::WorkspaceService;
 use serde_json::json;
+use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(super) fn prepare_runtime_directory() -> AppResult<PathBuf> {
-    let seed_runtime_root = WorkspaceService::runtime_directory("seed_runtime")?;
-    let runtime_root = seed_runtime_root
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or(AppError::InternalError)?;
+    let runtime_root = WorkspaceService::runtime_root_directory()?;
     fs::create_dir_all(&runtime_root).map_err(|error| {
         AppError::IoError(format!(
             "Falha ao criar diretório de runtimes '{}': {error}",
@@ -24,15 +20,9 @@ pub(super) fn prepare_runtime_directory() -> AppResult<PathBuf> {
 }
 
 pub(super) fn prepare_runtime_scaffold(runtime_dir: &Path) -> AppResult<()> {
-    fs::create_dir_all(runtime_dir.join("logs")).map_err(|error| {
+    fs::create_dir_all(runtime_dir).map_err(|error| {
         AppError::IoError(format!(
-            "Falha ao criar diretório logs da runtime '{}': {error}",
-            runtime_dir.display()
-        ))
-    })?;
-    fs::create_dir_all(runtime_dir.join("ipc")).map_err(|error| {
-        AppError::IoError(format!(
-            "Falha ao criar diretório ipc da runtime '{}': {error}",
+            "Falha ao criar diretório da runtime '{}': {error}",
             runtime_dir.display()
         ))
     })?;
@@ -40,69 +30,30 @@ pub(super) fn prepare_runtime_scaffold(runtime_dir: &Path) -> AppResult<()> {
 }
 
 pub(super) fn write_bootstrap_files(
-    runtime_dir: &Path,
     bootstrap: &DriverBootstrapPayload,
     bootstrap_path: &Path,
 ) -> AppResult<()> {
-    let runtime_path = runtime_dir.join("runtime.json");
-    let runtime_payload = json!({
-        "runtime": bootstrap.runtime,
-        "created_at": SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|time| time.as_secs())
-            .unwrap_or(0),
-    });
-    fs::write(
-        &runtime_path,
-        serde_json::to_string_pretty(&runtime_payload).map_err(|error| {
-            AppError::IoError(format!("Falha ao serializar runtime.json: {error}"))
-        })?,
-    )
-    .map_err(|error| {
-        AppError::IoError(format!(
-            "Falha ao gravar runtime.json em '{}': {error}",
-            runtime_path.display()
-        ))
-    })?;
-
-    let plant_path = runtime_dir.join("plant.json");
-    fs::write(
-        &plant_path,
-        serde_json::to_string_pretty(&bootstrap.plant).map_err(|error| {
-            AppError::IoError(format!("Falha ao serializar plant.json: {error}"))
-        })?,
-    )
-    .map_err(|error| {
-        AppError::IoError(format!(
-            "Falha ao gravar plant.json em '{}': {error}",
-            plant_path.display()
-        ))
-    })?;
-
-    fs::write(
+    write_if_changed(
         bootstrap_path,
-        serde_json::to_string_pretty(bootstrap).map_err(|error| {
+        &serde_json::to_string(bootstrap).map_err(|error| {
             AppError::IoError(format!("Falha ao serializar bootstrap.json: {error}"))
         })?,
-    )
-    .map_err(|error| {
-        AppError::IoError(format!(
-            "Falha ao gravar bootstrap.json em '{}': {error}",
+        &format!(
+            "Falha ao gravar bootstrap.json em '{}'",
             bootstrap_path.display()
-        ))
-    })?;
+        ),
+    )?;
 
     Ok(())
 }
 
-pub(super) fn write_runner_script(runtime_dir: &Path) -> AppResult<PathBuf> {
-    let runner_path = runtime_dir.join("runner.py");
-    fs::write(&runner_path, RUNNER_SCRIPT).map_err(|error| {
-        AppError::IoError(format!(
-            "Falha ao gravar runner Python em '{}': {error}",
-            runner_path.display()
-        ))
-    })?;
+pub(super) fn write_runner_script(runtime_root: &Path) -> AppResult<PathBuf> {
+    let runner_path = runtime_root.join("runner.py");
+    write_if_changed(
+        &runner_path,
+        RUNNER_SCRIPT,
+        &format!("Falha ao gravar runner Python em '{}'", runner_path.display()),
+    )?;
     Ok(runner_path)
 }
 
@@ -175,18 +126,17 @@ pub(super) fn ensure_python_env(
             })))
             .collect::<Vec<_>>(),
     });
-    fs::write(
-        &metadata_path,
-        serde_json::to_string_pretty(&metadata_payload).map_err(|error| {
-            AppError::IoError(format!("Falha ao serializar metadata.json: {error}"))
-        })?,
-    )
-    .map_err(|error| {
-        AppError::IoError(format!(
-            "Falha ao gravar metadata.json em '{}': {error}",
-            metadata_path.display()
-        ))
+    let metadata_contents = serde_json::to_string_pretty(&metadata_payload).map_err(|error| {
+        AppError::IoError(format!("Falha ao serializar metadata.json: {error}"))
     })?;
+    write_if_changed(
+        &metadata_path,
+        &metadata_contents,
+        &format!(
+            "Falha ao gravar metadata.json em '{}'",
+            metadata_path.display()
+        ),
+    )?;
 
     Ok(venv_python)
 }
@@ -230,18 +180,19 @@ fn run_command(command: &mut Command, context: &str) -> AppResult<()> {
     )))
 }
 
-pub(super) fn collect_runtime_plugins(runtime_plugins: &[PluginRegistry]) -> Vec<PluginRegistry> {
+pub(super) fn dedupe_runtime_plugins(runtime_plugins: Vec<PluginRegistry>) -> Vec<PluginRegistry> {
+    let mut seen = HashSet::new();
     let mut plugins: Vec<PluginRegistry> = Vec::with_capacity(runtime_plugins.len());
     for plugin in runtime_plugins {
-        if !plugins.iter().any(|existing| existing.id == plugin.id) {
-            plugins.push(plugin.clone());
+        if seen.insert(plugin.id.clone()) {
+            plugins.push(plugin);
         }
     }
     plugins
 }
 
 fn collect_runtime_dependency_specs(runtime_plugins: &[PluginRegistry]) -> Vec<String> {
-    let mut specs = runtime_plugins
+    runtime_plugins
         .iter()
         .flat_map(|plugin| plugin.dependencies.iter())
         .map(|dependency| {
@@ -251,10 +202,9 @@ fn collect_runtime_dependency_specs(runtime_plugins: &[PluginRegistry]) -> Vec<S
                 format!("{}=={}", dependency.name, dependency.version)
             }
         })
-        .collect::<Vec<_>>();
-    specs.sort();
-    specs.dedup();
-    specs
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 pub(super) fn compute_env_hash(runtime_plugins: &[PluginRegistry]) -> String {
@@ -300,4 +250,85 @@ fn fnv1a_64(data: &[u8]) -> u64 {
     }
 
     hash
+}
+
+fn write_if_changed(path: &Path, contents: &str, context: &str) -> AppResult<()> {
+    let should_write = match fs::read_to_string(path) {
+        Ok(existing) => existing != contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(error) => {
+            return Err(AppError::IoError(format!(
+                "Falha ao ler '{}' antes da atualização: {error}",
+                path.display()
+            )))
+        }
+    };
+
+    if !should_write {
+        return Ok(());
+    }
+
+    fs::write(path, contents).map_err(|error| AppError::IoError(format!("{context}: {error}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::models::plugin::{PluginRegistry, PluginRuntime, PluginType};
+    use std::fs;
+    use std::thread;
+    use std::time::Duration;
+
+    fn create_plugin(id: &str, name: &str) -> PluginRegistry {
+        PluginRegistry {
+            id: id.to_string(),
+            name: name.to_string(),
+            plugin_type: PluginType::Driver,
+            runtime: PluginRuntime::Python,
+            entry_class: "Driver".to_string(),
+            schema: vec![],
+            source_file: Some("main.py".to_string()),
+            source_code: None,
+            dependencies: vec![],
+            description: None,
+            version: None,
+            author: None,
+        }
+    }
+
+    #[test]
+    fn dedupe_runtime_plugins_preserves_single_instance_per_id() {
+        let deduped = dedupe_runtime_plugins(vec![
+            create_plugin("plugin_a", "Driver A"),
+            create_plugin("plugin_a", "Driver A"),
+            create_plugin("plugin_b", "Driver B"),
+        ]);
+
+        assert_eq!(deduped.len(), 2);
+        assert_eq!(deduped[0].id, "plugin_a");
+        assert_eq!(deduped[1].id, "plugin_b");
+    }
+
+    #[test]
+    fn write_if_changed_preserves_timestamp_when_contents_match() {
+        let test_dir = std::env::temp_dir().join("senamby-runtime-env-tests");
+        let _ = fs::remove_dir_all(&test_dir);
+        fs::create_dir_all(&test_dir).unwrap();
+
+        let path = test_dir.join("metadata.json");
+        write_if_changed(&path, "{\"runtime\":true}", "falha de teste").unwrap();
+        let initial_modified = fs::metadata(&path).unwrap().modified().unwrap();
+
+        thread::sleep(Duration::from_millis(20));
+        write_if_changed(&path, "{\"runtime\":true}", "falha de teste").unwrap();
+        let second_modified = fs::metadata(&path).unwrap().modified().unwrap();
+
+        assert_eq!(initial_modified, second_modified);
+
+        thread::sleep(Duration::from_millis(20));
+        write_if_changed(&path, "{\"runtime\":false}", "falha de teste").unwrap();
+        let third_modified = fs::metadata(&path).unwrap().modified().unwrap();
+
+        assert!(third_modified > second_modified);
+    }
 }

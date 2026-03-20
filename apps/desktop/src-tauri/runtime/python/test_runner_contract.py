@@ -5,6 +5,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -228,7 +229,9 @@ class RunnerContractTests(unittest.TestCase):
                 cycle_started_at=123.456,
                 dt_ms=100.0,
                 plant=bootstrap.plant,
-                controller=bootstrap.controllers[0],
+                controller_public_metadata=runner.build_public_controller_metadata(
+                    bootstrap.controllers[0]
+                ).serialize(),
                 sensors={"sensor_1": 40.0},
                 actuators={"actuator_1": 10.0},
             )
@@ -277,6 +280,66 @@ class RunnerContractTests(unittest.TestCase):
                 )
             finally:
                 engine.stop()
+
+    def test_engine_uptime_progresses_from_first_cycle_start(self) -> None:
+        class FakeClock:
+            def __init__(self) -> None:
+                self.monotonic_now = 1000.0
+                self.wall_now = 1700000000.0
+
+            def monotonic(self) -> float:
+                return self.monotonic_now
+
+            def time(self) -> float:
+                return self.wall_now + (self.monotonic_now - 1000.0)
+
+            def sleep(self, duration: float) -> None:
+                self.monotonic_now += max(0.0, duration)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            original_bootstrap = self.build_bootstrap(Path(tmp_dir))
+            bootstrap = runner.RuntimeBootstrap(
+                driver=original_bootstrap.driver,
+                controllers=original_bootstrap.controllers,
+                plant=original_bootstrap.plant,
+                runtime=runner.RuntimeContext(
+                    id=original_bootstrap.runtime.id,
+                    timing=runner.RuntimeTiming(
+                        owner=original_bootstrap.runtime.timing.owner,
+                        clock=original_bootstrap.runtime.timing.clock,
+                        strategy=original_bootstrap.runtime.timing.strategy,
+                        sample_time_ms=1000,
+                    ),
+                    supervision=original_bootstrap.runtime.supervision,
+                    paths=original_bootstrap.runtime.paths,
+                ),
+            )
+            engine = runner.PlantRuntimeEngine(bootstrap)
+            fake_clock = FakeClock()
+            telemetry_payloads: list[dict[str, Any]] = []
+
+            def capture_emit(msg_type: str, payload: dict[str, Any] | None = None) -> None:
+                if msg_type == "telemetry" and payload is not None:
+                    telemetry_payloads.append(payload)
+
+            with (
+                patch.object(runner.time, "monotonic", fake_clock.monotonic),
+                patch.object(runner.time, "time", fake_clock.time),
+                patch.object(runner.time, "sleep", fake_clock.sleep),
+                patch.object(runner, "emit", capture_emit),
+            ):
+                try:
+                    engine.start()
+                    engine.run_cycle()
+                    engine.run_cycle()
+                    engine.run_cycle()
+                finally:
+                    engine.stop()
+
+            self.assertEqual(len(telemetry_payloads), 3)
+            self.assertAlmostEqual(telemetry_payloads[0]["uptime_s"], 0.0, places=6)
+            self.assertAlmostEqual(telemetry_payloads[1]["uptime_s"], 1.0, places=6)
+            self.assertAlmostEqual(telemetry_payloads[2]["uptime_s"], 2.0, places=6)
 
 
 if __name__ == "__main__":

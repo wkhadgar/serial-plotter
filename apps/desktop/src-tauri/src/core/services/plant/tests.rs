@@ -5,6 +5,7 @@ use crate::core::models::plugin::{
 };
 use crate::state::PluginStore;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 fn create_test_variable(name: &str) -> CreatePlantVariableRequest {
     CreatePlantVariableRequest {
@@ -104,6 +105,13 @@ fn create_valid_request(name: &str) -> CreatePlantRequest {
         },
         controllers: vec![],
     }
+}
+
+fn plant_registry_path(name: &str) -> PathBuf {
+    std::env::temp_dir()
+        .join("Senamby/workspace/plants")
+        .join(name)
+        .join("registry.json")
 }
 
 #[test]
@@ -303,11 +311,11 @@ fn test_create_plant_multiple_variables() {
     assert_eq!(plant.sample_time_ms, 250);
     assert_eq!(plant.driver.plugin_id, "driver_plugin");
     assert_eq!(plant.controllers.len(), 1);
-    assert!(!plant.controllers[0].active);
+    assert!(plant.controllers[0].active);
 }
 
 #[test]
-fn test_create_plant_always_starts_controllers_disabled() {
+fn test_create_plant_preserves_controller_active_flag() {
     let store = PlantStore::new();
     let plugins = create_plugin_store();
     let var1 = create_test_variable("Temperatura");
@@ -352,10 +360,7 @@ fn test_create_plant_always_starts_controllers_disabled() {
 
     let plant = result.unwrap();
     assert_eq!(plant.controllers.len(), 2);
-    assert!(plant
-        .controllers
-        .iter()
-        .all(|controller| !controller.active));
+    assert!(plant.controllers.iter().all(|controller| controller.active));
 }
 
 #[test]
@@ -427,12 +432,64 @@ fn test_remove_plant() {
     let plugins = create_plugin_store();
     let request = create_valid_request("To Remove");
     let plant = PlantService::create(&store, &plugins, request).unwrap();
+    let registry_path = plant_registry_path(&plant.name);
 
     assert_eq!(store.count(), 1);
+    assert!(registry_path.exists());
 
     let removed = PlantService::remove(&store, &plant.id).unwrap();
     assert_eq!(removed.name, "To Remove");
     assert_eq!(store.count(), 0);
+    assert!(!registry_path.exists());
+}
+
+#[test]
+fn test_close_plant_unloads_but_preserves_registry() {
+    let store = PlantStore::new();
+    let plugins = create_plugin_store();
+    let request = create_valid_request("To Close");
+    let plant = PlantService::create(&store, &plugins, request).unwrap();
+    let plant = store
+        .update(&plant.id, |plant| {
+            plant.controllers.push(PlantController {
+                id: "ctrl_close".to_string(),
+                plugin_id: "controller_plugin".to_string(),
+                plugin_name: "PID".to_string(),
+                name: "Controller Close".to_string(),
+                controller_type: "PID".to_string(),
+                active: true,
+                input_variable_ids: vec!["var_0".to_string()],
+                output_variable_ids: vec!["var_0".to_string()],
+                params: HashMap::new(),
+                runtime_status: ControllerRuntimeStatus::Synced,
+            });
+        })
+        .unwrap();
+    WorkspaceService::update_plant_registry(&plant, &plant.name).unwrap();
+    let registry_path = plant_registry_path(&plant.name);
+
+    assert!(registry_path.exists());
+
+    let closed = PlantService::close(&store, &plant.id).unwrap();
+    assert_eq!(closed.name, "To Close");
+    assert!(closed.controllers.iter().all(|controller| !controller.active));
+    assert_eq!(store.count(), 0);
+    assert!(registry_path.exists());
+
+    let registry_contents = std::fs::read_to_string(&registry_path).unwrap();
+    let persisted: serde_json::Value = serde_json::from_str(&registry_contents).unwrap();
+    let controllers = persisted
+        .get("controllers")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(controllers.len(), 1);
+    assert_eq!(
+        controllers[0]
+            .get("active")
+            .and_then(serde_json::Value::as_bool),
+        Some(false)
+    );
 }
 
 #[test]

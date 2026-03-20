@@ -14,7 +14,7 @@ impl AppState {
     pub fn new() -> Self {
         let plant_store = Arc::new(PlantStore::new());
         let plugin_store = Arc::new(PluginStore::new());
-        let runtime_manager = Arc::new(PlantRuntimeManager::new(plant_store.clone()));
+        let runtime_manager = Arc::new(PlantRuntimeManager::new());
         if let Err(error) = PluginService::load_all(&plugin_store) {
             eprintln!("Falha ao carregar plugins do workspace na inicialização: {error}");
         }

@@ -112,7 +112,7 @@
           ? {
               tone: result.deferred ? 'warning' : 'success',
               message: result.deferred
-                ? 'Alteracoes salvas no aplicativo. Sincronizacao em andamento.'
+                ? 'Ajustes salvos. Este controlador precisa de restart da planta para entrar em execucao.'
                 : 'Ajustes salvos.',
             }
           : {
@@ -272,18 +272,29 @@
                     class="bg-transparent text-sm font-semibold text-slate-700 dark:text-zinc-200 w-32 focus:text-blue-600 dark:focus:text-blue-400 transition-colors"
                     style="border: none; outline: none; box-shadow: none;"
                   />
+                  {#if ctrl.runtimeStatus === 'pending_restart'}
+                    <span class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+                      Pendente de restart
+                    </span>
+                  {/if}
                 </div>
                 <div class="flex items-center gap-1">
                   <button
                     type="button"
                     onclick={() => onEditControllerBindings(ctrl.id)}
-                    disabled={!!plant?.connected && ctrl.active}
-                    title={plant?.connected && ctrl.active ? 'Desative o controlador para editar os vínculos' : 'Editar vínculos'}
-                    class="rounded p-1 text-slate-400 transition-colors hover:text-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="Editar vínculos"
+                    class="rounded p-1 text-slate-400 transition-colors hover:text-blue-500"
                   >
                     <Pencil size={14} />
                   </button>
-                  <button onclick={() => onDeleteController(ctrl.id)} class="text-slate-400 hover:text-red-500 p-1">
+                  <button
+                    onclick={() => onDeleteController(ctrl.id)}
+                    disabled={!!plant?.connected && ctrl.active && ctrl.runtimeStatus !== 'pending_restart'}
+                    title={plant?.connected && ctrl.active && ctrl.runtimeStatus !== 'pending_restart'
+                      ? 'Desative o controlador antes de removê-lo'
+                      : 'Remover controlador'}
+                    class="text-slate-400 hover:text-red-500 p-1 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
                     <Trash2 size={14} />
                   </button>
                 </div>

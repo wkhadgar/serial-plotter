@@ -194,17 +194,17 @@ pub(super) fn resolve_plugin(
     plugin_id: &str,
     expected_type: PluginType,
 ) -> AppResult<PluginRegistry> {
-    let plugin = plugins.get(plugin_id)?;
-
-    if plugin.plugin_type != expected_type {
-        return Err(AppError::InvalidArgument(format!(
-            "Plugin '{}' não é do tipo {}",
-            plugin.name,
-            expected_type.as_label()
-        )));
-    }
-
-    Ok(plugin)
+    plugins.read(plugin_id, |plugin| {
+        if plugin.plugin_type != expected_type {
+            Err(AppError::InvalidArgument(format!(
+                "Plugin '{}' não é do tipo {}",
+                plugin.name,
+                expected_type.as_label()
+            )))
+        } else {
+            Ok(plugin.clone())
+        }
+    })?
 }
 
 fn build_variable_type_map(

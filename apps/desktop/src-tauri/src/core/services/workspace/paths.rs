@@ -49,11 +49,14 @@ pub(super) fn env_directory(env_hash: &str) -> AppResult<PathBuf> {
     Ok(workspace_root.join(ENVS_DIR).join(env_hash))
 }
 
+pub(super) fn runtime_root_directory() -> AppResult<PathBuf> {
+    Ok(workspace_root()?.join(RUNTIMES_DIR))
+}
+
 pub(super) fn runtime_directory(runtime_id: &str) -> AppResult<PathBuf> {
-    let workspace_root = workspace_root()?;
     let runtime_id =
         crate::core::services::workspace::ensure_safe_workspace_component(runtime_id, "runtime")?;
-    Ok(workspace_root.join(RUNTIMES_DIR).join(runtime_id))
+    Ok(runtime_root_directory()?.join(runtime_id))
 }
 
 #[cfg(not(test))]
