@@ -1,18 +1,36 @@
 <script lang="ts">
-  import { ChevronsRight, Check } from 'lucide-svelte';
+  import { ChevronsRight, Check, Plus } from 'lucide-svelte';
   import type { AnalyzerVariable } from '$lib/types/analyzer';
+  import type { AnalysisMethod } from '$lib/stores/analyzerStore.svelte';
 
   let {
     visible = $bindable(false),
     variables,
+    selectedAnalysisMethod,
     onToggleVariable,
+    onSelectAnalysisMethod,
     onVisibleChange
   }: {
     visible: boolean;
     variables: AnalyzerVariable[];
+    selectedAnalysisMethod: AnalysisMethod | null;
     onToggleVariable: (index: number) => void;
+    onSelectAnalysisMethod: (method: AnalysisMethod) => void;
     onVisibleChange?: (visible: boolean) => void;
   } = $props();
+
+  const analysisMethods: Array<{ id: AnalysisMethod; label: string; description: string }> = [
+    {
+      id: 'open_loop',
+      label: 'Malha aberta',
+      description: 'Visualização para experimentos em malha aberta',
+    },
+    {
+      id: 'closed_loop',
+      label: 'Malha fechada',
+      description: 'Visualização para experimentos em malha fechada',
+    },
+  ];
 
   function handleClose() {
     visible = false;
@@ -84,5 +102,47 @@
         </button>
       {/each}
     {/if}
+  </div>
+
+  <div class="shrink-0 border-t border-slate-200 bg-slate-50/70 p-4 dark:border-white/10 dark:bg-white/[0.02] sm:p-5">
+    <h4 class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
+      Métodos de análise
+    </h4>
+    <div class="mt-3 space-y-2">
+      {#each analysisMethods as method (method.id)}
+        <button
+          type="button"
+          onclick={() => onSelectAnalysisMethod(method.id)}
+          class={`w-full rounded-lg border px-3 py-2 text-left transition-all ${
+            selectedAnalysisMethod === method.id
+              ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-600 dark:bg-blue-900/20 dark:text-blue-300'
+              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100 dark:border-white/10 dark:bg-[#121215] dark:text-zinc-300 dark:hover:bg-[#16161a]'
+          }`}
+          title={method.label}
+        >
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <p class="text-sm font-semibold">{method.label}</p>
+              <p class="mt-0.5 text-[11px] leading-4 opacity-80">{method.description}</p>
+            </div>
+            {#if selectedAnalysisMethod === method.id}
+              <div class="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-white dark:bg-blue-500">
+                <Check size={12} />
+              </div>
+            {/if}
+          </div>
+        </button>
+      {/each}
+    </div>
+
+    <button
+      type="button"
+      disabled
+      class="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-semibold text-slate-400 opacity-80 dark:border-white/20 dark:text-zinc-500"
+      title="Em breve"
+    >
+      <Plus size={14} />
+      Adicionar método (Plugin personalizado)
+    </button>
   </div>
 </div>

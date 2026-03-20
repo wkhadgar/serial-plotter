@@ -260,7 +260,7 @@
             + Adicionar
           </button>
         </div>
-        <div class="space-y-4 max-h-[500px] overflow-y-auto pr-2">
+        <div class="space-y-4 max-h-[700px] overflow-y-auto pr-2">
           {#each plant.controllers as ctrl (ctrl.id)}
             <div class="border border-slate-200 dark:border-white/10 rounded-xl overflow-hidden shadow-sm bg-white dark:bg-[#0c0c0e]">
               <div class="bg-slate-50 dark:bg-white/[0.02] p-3 border-b border-slate-100 dark:border-white/5 flex items-center justify-between">

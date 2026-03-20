@@ -23,6 +23,45 @@ Controladores calculam saídas de atuador a partir do snapshot do ciclo atual. U
 - valores de parâmetros
 - status de runtime
 
+## Quem Recebe O Quê (Resumo Rápido)
+
+### Driver
+
+Recebe no construtor:
+
+- `context.config`
+- `context.plant`
+
+Métodos de payload:
+
+- `read()` retorna `{ "sensors": {...}, "actuators": {...} }`
+- `write(outputs)` recebe `{ "actuator_id": valor }`
+
+### Controlador
+
+Recebe no construtor:
+
+- `context.controller`
+- `context.plant`
+
+Método de payload:
+
+- `compute(snapshot)` recebe snapshot do ciclo
+- deve retornar `{ "actuator_id": valor }`
+
+Conteúdo principal de `snapshot`:
+
+- `dt_s`
+- `setpoints`
+- `sensors`
+- `actuators`
+- `controller`
+
+Para estrutura completa e exemplos JSON, veja:
+
+- [Formato de Arquivo de Plugin](plugin-file-format.md)
+- [Comportamento da Runtime](runtime-behavior.md)
+
 ## Atualizações em Runtime
 
 Enquanto a planta está conectada, controladores podem ser adicionados ou editados em tempo real.

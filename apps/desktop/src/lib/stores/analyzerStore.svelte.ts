@@ -2,11 +2,14 @@ import type { ProcessedVariableData } from '$lib/types/analyzer';
 import { type ChartStateType, defaultChartState, nextViewState, resetToGridView } from '$lib/types/chart';
 import { generateId } from '$lib/utils/format';
 
+export type AnalysisMethod = 'open_loop' | 'closed_loop';
+
 export interface AnalyzerTab {
   id: string;
   name: string;
   processedVariables: ProcessedVariableData[];
   selectedVariablesIndexes: number[];
+  selectedAnalysisMethod: AnalysisMethod | null;
 }
 
 class AnalyzerStore {
@@ -45,12 +48,17 @@ class AnalyzerStore {
     return selected;
   }
 
+  get selectedAnalysisMethod(): AnalysisMethod | null {
+    return this.activeTab?.selectedAnalysisMethod ?? null;
+  }
+
   addTab(id: string, name: string, processedVariables: ProcessedVariableData[]): void {
     this.tabs = [...this.tabs, {
       id,
       name,
       processedVariables,
       selectedVariablesIndexes: [],
+      selectedAnalysisMethod: null,
     }];
     this.chartStates[id] = defaultChartState();
     this.activeTabId = id;
@@ -64,6 +72,7 @@ class AnalyzerStore {
       name: 'Unnamed',
       processedVariables: [],
       selectedVariablesIndexes: [],
+      selectedAnalysisMethod: null,
     }];
     this.chartStates[id] = defaultChartState();
     this.activeTabId = id;
@@ -77,6 +86,7 @@ class AnalyzerStore {
     this.tabs[tabIndex].name = fileName;
     this.tabs[tabIndex].processedVariables = processedVariables;
     this.tabs[tabIndex].selectedVariablesIndexes = [];
+    this.tabs[tabIndex].selectedAnalysisMethod = null;
     
     this.chartStates[this.activeTabId] = defaultChartState();
     this.showVariablePanel = true;
@@ -92,6 +102,7 @@ class AnalyzerStore {
       this.tabs[0].name = 'Unnamed';
       this.tabs[0].processedVariables = [];
       this.tabs[0].selectedVariablesIndexes = [];
+      this.tabs[0].selectedAnalysisMethod = null;
       this.chartStates[this.tabs[0].id] = defaultChartState();
       this.showVariablePanel = false;
       return;
@@ -123,6 +134,14 @@ class AnalyzerStore {
 
   toggleVariablePanel(): void {
     this.showVariablePanel = !this.showVariablePanel;
+  }
+
+  toggleAnalysisMethod(method: AnalysisMethod): void {
+    const tabIndex = this.tabs.findIndex(t => t.id === this.activeTabId);
+    if (tabIndex === -1) return;
+
+    const currentMethod = this.tabs[tabIndex].selectedAnalysisMethod;
+    this.tabs[tabIndex].selectedAnalysisMethod = currentMethod === method ? null : method;
   }
 
   setRange(xMin: number, xMax: number): void {

@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { Upload, Sliders } from 'lucide-svelte';
   import { processJSONFile } from '$lib/services/analyzerBackend';
-  import { analyzerStore } from '$lib/stores/analyzerStore.svelte';
+  import { analyzerStore, type AnalysisMethod } from '$lib/stores/analyzerStore.svelte';
   import AnalyzerTabs from '$lib/components/analyzer/AnalyzerTabs.svelte';
   import VariableSelectorPanel from '$lib/components/analyzer/VariableSelectorPanel.svelte';
   import VariableChart from '$lib/components/analyzer/VariableChart.svelte';
@@ -32,6 +32,7 @@
   const activeTab = $derived(analyzerStore.activeTab);
   const activeProcessedVariables = $derived(activeTab?.processedVariables ?? []);
   const selectedVariables = $derived(analyzerStore.selectedVariables);
+  const selectedAnalysisMethod = $derived(analyzerStore.selectedAnalysisMethod);
   const hasProcessedVariables = $derived(activeProcessedVariables.length > 0);
   const isSingleView = $derived(analyzerStore.chartState.viewMode === 'single');
   const visibleVariables = $derived.by(() => {
@@ -219,6 +220,10 @@
 
   function handleRangeChange(xMin: number, xMax: number) {
     analyzerStore.setRange(xMin, xMax);
+  }
+
+  function handleSelectAnalysisMethod(method: AnalysisMethod) {
+    analyzerStore.toggleAnalysisMethod(method);
   }
 
   function resetZoom() {
@@ -540,7 +545,9 @@
         visible={analyzerStore.showVariablePanel}
         onVisibleChange={(v) => analyzerStore.showVariablePanel = v}
         variables={selectorVariables}
+        {selectedAnalysisMethod}
         onToggleVariable={(index) => analyzerStore.toggleVariable(index)}
+        onSelectAnalysisMethod={handleSelectAnalysisMethod}
       />
     {/if}
   </div>

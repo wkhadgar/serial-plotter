@@ -55,6 +55,8 @@
   let cardEl: HTMLDivElement | undefined = $state();
   let layoutMode = $state<CardLayoutMode>('regular');
   let actuatorExpanded = $state(false);
+  const RIPPLE_WINDOW_SAMPLES = 120;
+  const RIPPLE_MIN_SAMPLES = 8;
 
   const pvStyle = $derived(lineStyles[pvKey]);
   const spStyle = $derived(lineStyles[spKey]);
@@ -118,17 +120,32 @@
     return values;
   });
   const resolvedStats = $derived.by(() => {
-    if (!stats) return null;
+    const liveError = currentSpValue != null && currentPvValue != null ? currentSpValue - currentPvValue : null;
+    const liveRipple = computeSignalRipplePercent(pvData, pvKey, RIPPLE_WINDOW_SAMPLES);
+    const liveStability = liveRipple == null ? null : clamp(100 - liveRipple, 0, 100);
 
-    const errorAvg = Number.isFinite(stats.errorAvg) ? stats.errorAvg : 0;
-    const stability = Number.isFinite(stats.stability) ? stats.stability : 0;
-    const ripple = Number.isFinite(stats.ripple) ? stats.ripple : 0;
+    const fallbackError = stats && Number.isFinite(stats.errorAvg) ? stats.errorAvg : null;
+    const fallbackStability = stats && Number.isFinite(stats.stability) ? stats.stability : null;
+    const fallbackRipple = stats && Number.isFinite(stats.ripple) ? stats.ripple : null;
 
     return {
-      errorAvg,
-      stability,
-      ripple,
+      errorAvg: liveError ?? fallbackError,
+      stability: liveStability ?? fallbackStability,
+      ripple: liveRipple ?? fallbackRipple,
     };
+  });
+  const errorClass = $derived.by(() => {
+    if (resolvedStats.errorAvg == null) return 'text-slate-500 dark:text-zinc-400';
+    const absError = Math.abs(resolvedStats.errorAvg);
+    if (absError < 3) return 'text-emerald-600 dark:text-emerald-400';
+    if (absError < 10) return 'text-amber-600 dark:text-amber-400';
+    return 'text-red-600 dark:text-red-400';
+  });
+  const stabilityClass = $derived.by(() => {
+    if (resolvedStats.stability == null) return 'text-slate-500 dark:text-zinc-400';
+    if (resolvedStats.stability > 90) return 'text-emerald-600 dark:text-emerald-400';
+    if (resolvedStats.stability > 70) return 'text-amber-600 dark:text-amber-400';
+    return 'text-red-600 dark:text-red-400';
   });
 
   function resolveLayoutMode(height: number, withActuator: boolean): CardLayoutMode {
@@ -161,12 +178,54 @@
     return null;
   }
 
+  function getRecentFiniteValues(data: ChartDataPoint[], key: string, limit: number): number[] {
+    const values: number[] = [];
+    for (let index = data.length - 1; index >= 0 && values.length < limit; index -= 1) {
+      const candidate = data[index]?.[key];
+      if (Number.isFinite(candidate)) {
+        values.push(candidate);
+      }
+    }
+    values.reverse();
+    return values;
+  }
+
+  function clamp(value: number, min: number, max: number): number {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function computeSignalRipplePercent(data: ChartDataPoint[], key: string, sampleWindow: number): number | null {
+    const values = getRecentFiniteValues(data, key, sampleWindow);
+    if (values.length < RIPPLE_MIN_SAMPLES) return null;
+
+    let min = values[0];
+    let max = values[0];
+    let sum = 0;
+
+    for (const value of values) {
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+      sum += value;
+    }
+
+    const ripple = max - min;
+    const mean = sum / values.length;
+    const baseline = Math.max(Math.abs(mean), Math.abs(max), Math.abs(min), 1);
+    const ripplePercent = (ripple / baseline) * 100;
+    return Number.isFinite(ripplePercent) ? Math.max(0, ripplePercent) : null;
+  }
+
   function formatLegendValue(value: number | null, valueUnit = ''): string {
     if (value == null) return '--';
 
     const precision = Math.abs(value) >= 100 ? 1 : 2;
     const formatted = value.toFixed(precision);
     return valueUnit ? `${formatted} ${valueUnit}` : formatted;
+  }
+
+  function formatMetricValue(value: number | null, decimals: number, suffix = ''): string {
+    if (value == null) return '--';
+    return `${value.toFixed(decimals)}${suffix}`;
   }
 
   onMount(() => {
@@ -204,18 +263,21 @@
           <span class="text-xs font-normal text-slate-400 dark:text-zinc-500">({unit})</span>
         {/if}
       </h3>
-      {#if resolvedStats && showStats}
+      {#if showStats}
         <div class="variable-card__stats flex items-center gap-2 text-[10px] font-medium">
           <div class="flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5">
             <span class="text-slate-400 dark:text-zinc-500">Erro:</span>
-            <span class={resolvedStats.errorAvg < 3 ? 'text-emerald-600 dark:text-emerald-400' : resolvedStats.errorAvg < 10 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}>
-              {resolvedStats.errorAvg.toFixed(2)}
+            <span class={errorClass}>
+              {formatMetricValue(resolvedStats.errorAvg, 2)}
             </span>
           </div>
-          <div class="flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5">
+          <div
+            class="flex shrink-0 items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/5"
+            title={resolvedStats.ripple == null ? 'Estabilidade baseada no ripple do sinal' : `Ripple: ${resolvedStats.ripple.toFixed(2)}%`}
+          >
             <span class="text-slate-400 dark:text-zinc-500">Estab:</span>
-            <span class={resolvedStats.stability > 90 ? 'text-emerald-600 dark:text-emerald-400' : resolvedStats.stability > 70 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'}>
-              {resolvedStats.stability.toFixed(0)}%
+            <span class={stabilityClass}>
+              {formatMetricValue(resolvedStats.stability, 0, '%')}
             </span>
           </div>
         </div>
