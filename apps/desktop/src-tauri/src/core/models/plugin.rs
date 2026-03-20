@@ -8,7 +8,7 @@ pub enum PluginType {
 }
 
 impl PluginType {
-    pub fn as_label(&self) -> &'static str {
+    pub fn as_label(self) -> &'static str {
         match self {
             Self::Driver => "driver",
             Self::Controller => "controller",

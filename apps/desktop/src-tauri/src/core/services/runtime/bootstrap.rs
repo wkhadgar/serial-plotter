@@ -1,8 +1,7 @@
 use super::{
-    DriverBootstrapController, DriverBootstrapDriver, DriverBootstrapPayload,
-    DriverBootstrapPlant, DriverBootstrapRuntime, DriverBootstrapRuntimePaths,
-    DriverBootstrapRuntimeSupervision, DriverBootstrapRuntimeTiming, DriverBootstrapVariable,
-    ResolvedRuntimeController,
+    DriverBootstrapController, DriverBootstrapDriver, DriverBootstrapPayload, DriverBootstrapPlant,
+    DriverBootstrapRuntime, DriverBootstrapRuntimePaths, DriverBootstrapRuntimeSupervision,
+    DriverBootstrapRuntimeTiming, DriverBootstrapVariable, ResolvedRuntimeController,
 };
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plant::{Plant, VariableType};
@@ -51,10 +50,10 @@ pub(super) fn resolve_runtime_components_for_connect(
     }
 
     if plant_changed {
-        plant.driver.plugin_id = driver.id.clone();
-        plant.driver.plugin_name = driver.name.clone();
+        plant.driver.plugin_id.clone_from(&driver.id);
+        plant.driver.plugin_name.clone_from(&driver.name);
         plant.driver.runtime = driver.runtime;
-        plant.driver.source_file = driver.source_file.clone();
+        plant.driver.source_file.clone_from(&driver.source_file);
         plant.driver.source_code = None;
     }
 
@@ -85,8 +84,8 @@ pub(super) fn resolve_runtime_components_for_connect(
                 let controller_changed =
                     controller.plugin_id != plugin.id || controller.plugin_name != plugin.name;
                 if controller_changed {
-                    controller.plugin_id = plugin.id.clone();
-                    controller.plugin_name = plugin.name.clone();
+                    controller.plugin_id.clone_from(&plugin.id);
+                    controller.plugin_name.clone_from(&plugin.name);
                     plant_changed = true;
                 }
 
@@ -166,6 +165,7 @@ pub(super) fn resolve_plugin_for_runtime(
     Ok(None)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_bootstrap_payload(
     runtime_id: &str,
     plant: &Plant,

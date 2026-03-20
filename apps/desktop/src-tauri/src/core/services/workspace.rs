@@ -70,11 +70,16 @@ impl WorkspaceService {
     }
 }
 
-pub(crate) fn map_serde_error(context: &str, error: serde_json::Error) -> AppError {
+#[cfg(test)]
+pub(crate) fn test_workspace_root() -> PathBuf {
+    paths::test_workspace_root()
+}
+
+pub(crate) fn map_serde_error(context: &str, error: &serde_json::Error) -> AppError {
     AppError::IoError(format!("{context}: {error}"))
 }
 
-pub(crate) fn map_io_error(context: &str, error: std::io::Error) -> AppError {
+pub(crate) fn map_io_error(context: &str, error: &std::io::Error) -> AppError {
     AppError::IoError(format!("{context}: {error}"))
 }
 
@@ -114,7 +119,7 @@ pub(crate) fn ensure_safe_workspace_component(name: &str, entity: &str) -> AppRe
         )));
     }
 
-    if normalized.chars().any(|character| character.is_control()) {
+    if normalized.chars().any(char::is_control) {
         return Err(AppError::InvalidArgument(format!(
             "Nome de {entity} contém caracteres inválidos"
         )));

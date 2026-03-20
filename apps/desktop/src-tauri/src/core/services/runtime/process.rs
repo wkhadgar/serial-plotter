@@ -12,6 +12,11 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Runtime};
 
+#[allow(clippy::cast_precision_loss)]
+fn sample_time_ms_as_f64(sample_time_ms: u64) -> f64 {
+    sample_time_ms as f64
+}
+
 pub(super) fn spawn_driver_process(
     venv_python_path: &std::path::Path,
     runner_path: &std::path::Path,
@@ -56,7 +61,7 @@ pub(super) fn spawn_stdout_task<R: Runtime + 'static>(
                         &app,
                         &plant_id,
                         &runtime_id,
-                        format!("Falha ao ler stdout do driver: {error}"),
+                        &format!("Falha ao ler stdout do driver: {error}"),
                     );
                     break;
                 }
@@ -69,7 +74,7 @@ pub(super) fn spawn_stdout_task<R: Runtime + 'static>(
                         &app,
                         &plant_id,
                         &runtime_id,
-                        format!("Mensagem inválida recebida do driver: {error}"),
+                        &format!("Mensagem inválida recebida do driver: {error}"),
                     );
                     continue;
                 }
@@ -97,7 +102,7 @@ pub(super) fn spawn_stdout_task<R: Runtime + 'static>(
                     &plant_id,
                     &runtime_id,
                     configured_sample_time_ms,
-                    envelope.payload,
+                    &envelope.payload,
                     &handshake,
                     &metrics,
                 ),
@@ -137,14 +142,9 @@ pub(super) fn spawn_stderr_task(
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let reader = BufReader::new(stderr);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                if !line.trim().is_empty() {
-                    eprintln!(
-                        "[driver-runtime][plant={}][runtime={}] {}",
-                        plant_id, runtime_id, line
-                    );
-                }
+        for line in reader.lines().map_while(Result::ok) {
+            if !line.trim().is_empty() {
+                eprintln!("[driver-runtime][plant={plant_id}][runtime={runtime_id}] {line}");
             }
         }
     })
@@ -174,7 +174,7 @@ fn handle_ready_event<R: Runtime>(
             lifecycle_state: RuntimeLifecycleState::Ready,
             cycle_phase: RuntimeCyclePhase::CycleStarted,
             configured_sample_time_ms,
-            effective_dt_ms: configured_sample_time_ms as f64,
+            effective_dt_ms: sample_time_ms_as_f64(configured_sample_time_ms),
             cycle_late: false,
         },
     );
@@ -205,7 +205,7 @@ fn handle_connected_event<R: Runtime>(
             lifecycle_state: RuntimeLifecycleState::Running,
             cycle_phase: RuntimeCyclePhase::ReadInputs,
             configured_sample_time_ms,
-            effective_dt_ms: configured_sample_time_ms as f64,
+            effective_dt_ms: sample_time_ms_as_f64(configured_sample_time_ms),
             cycle_late: false,
         },
     );
@@ -216,7 +216,7 @@ fn handle_runtime_error_event<R: Runtime>(
     plant_id: &str,
     runtime_id: &str,
     configured_sample_time_ms: u64,
-    payload: Value,
+    payload: &Value,
     handshake: &SharedHandshake,
     metrics: &SharedMetrics,
 ) {
@@ -246,7 +246,7 @@ fn handle_runtime_error_event<R: Runtime>(
             cycle_late: lock.cycle_late,
         },
     );
-    let _ = emit_error_event(app, plant_id, runtime_id, message);
+    let _ = emit_error_event(app, plant_id, runtime_id, &message);
 }
 
 fn handle_stopped_event<R: Runtime>(
@@ -287,7 +287,7 @@ fn process_telemetry<R: Runtime>(
                 app,
                 plant_id,
                 runtime_id,
-                format!("Payload de telemetria inválido: {error}"),
+                &format!("Payload de telemetria inválido: {error}"),
             );
             return;
         }
@@ -296,7 +296,7 @@ fn process_telemetry<R: Runtime>(
     let effective_dt_ms = if payload.effective_dt_ms.is_finite() {
         payload.effective_dt_ms
     } else {
-        configured_sample_time_ms as f64
+        sample_time_ms_as_f64(configured_sample_time_ms)
     };
     let cycle_duration_ms = if payload.cycle_duration_ms.is_finite() {
         payload.cycle_duration_ms
@@ -425,7 +425,7 @@ pub(super) fn emit_error_event<R: Runtime>(
     app: &AppHandle<R>,
     plant_id: &str,
     runtime_id: &str,
-    message: String,
+    message: &str,
 ) -> AppResult<()> {
     app.emit(
         "plant://error",

@@ -7,6 +7,7 @@ use crate::core::models::plugin::{PluginRegistry, PluginType};
 use crate::state::{PlantStore, PluginStore};
 use std::collections::HashMap;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn validate_payload(
     current_id: Option<&str>,
     name: &str,
@@ -23,14 +24,14 @@ pub(super) fn validate_payload(
         ));
     }
 
-    let has_duplicate_name = current_id
-        .map(|id| store.exists_by_name_except(id, name))
-        .unwrap_or_else(|| store.exists_by_name(name));
+    let has_duplicate_name = current_id.map_or_else(
+        || store.exists_by_name(name),
+        |id| store.exists_by_name_except(id, name),
+    );
 
     if has_duplicate_name {
         return Err(AppError::InvalidArgument(format!(
-            "Planta com NOME '{}' já existe",
-            name
+            "Planta com NOME '{name}' já existe"
         )));
     }
 
@@ -133,14 +134,12 @@ pub(super) fn validate_controller(
             Some(VariableType::Sensor) => {}
             Some(VariableType::Atuador) => {
                 return Err(AppError::InvalidArgument(format!(
-                    "A variável '{}' não pode ser usada como entrada",
-                    input_id
+                    "A variável '{input_id}' não pode ser usada como entrada"
                 )));
             }
             None => {
                 return Err(AppError::InvalidArgument(format!(
-                    "Variável de entrada '{}' não existe",
-                    input_id
+                    "Variável de entrada '{input_id}' não existe"
                 )));
             }
         }
@@ -151,14 +150,12 @@ pub(super) fn validate_controller(
             Some(VariableType::Atuador) => {}
             Some(VariableType::Sensor) => {
                 return Err(AppError::InvalidArgument(format!(
-                    "A variável '{}' não pode ser usada como saída",
-                    output_id
+                    "A variável '{output_id}' não pode ser usada como saída"
                 )));
             }
             None => {
                 return Err(AppError::InvalidArgument(format!(
-                    "Variável de saída '{}' não existe",
-                    output_id
+                    "Variável de saída '{output_id}' não existe"
                 )));
             }
         }
@@ -195,14 +192,14 @@ pub(super) fn resolve_plugin(
     expected_type: PluginType,
 ) -> AppResult<PluginRegistry> {
     plugins.read(plugin_id, |plugin| {
-        if plugin.plugin_type != expected_type {
+        if plugin.plugin_type == expected_type {
+            Ok(plugin.clone())
+        } else {
             Err(AppError::InvalidArgument(format!(
                 "Plugin '{}' não é do tipo {}",
                 plugin.name,
                 expected_type.as_label()
             )))
-        } else {
-            Ok(plugin.clone())
         }
     })?
 }
@@ -213,6 +210,6 @@ fn build_variable_type_map(
     variables
         .iter()
         .enumerate()
-        .map(|(idx, variable)| (format!("var_{}", idx), variable.var_type))
+        .map(|(idx, variable)| (format!("var_{idx}"), variable.var_type))
         .collect()
 }

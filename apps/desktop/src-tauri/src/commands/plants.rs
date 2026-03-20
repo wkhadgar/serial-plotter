@@ -1,3 +1,5 @@
+#![allow(clippy::needless_pass_by_value)]
+
 use crate::core::error::ErrorDto;
 use crate::core::models::plant::{
     CreatePlantRequest, Plant, PlantResponse, RemovePlantControllerRequest,
@@ -42,11 +44,10 @@ pub fn create_plant(
     state: State<'_, AppState>,
     request: CreatePlantRequest,
 ) -> Result<PlantResponse, ErrorDto> {
-    into_plant_response(state.runtimes(), PlantService::create(
-        state.plants(),
-        state.plugins(),
-        request,
-    ))
+    into_plant_response(
+        state.runtimes(),
+        PlantService::create(state.plants(), state.plugins(), request),
+    )
 }
 
 #[tauri::command]
@@ -54,11 +55,10 @@ pub fn update_plant(
     state: State<'_, AppState>,
     request: UpdatePlantRequest,
 ) -> Result<PlantResponse, ErrorDto> {
-    into_plant_response(state.runtimes(), PlantService::update(
-        state.plants(),
-        state.plugins(),
-        request,
-    ))
+    into_plant_response(
+        state.runtimes(),
+        PlantService::update(state.plants(), state.plugins(), request),
+    )
 }
 
 #[tauri::command]
@@ -82,12 +82,10 @@ pub fn close_plant(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<PlantResponse, ErrorDto> {
-    into_plant_response(state.runtimes(), DriverRuntimeService::close(
-        &app,
-        state.plants(),
+    into_plant_response(
         state.runtimes(),
-        &id,
-    ))
+        DriverRuntimeService::close(&app, state.plants(), state.runtimes(), &id),
+    )
 }
 
 #[tauri::command]
@@ -96,12 +94,10 @@ pub fn remove_plant(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<PlantResponse, ErrorDto> {
-    into_plant_response(state.runtimes(), DriverRuntimeService::remove(
-        &app,
-        state.plants(),
+    into_plant_response(
         state.runtimes(),
-        &id,
-    ))
+        DriverRuntimeService::remove(&app, state.plants(), state.runtimes(), &id),
+    )
 }
 
 #[tauri::command]
@@ -110,13 +106,10 @@ pub fn connect_plant(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<PlantResponse, ErrorDto> {
-    into_plant_response(state.runtimes(), DriverRuntimeService::connect(
-        &app,
-        state.plants(),
-        state.plugins(),
+    into_plant_response(
         state.runtimes(),
-        &id,
-    ))
+        DriverRuntimeService::connect(&app, state.plants(), state.plugins(), state.runtimes(), &id),
+    )
 }
 
 #[tauri::command]
@@ -125,30 +118,26 @@ pub fn disconnect_plant(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<PlantResponse, ErrorDto> {
-    into_plant_response(state.runtimes(), DriverRuntimeService::disconnect(
-        &app,
-        state.plants(),
+    into_plant_response(
         state.runtimes(),
-        &id,
-    ))
+        DriverRuntimeService::disconnect(&app, state.plants(), state.runtimes(), &id),
+    )
 }
 
 #[tauri::command]
 pub fn pause_plant(state: State<'_, AppState>, id: String) -> Result<PlantResponse, ErrorDto> {
-    into_plant_response(state.runtimes(), DriverRuntimeService::pause(
-        state.plants(),
+    into_plant_response(
         state.runtimes(),
-        &id,
-    ))
+        DriverRuntimeService::pause(state.plants(), state.runtimes(), &id),
+    )
 }
 
 #[tauri::command]
 pub fn resume_plant(state: State<'_, AppState>, id: String) -> Result<PlantResponse, ErrorDto> {
-    into_plant_response(state.runtimes(), DriverRuntimeService::resume(
-        state.plants(),
+    into_plant_response(
         state.runtimes(),
-        &id,
-    ))
+        DriverRuntimeService::resume(state.plants(), state.runtimes(), &id),
+    )
 }
 
 #[tauri::command]
@@ -156,12 +145,15 @@ pub fn save_controller(
     state: State<'_, AppState>,
     request: SavePlantControllerConfigRequest,
 ) -> Result<PlantResponse, ErrorDto> {
-    into_plant_response(state.runtimes(), DriverRuntimeService::save_controller_config(
-        state.plants(),
-        state.plugins(),
+    into_plant_response(
         state.runtimes(),
-        request,
-    ))
+        DriverRuntimeService::save_controller_config(
+            state.plants(),
+            state.plugins(),
+            state.runtimes(),
+            request,
+        ),
+    )
 }
 
 #[tauri::command]
@@ -169,12 +161,15 @@ pub fn remove_controller(
     state: State<'_, AppState>,
     request: RemovePlantControllerRequest,
 ) -> Result<PlantResponse, ErrorDto> {
-    into_plant_response(state.runtimes(), DriverRuntimeService::remove_controller(
-        state.plants(),
-        state.plugins(),
+    into_plant_response(
         state.runtimes(),
-        request,
-    ))
+        DriverRuntimeService::remove_controller(
+            state.plants(),
+            state.plugins(),
+            state.runtimes(),
+            &request,
+        ),
+    )
 }
 
 #[tauri::command]
@@ -182,11 +177,10 @@ pub fn save_setpoint(
     state: State<'_, AppState>,
     request: SavePlantSetpointRequest,
 ) -> Result<PlantResponse, ErrorDto> {
-    into_plant_response(state.runtimes(), DriverRuntimeService::save_setpoint(
-        state.plants(),
+    into_plant_response(
         state.runtimes(),
-        request,
-    ))
+        DriverRuntimeService::save_setpoint(state.plants(), state.runtimes(), &request),
+    )
 }
 
 #[tauri::command]

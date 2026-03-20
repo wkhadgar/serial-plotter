@@ -2,9 +2,14 @@ use super::*;
 use crate::core::models::plugin::{
     PluginRuntime, PluginSchemaField, PluginType, SchemaFieldType, SchemaFieldValue,
 };
+use crate::core::services::workspace::test_workspace_root;
 use std::fs;
 use std::path::PathBuf;
 use uuid::Uuid;
+
+fn test_workspace_drivers_dir() -> PathBuf {
+    test_workspace_root().join("drivers")
+}
 
 fn create_valid_request() -> CreatePluginRequest {
     CreatePluginRequest {
@@ -57,9 +62,7 @@ fn test_create_driver_with_list_default_persists_schema_structure() {
 
     let plugin = PluginService::create(&store, request).unwrap();
 
-    let registry_path = std::env::temp_dir()
-        .join("Senamby/workspace")
-        .join("drivers")
+    let registry_path = test_workspace_drivers_dir()
         .join(&plugin.name)
         .join("registry.json");
     let raw_registry = fs::read_to_string(&registry_path).unwrap();
@@ -84,8 +87,7 @@ fn test_create_driver_with_list_default_persists_schema_structure() {
 
     let driver_dir: PathBuf = registry_path
         .parent()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::temp_dir());
+        .map_or_else(std::env::temp_dir, PathBuf::from);
     let _ = fs::remove_dir_all(driver_dir);
 }
 
@@ -94,7 +96,7 @@ fn test_empty_name_should_fail() {
     let store = PluginStore::new();
     let mut request = create_valid_request();
 
-    request.name = "".to_string();
+    request.name = String::new();
 
     assert!(PluginService::create(&store, request).is_err());
 }
@@ -186,9 +188,7 @@ fn test_update_plugin_without_source_code_keeps_existing_file_contents() {
     let created = PluginService::create(&store, create_valid_request()).unwrap();
     let updated_name = format!("updated_driver_{}", Uuid::new_v4().simple());
 
-    let original_source_path = std::env::temp_dir()
-        .join("Senamby/workspace")
-        .join("drivers")
+    let original_source_path = test_workspace_drivers_dir()
         .join(&created.name)
         .join("main.py");
     let original_source = fs::read_to_string(&original_source_path).unwrap();
@@ -212,9 +212,7 @@ fn test_update_plugin_without_source_code_keeps_existing_file_contents() {
     )
     .unwrap();
 
-    let updated_source_path = std::env::temp_dir()
-        .join("Senamby/workspace")
-        .join("drivers")
+    let updated_source_path = test_workspace_drivers_dir()
         .join(&updated_name)
         .join("main.py");
     let updated_source = fs::read_to_string(&updated_source_path).unwrap();
@@ -230,10 +228,7 @@ fn test_remove_plugin_cleans_workspace_directory() {
     let store = PluginStore::new();
     let created = PluginService::create(&store, create_valid_request()).unwrap();
 
-    let plugin_dir = std::env::temp_dir()
-        .join("Senamby/workspace")
-        .join("drivers")
-        .join(&created.name);
+    let plugin_dir = test_workspace_drivers_dir().join(&created.name);
     assert!(plugin_dir.exists());
 
     let removed = PluginService::remove(&store, &created.id).unwrap();

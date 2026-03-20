@@ -113,11 +113,10 @@ fn load_plugin_type(plugin_type: PluginType, plugins: &mut Vec<PluginRegistry>) 
     }
 
     for entry in fs::read_dir(&root)
-        .map_err(|error| map_io_error("Falha ao carregar workspace de plugins", error))?
+        .map_err(|error| map_io_error("Falha ao carregar workspace de plugins", &error))?
     {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(_) => continue,
+        let Ok(entry) = entry else {
+            continue;
         };
         let plugin_dir = entry.path();
         if !plugin_dir.is_dir() {
@@ -138,7 +137,7 @@ fn load_plugin_type(plugin_type: PluginType, plugins: &mut Vec<PluginRegistry>) 
         ) {
             Ok(content) => content,
             Err(error) => {
-                eprintln!("{}", error);
+                eprintln!("{error}");
                 continue;
             }
         };
@@ -153,7 +152,7 @@ fn load_plugin_type(plugin_type: PluginType, plugins: &mut Vec<PluginRegistry>) 
                             "Falha ao desserializar registro do plugin em '{}'",
                             registry_path.display()
                         ),
-                        error,
+                        &error,
                     )
                 );
                 continue;

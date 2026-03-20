@@ -18,9 +18,10 @@ pub(super) fn validate_request(
         ));
     }
 
-    let has_duplicate_name = current_id
-        .map(|id| store.exists_by_name_except(id, name))
-        .unwrap_or_else(|| store.exists_by_name(name));
+    let has_duplicate_name = current_id.map_or_else(
+        || store.exists_by_name(name),
+        |id| store.exists_by_name_except(id, name),
+    );
 
     if has_duplicate_name {
         return Err(AppError::InvalidArgument(format!(

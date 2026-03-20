@@ -52,7 +52,10 @@ pub(super) fn write_runner_script(runtime_root: &Path) -> AppResult<PathBuf> {
     write_if_changed(
         &runner_path,
         RUNNER_SCRIPT,
-        &format!("Falha ao gravar runner Python em '{}'", runner_path.display()),
+        &format!(
+            "Falha ao gravar runner Python em '{}'",
+            runner_path.display()
+        ),
     )?;
     Ok(runner_path)
 }
@@ -240,12 +243,12 @@ pub(super) fn compute_env_hash(runtime_plugins: &[PluginRegistry]) -> String {
 }
 
 fn fnv1a_64(data: &[u8]) -> u64 {
-    const OFFSET: u64 = 0xcbf29ce484222325;
-    const PRIME: u64 = 0x100000001b3;
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0100_0000_01b3;
 
     let mut hash = OFFSET;
     for byte in data {
-        hash ^= *byte as u64;
+        hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(PRIME);
     }
 

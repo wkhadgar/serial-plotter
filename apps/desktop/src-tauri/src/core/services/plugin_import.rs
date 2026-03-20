@@ -56,8 +56,7 @@ impl PluginImportService {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("plugin_{}", Uuid::new_v4())),
+                .map_or_else(|| format!("plugin_{}", Uuid::new_v4()), str::to_string),
             name,
             plugin_type,
             runtime,

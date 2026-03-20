@@ -3,6 +3,7 @@ use crate::core::models::plant::{ControllerParam, ControllerParamType, VariableT
 use crate::core::models::plugin::{
     PluginRuntime, PluginSchemaField, SchemaFieldType, SchemaFieldValue,
 };
+use crate::core::services::workspace::test_workspace_root;
 use crate::state::PluginStore;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -90,7 +91,7 @@ fn test_fill_missing_controller_params_uses_schema_defaults() {
     assert_eq!(param.label, "Open duty 1");
     match &param.value {
         SchemaFieldValue::Float(value) => assert!((*value - 37.5).abs() < f64::EPSILON),
-        other => panic!("valor inesperado para parametro default: {:?}", other),
+        other => panic!("valor inesperado para parametro default: {other:?}"),
     }
 }
 
@@ -108,8 +109,8 @@ fn create_valid_request(name: &str) -> CreatePlantRequest {
 }
 
 fn plant_registry_path(name: &str) -> PathBuf {
-    std::env::temp_dir()
-        .join("Senamby/workspace/plants")
+    test_workspace_root()
+        .join("plants")
         .join(name)
         .join("registry.json")
 }
@@ -166,7 +167,7 @@ fn test_create_plant_empty_name() {
     let store = PlantStore::new();
     let plugins = create_plugin_store();
     let request = CreatePlantRequest {
-        name: "".to_string(),
+        name: String::new(),
         sample_time_ms: 100,
         variables: vec![create_test_variable("Temperatura")],
         driver: crate::core::models::plant::CreatePlantDriverRequest {
@@ -472,7 +473,10 @@ fn test_close_plant_unloads_but_preserves_registry() {
 
     let closed = PlantService::close(&store, &plant.id).unwrap();
     assert_eq!(closed.name, "To Close");
-    assert!(closed.controllers.iter().all(|controller| !controller.active));
+    assert!(closed
+        .controllers
+        .iter()
+        .all(|controller| !controller.active));
     assert_eq!(store.count(), 0);
     assert!(registry_path.exists());
 

@@ -34,7 +34,7 @@ impl PluginStore {
             .registries
             .get(id)
             .cloned()
-            .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))
+            .ok_or_else(|| AppError::NotFound(format!("Plugin '{id}' não encontrado")))
     }
 
     pub fn read<T, F>(&self, id: &str, reader: F) -> AppResult<T>
@@ -45,7 +45,7 @@ impl PluginStore {
         let plugin = state
             .registries
             .get(id)
-            .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))?;
+            .ok_or_else(|| AppError::NotFound(format!("Plugin '{id}' não encontrado")))?;
         Ok(reader(plugin))
     }
 
@@ -92,7 +92,7 @@ impl PluginStore {
             let current = state
                 .registries
                 .get(id)
-                .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))?;
+                .ok_or_else(|| AppError::NotFound(format!("Plugin '{id}' não encontrado")))?;
             Self::name_key(&current.name)
         };
         let next_name_key = Self::name_key(&registry.name);
@@ -123,7 +123,7 @@ impl PluginStore {
         let registry = state
             .registries
             .remove(id)
-            .ok_or_else(|| AppError::NotFound(format!("Plugin '{}' não encontrado", id)))?;
+            .ok_or_else(|| AppError::NotFound(format!("Plugin '{id}' não encontrado")))?;
         state.names.remove(&Self::name_key(&registry.name));
         Ok(registry)
     }

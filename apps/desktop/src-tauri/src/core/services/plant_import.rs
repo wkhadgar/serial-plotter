@@ -93,6 +93,7 @@ pub struct ImportPlantFileResponse {
 pub struct PlantImportService;
 
 impl PlantImportService {
+    #[allow(clippy::needless_pass_by_value, clippy::too_many_lines)]
     pub fn open_file(request: PlantImportFileRequest) -> AppResult<OpenPlantFileResponse> {
         let parsed: Value = serde_json::from_str(&request.content)
             .map_err(|error| invalid_argument(format!("JSON inválido: {error}")))?;
@@ -178,10 +179,10 @@ impl PlantImportService {
                         .iter()
                         .filter_map(Value::as_str)
                         .map(|sensor_id| {
-                            sensor_index_by_export_id
-                                .get(sensor_id)
-                                .map(|sensor_index| format!("var_{sensor_index}"))
-                                .unwrap_or_else(|| sensor_id.to_string())
+                            sensor_index_by_export_id.get(sensor_id).map_or_else(
+                                || sensor_id.to_string(),
+                                |sensor_index| format!("var_{sensor_index}"),
+                            )
                         })
                         .collect::<Vec<_>>()
                 });
@@ -288,7 +289,7 @@ impl PlantImportService {
             .and_then(Value::as_u64)
             .unwrap_or_else(|| {
                 if stats.dt > 0.0 {
-                    (stats.dt * 1000.0).round() as u64
+                    rounded_non_negative_to_u64(stats.dt * 1000.0)
                 } else {
                     100
                 }
@@ -385,9 +386,9 @@ fn expect_array<'a>(value: &'a Value, context: &str) -> AppResult<&'a Vec<Value>
         .ok_or_else(|| invalid_argument(format!("{context} deve ser um array")))
 }
 
-fn resolve_meta<'a>(
-    root: &'a serde_json::Map<String, Value>,
-) -> AppResult<&'a serde_json::Map<String, Value>> {
+fn resolve_meta(
+    root: &serde_json::Map<String, Value>,
+) -> AppResult<&serde_json::Map<String, Value>> {
     match root.get("meta") {
         Some(value) => expect_object(value, "meta"),
         None => Ok(root),
@@ -431,8 +432,7 @@ fn parse_registry_variable(value: &Value, index: usize) -> AppResult<PlantVariab
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|entry| !entry.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("var_{index}"));
+        .map_or_else(|| format!("var_{index}"), str::to_string);
     let name = expect_string(
         variable_obj.get("name"),
         &format!("variables[{index}].name"),
@@ -527,8 +527,7 @@ fn parse_registry_controller(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("ctrl_imported_{index}"));
+        .map_or_else(|| format!("ctrl_imported_{index}"), str::to_string);
 
     let plugin_id = get_value_by_keys(controller_obj, &["plugin_id", "pluginId"])
         .and_then(Value::as_str)
@@ -651,7 +650,7 @@ fn open_registry_plant_file(
     };
     let plant_id = format!("imported_{}", uuid::Uuid::new_v4().simple());
     let stats = PlantStats {
-        dt: sample_time_ms as f64 / 1000.0,
+        dt: milliseconds_to_seconds(sample_time_ms),
         uptime: 0,
     };
     let variable_stats = variables
@@ -682,15 +681,15 @@ fn open_registry_plant_file(
 
 fn compute_imported_plant_stats(data: &[HashMap<String, f64>]) -> PlantStats {
     if data.len() <= 1 {
+        let uptime = data
+            .first()
+            .and_then(|point| point.get("time"))
+            .copied()
+            .unwrap_or(0.0)
+            .max(0.0);
         return PlantStats {
             dt: 0.0,
-            uptime: data
-                .first()
-                .and_then(|point| point.get("time"))
-                .copied()
-                .unwrap_or(0.0)
-                .max(0.0)
-                .round() as u64,
+            uptime: rounded_non_negative_to_u64(uptime),
         };
     }
 
@@ -701,7 +700,7 @@ fn compute_imported_plant_stats(data: &[HashMap<String, f64>]) -> PlantStats {
         deltas.push((current - prev).max(0.0));
     }
 
-    let avg_delta = deltas.iter().sum::<f64>() / deltas.len() as f64;
+    let avg_delta = deltas.iter().sum::<f64>() / len_as_f64(deltas.len());
     let uptime = data
         .last()
         .and_then(|point| point.get("time"))
@@ -711,7 +710,7 @@ fn compute_imported_plant_stats(data: &[HashMap<String, f64>]) -> PlantStats {
 
     PlantStats {
         dt: (avg_delta * 10_000.0).round() / 10_000.0,
-        uptime: uptime.round() as u64,
+        uptime: rounded_non_negative_to_u64(uptime),
     }
 }
 
@@ -759,13 +758,36 @@ fn compute_imported_variable_stats(
             (pv - sp).abs()
         })
         .sum::<f64>()
-        / values.len() as f64;
+        / len_as_f64(values.len());
 
     ImportedVariableStatsResponse {
         error_avg: (error_avg * 1000.0).round() / 1000.0,
         stability: ((100.0 - ripple) * 100.0).round() / 100.0,
         ripple,
     }
+}
+
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+fn rounded_non_negative_to_u64(value: f64) -> u64 {
+    if !value.is_finite() || value <= 0.0 {
+        return 0;
+    }
+
+    value.round().clamp(0.0, u64::MAX as f64) as u64
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn milliseconds_to_seconds(sample_time_ms: u64) -> f64 {
+    sample_time_ms as f64 / 1000.0
+}
+
+#[allow(clippy::cast_precision_loss)]
+fn len_as_f64(len: usize) -> f64 {
+    len as f64
 }
 
 fn build_imported_series_catalog(
@@ -1055,10 +1077,11 @@ mod tests {
         assert_eq!(response.data.len(), 2);
         assert!(response.plant.driver.is_none());
         assert!(response.plant.controllers.is_empty());
-        assert_eq!(response.stats.dt, 1.0);
+        assert!((response.stats.dt - 1.0).abs() < f64::EPSILON);
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn import_file_preserves_registry_controllers() {
         let plugins = PluginStore::new();
         let plants = PlantStore::new();

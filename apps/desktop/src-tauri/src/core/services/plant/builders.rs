@@ -19,6 +19,15 @@ pub(super) struct PlantRuntimeSnapshot {
     pub stats: PlantStats,
 }
 
+#[allow(clippy::cast_precision_loss)]
+fn sample_time_seconds(sample_time_ms: u64) -> f64 {
+    sample_time_ms as f64 / 1000.0
+}
+
+fn same_sample_time(dt: f64, sample_time_ms: u64) -> bool {
+    (dt - sample_time_seconds(sample_time_ms)).abs() < f64::EPSILON
+}
+
 pub(super) fn build_plant(request: CreatePlantRequest, plugins: &PluginStore) -> AppResult<Plant> {
     let plant_id = format!("plant_{}", Uuid::new_v4());
     let sample_time_ms = request.sample_time_ms;
@@ -40,7 +49,7 @@ pub(super) fn build_plant(request: CreatePlantRequest, plugins: &PluginStore) ->
         connected: false,
         paused: false,
         stats: PlantStats {
-            dt: sample_time_ms as f64 / 1000.0,
+            dt: sample_time_seconds(sample_time_ms),
             uptime: 0,
         },
     })
@@ -60,8 +69,8 @@ pub(super) fn build_updated_plant(
         .collect::<AppResult<Vec<_>>>()?;
 
     let mut stats = runtime.stats;
-    if !runtime.connected || stats.dt == runtime.previous_sample_time_ms as f64 / 1000.0 {
-        stats.dt = request.sample_time_ms as f64 / 1000.0;
+    if !runtime.connected || same_sample_time(stats.dt, runtime.previous_sample_time_ms) {
+        stats.dt = sample_time_seconds(request.sample_time_ms);
     }
 
     Ok(Plant {
@@ -82,7 +91,7 @@ fn build_variables(variables: Vec<CreatePlantVariableRequest>) -> Vec<PlantVaria
         .into_iter()
         .enumerate()
         .map(|(idx, var)| PlantVariable {
-            id: format!("var_{}", idx),
+            id: format!("var_{idx}"),
             name: var.name,
             var_type: var.var_type,
             unit: var.unit,

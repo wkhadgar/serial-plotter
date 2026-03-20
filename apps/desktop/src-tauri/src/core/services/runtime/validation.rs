@@ -57,8 +57,7 @@ pub(super) fn validate_python_source_file(
         .lines()
         .chain(stdout.lines())
         .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .last()
+        .rfind(|line| !line.is_empty())
         .unwrap_or("Erro de sintaxe desconhecido no plugin Python");
 
     Err(AppError::InvalidArgument(format!(
@@ -102,8 +101,7 @@ fn validate_python_class_methods(
         .lines()
         .chain(stdout.lines())
         .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .last()
+        .rfind(|line| !line.is_empty())
         .unwrap_or("Métodos obrigatórios não encontrados");
 
     Err(AppError::InvalidArgument(format!(
@@ -146,8 +144,7 @@ fn validate_python_importable_class(
         .lines()
         .chain(stdout.lines())
         .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .last()
+        .rfind(|line| !line.is_empty())
         .unwrap_or("Falha ao carregar classe Python");
 
     Err(AppError::InvalidArgument(format!(
@@ -189,8 +186,7 @@ pub(super) fn validate_controller_plugin_source(
 ) -> AppResult<()> {
     if controller_plugin.runtime != PluginRuntime::Python {
         return Err(AppError::InvalidArgument(format!(
-            "O controlador '{}' precisa ser Python para executar na runtime atual",
-            controller_name
+            "O controlador '{controller_name}' precisa ser Python para executar na runtime atual"
         )));
     }
 
@@ -199,7 +195,7 @@ pub(super) fn validate_controller_plugin_source(
     validate_plugin_workspace_files(&controller_dir, "controlador")?;
 
     let source_path = resolve_plugin_source_path(controller_plugin, PluginType::Controller)?;
-    let component_label = format!("controlador '{}'", controller_name);
+    let component_label = format!("controlador '{controller_name}'");
 
     validate_python_source_file(Path::new("python3"), &source_path, &component_label)?;
     validate_python_class_methods(
@@ -219,8 +215,7 @@ pub(super) fn validate_controller_plugin_source_with_python(
 ) -> AppResult<()> {
     if controller_plugin.runtime != PluginRuntime::Python {
         return Err(AppError::InvalidArgument(format!(
-            "O controlador '{}' precisa ser Python para executar na runtime atual",
-            controller_name
+            "O controlador '{controller_name}' precisa ser Python para executar na runtime atual"
         )));
     }
 
@@ -229,7 +224,7 @@ pub(super) fn validate_controller_plugin_source_with_python(
     validate_plugin_workspace_files(&controller_dir, "controlador")?;
 
     let source_path = resolve_plugin_source_path(controller_plugin, PluginType::Controller)?;
-    let component_label = format!("controlador '{}'", controller_name);
+    let component_label = format!("controlador '{controller_name}'");
 
     validate_python_source_file(python_path, &source_path, &component_label)?;
     validate_python_importable_class(

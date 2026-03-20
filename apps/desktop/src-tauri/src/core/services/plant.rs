@@ -110,6 +110,7 @@ impl PlantService {
         store.remove(id)
     }
 
+    #[allow(clippy::too_many_lines)]
     pub fn save_controller_config(
         store: &PlantStore,
         plugins: &PluginStore,
@@ -223,14 +224,18 @@ impl PlantService {
                 .iter_mut()
                 .find(|controller| controller.id == request.controller_id)
             {
-                controller.plugin_id = plugin.id.clone();
-                controller.plugin_name = plugin.name.clone();
+                controller.plugin_id.clone_from(&plugin.id);
+                controller.plugin_name.clone_from(&plugin.name);
                 controller.name = request.name.trim().to_string();
                 controller.active = request.active;
-                controller.input_variable_ids = request.input_variable_ids.clone();
-                controller.output_variable_ids = request.output_variable_ids.clone();
+                controller
+                    .input_variable_ids
+                    .clone_from(&request.input_variable_ids);
+                controller
+                    .output_variable_ids
+                    .clone_from(&request.output_variable_ids);
                 controller.controller_type = request.controller_type.trim().to_string();
-                controller.params = controller_request.params.clone();
+                controller.params.clone_from(&controller_request.params);
                 return;
             }
 
@@ -254,7 +259,7 @@ impl PlantService {
 
     pub fn remove_controller(
         store: &PlantStore,
-        request: RemovePlantControllerRequest,
+        request: &RemovePlantControllerRequest,
     ) -> AppResult<Plant> {
         store.read(&request.plant_id, |plant| {
             if plant
@@ -283,7 +288,7 @@ impl PlantService {
 
     pub fn save_setpoint(
         store: &PlantStore,
-        request: SavePlantSetpointRequest,
+        request: &SavePlantSetpointRequest,
     ) -> AppResult<Plant> {
         store.read(&request.plant_id, |plant| {
             let variable = plant

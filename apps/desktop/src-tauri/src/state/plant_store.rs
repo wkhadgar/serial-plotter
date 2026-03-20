@@ -34,7 +34,7 @@ impl PlantStore {
             .plants
             .get(id)
             .cloned()
-            .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))
+            .ok_or_else(|| AppError::NotFound(format!("Planta '{id}' não encontrada")))
     }
 
     pub fn read<T, F>(&self, id: &str, reader: F) -> AppResult<T>
@@ -45,7 +45,7 @@ impl PlantStore {
         let plant = state
             .plants
             .get(id)
-            .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
+            .ok_or_else(|| AppError::NotFound(format!("Planta '{id}' não encontrada")))?;
         Ok(reader(plant))
     }
 
@@ -58,7 +58,7 @@ impl PlantStore {
         let plant = state
             .plants
             .remove(id)
-            .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
+            .ok_or_else(|| AppError::NotFound(format!("Planta '{id}' não encontrada")))?;
         state.names.remove(&Self::name_key(&plant.name));
         Ok(plant)
     }
@@ -72,7 +72,7 @@ impl PlantStore {
             let plant = state
                 .plants
                 .get_mut(id)
-                .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
+                .ok_or_else(|| AppError::NotFound(format!("Planta '{id}' não encontrada")))?;
             let previous_name_key = Self::name_key(&plant.name);
             updater(plant);
             (
@@ -104,7 +104,7 @@ impl PlantStore {
             let current = state
                 .plants
                 .get(id)
-                .ok_or_else(|| AppError::NotFound(format!("Planta '{}' não encontrada", id)))?;
+                .ok_or_else(|| AppError::NotFound(format!("Planta '{id}' não encontrada")))?;
             Self::name_key(&current.name)
         };
         let next_name_key = Self::name_key(&next_plant.name);

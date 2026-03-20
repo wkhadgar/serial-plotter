@@ -122,9 +122,10 @@ if missing:
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(12);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(4);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeLifecycleState {
+    #[default]
     Created,
     Bootstrapping,
     Ready,
@@ -135,9 +136,10 @@ pub enum RuntimeLifecycleState {
     Faulted,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeCyclePhase {
+    #[default]
     CycleStarted,
     ReadInputs,
     ComputeControllers,
@@ -241,18 +243,6 @@ struct RuntimeMetrics {
     last_telemetry_at: Option<u64>,
 }
 
-impl Default for RuntimeLifecycleState {
-    fn default() -> Self {
-        Self::Created
-    }
-}
-
-impl Default for RuntimeCyclePhase {
-    fn default() -> Self {
-        Self::CycleStarted
-    }
-}
-
 #[derive(Debug, Default)]
 struct HandshakeState {
     ready: bool,
@@ -262,6 +252,23 @@ struct HandshakeState {
 
 type SharedHandshake = Arc<(Mutex<HandshakeState>, Condvar)>;
 type SharedMetrics = Arc<Mutex<RuntimeMetrics>>;
+
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+fn saturating_f64_to_u64(value: f64) -> u64 {
+    if !value.is_finite() || value <= 0.0 {
+        return 0;
+    }
+
+    value.floor().clamp(0.0, u64::MAX as f64) as u64
+}
+
+fn duration_millis_u64(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
 
 #[derive(Debug, Deserialize)]
 struct RuntimeEnvelope {
@@ -400,7 +407,7 @@ impl PlantRuntimeManager {
         };
         let metrics = handle.metrics.lock();
         plant.stats.dt = (metrics.effective_dt_ms / 1000.0).max(0.0);
-        plant.stats.uptime = metrics.uptime_s.max(0.0) as u64;
+        plant.stats.uptime = saturating_f64_to_u64(metrics.uptime_s);
         plant
     }
 
@@ -411,6 +418,7 @@ impl PlantRuntimeManager {
             .collect()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn start_runtime<R: Runtime + 'static>(
         &self,
         app: &AppHandle<R>,
@@ -479,8 +487,8 @@ impl PlantRuntimeManager {
                 &venv_python_path,
                 &runner_path,
                 &bootstrap_path,
-                STARTUP_TIMEOUT.as_millis() as u64,
-                SHUTDOWN_TIMEOUT.as_millis() as u64,
+                duration_millis_u64(STARTUP_TIMEOUT),
+                duration_millis_u64(SHUTDOWN_TIMEOUT),
             )?;
             write_bootstrap_files(&bootstrap, &bootstrap_path)?;
 
@@ -561,15 +569,14 @@ impl PlantRuntimeManager {
         Ok(())
     }
 
-    pub fn stop_runtime<R: Runtime>(&self, app: &AppHandle<R>, plant_id: &str) -> AppResult<()> {
+    pub fn stop_runtime<R: Runtime>(&self, app: &AppHandle<R>, plant_id: &str) {
         let handle = {
             let mut handles = self.handles.lock();
             handles.remove(plant_id)
         };
 
-        let mut handle = match handle {
-            Some(handle) => handle,
-            None => return Ok(()),
+        let Some(mut handle) = handle else {
+            return;
         };
 
         let _ = send_command(&handle.stdin, "shutdown", None);
@@ -611,14 +618,12 @@ impl PlantRuntimeManager {
                 cycle_late: false,
             },
         );
-
-        Ok(())
     }
 
     pub fn update_setpoints(
         &self,
         plant_id: &str,
-        setpoints: HashMap<String, f64>,
+        setpoints: &HashMap<String, f64>,
     ) -> AppResult<()> {
         let payload = serde_json::to_value(json!({ "setpoints": setpoints })).map_err(|error| {
             AppError::IoError(format!(
@@ -631,7 +636,7 @@ impl PlantRuntimeManager {
     fn update_controllers(
         &self,
         plant_id: &str,
-        controllers: Vec<DriverBootstrapController>,
+        controllers: &[DriverBootstrapController],
     ) -> AppResult<()> {
         let payload =
             serde_json::to_value(json!({ "controllers": controllers })).map_err(|error| {
@@ -646,8 +651,7 @@ impl PlantRuntimeManager {
         let handles = self.handles.lock();
         let handle = handles.get(plant_id).ok_or_else(|| {
             AppError::NotFound(format!(
-                "Runtime da planta '{}' não está em execução",
-                plant_id
+                "Runtime da planta '{plant_id}' não está em execução"
             ))
         })?;
         Ok(handle.venv_python_path.clone())
@@ -663,8 +667,7 @@ impl PlantRuntimeManager {
             let handles = self.handles.lock();
             let handle = handles.get(plant_id).ok_or_else(|| {
                 AppError::NotFound(format!(
-                    "Runtime da planta '{}' não está em execução",
-                    plant_id
+                    "Runtime da planta '{plant_id}' não está em execução"
                 ))
             })?;
             handle.stdin.clone()
@@ -777,7 +780,7 @@ impl DriverRuntimeService {
         manager: &PlantRuntimeManager,
         plant_id: &str,
     ) -> AppResult<Plant> {
-        manager.stop_runtime(app, plant_id)?;
+        manager.stop_runtime(app, plant_id);
 
         plants.update(plant_id, |plant| {
             plant.connected = false;
@@ -792,7 +795,7 @@ impl DriverRuntimeService {
         plant_id: &str,
     ) -> AppResult<Plant> {
         plants.read(plant_id, |_| ())?;
-        manager.stop_runtime(app, plant_id)?;
+        manager.stop_runtime(app, plant_id);
         let mut plant = PlantService::close(plants, plant_id)?;
         plant.connected = false;
         plant.paused = false;
@@ -806,7 +809,7 @@ impl DriverRuntimeService {
         plant_id: &str,
     ) -> AppResult<Plant> {
         plants.read(plant_id, |_| ())?;
-        manager.stop_runtime(app, plant_id)?;
+        manager.stop_runtime(app, plant_id);
         let mut plant = PlantService::remove(plants, plant_id)?;
         plant.connected = false;
         plant.paused = false;
@@ -860,12 +863,13 @@ impl DriverRuntimeService {
     pub fn save_setpoint(
         plants: &PlantStore,
         manager: &PlantRuntimeManager,
-        request: SavePlantSetpointRequest,
+        request: &SavePlantSetpointRequest,
     ) -> AppResult<Plant> {
         let plant = crate::core::services::plant::PlantService::save_setpoint(plants, request)?;
 
         if plant.connected {
-            manager.update_setpoints(&plant.id, collect_runtime_setpoints(&plant))?;
+            let setpoints = collect_runtime_setpoints(&plant);
+            manager.update_setpoints(&plant.id, &setpoints)?;
         }
 
         Ok(plant)
@@ -946,23 +950,19 @@ impl DriverRuntimeService {
         if plant.connected {
             let (resolved_plant, _driver, active_controllers, _runtime_plugins) =
                 resolve_runtime_components_for_connect(plants, plugins, plant)?;
-            let incompatible_controller_ids = manager
-                .venv_python_path(&resolved_plant.id)
-                .map(|python_path| {
+            let incompatible_controller_ids = match manager.venv_python_path(&resolved_plant.id) {
+                Ok(python_path) => {
                     collect_incompatible_active_controller_ids(&python_path, &active_controllers)
-                })
-                .unwrap_or_else(|_| {
-                    active_controllers
-                        .iter()
-                        .map(|controller| controller.instance.id.clone())
-                        .collect()
-                });
+                }
+                Err(_) => active_controllers
+                    .iter()
+                    .map(|controller| controller.instance.id.clone())
+                    .collect(),
+            };
 
             if incompatible_controller_ids.is_empty() {
-                manager.update_controllers(
-                    &resolved_plant.id,
-                    build_runtime_controller_payloads(&active_controllers)?,
-                )?;
+                let controller_payloads = build_runtime_controller_payloads(&active_controllers)?;
+                manager.update_controllers(&resolved_plant.id, &controller_payloads)?;
                 return set_all_controller_runtime_statuses(
                     plants,
                     &resolved_plant.id,
@@ -984,7 +984,7 @@ impl DriverRuntimeService {
         plants: &PlantStore,
         plugins: &PluginStore,
         manager: &PlantRuntimeManager,
-        request: RemovePlantControllerRequest,
+        request: &RemovePlantControllerRequest,
     ) -> AppResult<Plant> {
         plants.read(&request.plant_id, |plant| {
             let controller = plant
@@ -1015,23 +1015,19 @@ impl DriverRuntimeService {
         if plant.connected {
             let (resolved_plant, _driver, active_controllers, _runtime_plugins) =
                 resolve_runtime_components_for_connect(plants, plugins, plant)?;
-            let incompatible_controller_ids = manager
-                .venv_python_path(&resolved_plant.id)
-                .map(|python_path| {
+            let incompatible_controller_ids = match manager.venv_python_path(&resolved_plant.id) {
+                Ok(python_path) => {
                     collect_incompatible_active_controller_ids(&python_path, &active_controllers)
-                })
-                .unwrap_or_else(|_| {
-                    active_controllers
-                        .iter()
-                        .map(|controller| controller.instance.id.clone())
-                        .collect()
-                });
+                }
+                Err(_) => active_controllers
+                    .iter()
+                    .map(|controller| controller.instance.id.clone())
+                    .collect(),
+            };
 
             if incompatible_controller_ids.is_empty() {
-                manager.update_controllers(
-                    &resolved_plant.id,
-                    build_runtime_controller_payloads(&active_controllers)?,
-                )?;
+                let controller_payloads = build_runtime_controller_payloads(&active_controllers)?;
+                manager.update_controllers(&resolved_plant.id, &controller_payloads)?;
                 return set_all_controller_runtime_statuses(
                     plants,
                     &resolved_plant.id,
@@ -1061,7 +1057,7 @@ mod tests {
     use crate::core::models::plugin::{
         PluginRegistry, PluginRuntime, PluginType, SchemaFieldValue,
     };
-    use crate::core::services::workspace::WorkspaceService;
+    use crate::core::services::workspace::{test_workspace_root, WorkspaceService};
     use parking_lot::Mutex;
     use std::collections::HashMap;
     use std::fs;
@@ -1069,8 +1065,8 @@ mod tests {
     use std::process::{Command, Stdio};
 
     fn plant_registry_path(name: &str) -> PathBuf {
-        std::env::temp_dir()
-            .join("Senamby/workspace/plants")
+        test_workspace_root()
+            .join("plants")
             .join(name)
             .join("registry.json")
     }
@@ -1367,7 +1363,7 @@ class ControllerPython:
         );
         assert!(read_captured_commands(&commands_path).contains("\"type\":\"update_controllers\""));
 
-        manager.stop_runtime(app.handle(), &plant.id).unwrap();
+        manager.stop_runtime(app.handle(), &plant.id);
     }
 
     #[test]
@@ -1471,7 +1467,7 @@ class ControllerPending:
         );
         assert!(!read_captured_commands(&commands_path).contains("\"type\":\"update_controllers\""));
 
-        manager.stop_runtime(app.handle(), &plant.id).unwrap();
+        manager.stop_runtime(app.handle(), &plant.id);
     }
 
     #[test]
@@ -1511,7 +1507,7 @@ class ControllerPending:
             store.as_ref(),
             &plugins,
             &manager,
-            RemovePlantControllerRequest {
+            &RemovePlantControllerRequest {
                 plant_id: plant.id.clone(),
                 controller_id: "ctrl_running".to_string(),
             },
@@ -1589,7 +1585,7 @@ class DriverPython:
             store.as_ref(),
             &plugins,
             &manager,
-            RemovePlantControllerRequest {
+            &RemovePlantControllerRequest {
                 plant_id: plant.id.clone(),
                 controller_id: "ctrl_idle".to_string(),
             },
@@ -1599,7 +1595,7 @@ class DriverPython:
         assert!(updated.controllers.is_empty());
         assert!(read_captured_commands(&commands_path).contains("\"type\":\"update_controllers\""));
 
-        manager.stop_runtime(app.handle(), &plant.id).unwrap();
+        manager.stop_runtime(app.handle(), &plant.id);
     }
 
     #[test]
@@ -1635,6 +1631,6 @@ class DriverPython:
         assert!(!captured_commands.contains("\"type\":\"pause\""));
         assert!(!captured_commands.contains("\"type\":\"resume\""));
 
-        manager.stop_runtime(app.handle(), &plant.id).unwrap();
+        manager.stop_runtime(app.handle(), &plant.id);
     }
 }

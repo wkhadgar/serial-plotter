@@ -98,17 +98,12 @@ pub enum ControllerParamType {
     String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ControllerRuntimeStatus {
+    #[default]
     Synced,
     PendingRestart,
-}
-
-impl Default for ControllerRuntimeStatus {
-    fn default() -> Self {
-        Self::Synced
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

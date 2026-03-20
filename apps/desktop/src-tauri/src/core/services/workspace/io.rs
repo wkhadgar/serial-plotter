@@ -5,11 +5,11 @@ use std::fs;
 use std::path::Path;
 
 pub(super) fn create_dir_all(path: &Path, context: &str) -> AppResult<()> {
-    fs::create_dir_all(path).map_err(|error| map_io_error(context, error))
+    fs::create_dir_all(path).map_err(|error| map_io_error(context, &error))
 }
 
 pub(super) fn write_string(path: &Path, contents: &str, context: &str) -> AppResult<()> {
-    fs::write(path, contents).map_err(|error| map_io_error(context, error))
+    fs::write(path, contents).map_err(|error| map_io_error(context, &error))
 }
 
 pub(super) fn write_json_pretty<T: Serialize>(
@@ -19,12 +19,12 @@ pub(super) fn write_json_pretty<T: Serialize>(
     write_context: &str,
 ) -> AppResult<()> {
     let payload = serde_json::to_string_pretty(value)
-        .map_err(|error| map_serde_error(serialize_context, error))?;
+        .map_err(|error| map_serde_error(serialize_context, &error))?;
     write_string(path, &payload, write_context)
 }
 
 pub(super) fn read_to_string(path: &Path, context: &str) -> AppResult<String> {
-    fs::read_to_string(path).map_err(|error| map_io_error(context, error))
+    fs::read_to_string(path).map_err(|error| map_io_error(context, &error))
 }
 
 pub(super) fn remove_dir_if_exists(path: &Path, context: &str) -> AppResult<()> {
@@ -32,5 +32,5 @@ pub(super) fn remove_dir_if_exists(path: &Path, context: &str) -> AppResult<()> 
         return Ok(());
     }
 
-    fs::remove_dir_all(path).map_err(|error| map_io_error(context, error))
+    fs::remove_dir_all(path).map_err(|error| map_io_error(context, &error))
 }

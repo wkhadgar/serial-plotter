@@ -3,6 +3,8 @@ use crate::core::error::AppError;
 use crate::core::error::AppResult;
 use crate::core::models::plugin::PluginType;
 use std::path::PathBuf;
+#[cfg(test)]
+use std::thread_local;
 
 const APP_WORKSPACE_DIR: &str = "Senamby/workspace";
 const DRIVERS_DIR: &str = "drivers";
@@ -69,6 +71,28 @@ pub(super) fn workspace_root() -> AppResult<PathBuf> {
 }
 
 #[cfg(test)]
+thread_local! {
+    static TEST_WORKSPACE_ROOT: PathBuf = {
+        let thread_id = format!("{:?}", std::thread::current().id());
+        let thread_suffix: String = thread_id
+            .chars()
+            .filter(char::is_ascii_digit)
+            .collect();
+        let process_id = std::process::id();
+
+        std::env::temp_dir()
+            .join(APP_WORKSPACE_DIR)
+            .join(format!("test-{process_id}-{thread_suffix}"))
+    };
+}
+
+#[cfg(test)]
+pub(super) fn test_workspace_root() -> PathBuf {
+    TEST_WORKSPACE_ROOT.with(Clone::clone)
+}
+
+#[cfg(test)]
+#[allow(clippy::unnecessary_wraps)]
 pub(super) fn workspace_root() -> AppResult<PathBuf> {
-    Ok(std::env::temp_dir().join(APP_WORKSPACE_DIR))
+    Ok(test_workspace_root())
 }
