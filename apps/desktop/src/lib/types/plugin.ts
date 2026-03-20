@@ -163,14 +163,12 @@ class ${className}:
         # Contrato atual:
         # - context.config -> configuração do driver
         # - context.plant -> planta, sensores, atuadores e setpoints
-        # - context.runtime -> timing, paths e supervisão
         self.context = context
 
     def connect(self) -> bool:
         # Exemplos uteis:
         # port = self.context.config.get("port")
         # sensor_ids = self.context.plant.sensors.ids
-        # sample_time_ms = self.context.runtime.timing.sample_time_ms
         return True
 
     def stop(self) -> bool:
@@ -206,9 +204,8 @@ class ${className}:
 
     def __init__(self, context: Any) -> None:
         # Contrato atual:
-        # - context.controller -> metadados da instancia, bindings e parametros
+        # - context.controller -> id, nome, tipo, bindings e parametros
         # - context.plant -> variaveis, sensores, atuadores e setpoints
-        # - context.runtime -> timing, paths e supervisao
         self.context = context
 
     def compute(self, snapshot: Dict[str, Any]) -> Dict[str, float]:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import importlib.util
 import inspect
 import json
@@ -131,24 +132,24 @@ class ControllerMetadata:
     output_variable_ids: List[str]
     params: Dict[str, ControllerParamSpec]
 
+
+@dataclass(frozen=True)
+class ControllerPublicMetadata:
+    id: str
+    name: str
+    controller_type: str
+    input_variable_ids: List[str]
+    output_variable_ids: List[str]
+    params: Dict[str, ControllerParamSpec]
+
     def serialize(self) -> Dict[str, Any]:
         return {
             "id": self.id,
-            "plugin_id": self.plugin_id,
-            "plugin_name": self.plugin_name,
             "name": self.name,
             "controller_type": self.controller_type,
-            "active": self.active,
             "input_variable_ids": list(self.input_variable_ids),
             "output_variable_ids": list(self.output_variable_ids),
-            "params": {
-                key: {
-                    "type": param.type,
-                    "value": param.value,
-                    "label": param.label,
-                }
-                for key, param in self.params.items()
-            },
+            "params": serialize_controller_params(self.params),
         }
 
 
@@ -156,14 +157,12 @@ class ControllerMetadata:
 class DriverPluginContext:
     config: Dict[str, JSONValue]
     plant: PlantContext
-    runtime: RuntimeContext
 
 
 @dataclass(frozen=True)
 class ControllerPluginContext:
-    controller: ControllerMetadata
+    controller: ControllerPublicMetadata
     plant: PlantContext
-    runtime: RuntimeContext
 
 
 @dataclass(frozen=True)
@@ -247,11 +246,7 @@ class PlantRuntimeEngine:
                 DRIVER_REQUIRED_METHODS,
                 "driver",
             )
-            driver_context = DriverPluginContext(
-                config=self.bootstrap.driver.config,
-                plant=self.bootstrap.plant,
-                runtime=self.bootstrap.runtime,
-            )
+            driver_context = build_driver_plugin_context(self.bootstrap)
             self.driver_instance = instantiate_plugin(
                 driver_cls,
                 driver_context,
@@ -296,10 +291,9 @@ class PlantRuntimeEngine:
                 CONTROLLER_REQUIRED_METHODS,
                 f"controlador '{controller_meta.name}'",
             )
-            context = ControllerPluginContext(
-                controller=controller_meta,
-                plant=self.bootstrap.plant,
-                runtime=self.bootstrap.runtime,
+            context = build_controller_plugin_context(
+                controller_meta,
+                self.bootstrap.plant,
             )
             instance = instantiate_plugin(
                 controller_cls,
@@ -967,6 +961,63 @@ def normalize_controller_outputs(
     )
 
 
+def clone_controller_params(
+    params: Dict[str, ControllerParamSpec],
+) -> Dict[str, ControllerParamSpec]:
+    return {
+        key: ControllerParamSpec(
+            key=param.key,
+            type=param.type,
+            value=cast(JSONValue, copy.deepcopy(param.value)),
+            label=param.label,
+        )
+        for key, param in params.items()
+    }
+
+
+def serialize_controller_params(
+    params: Dict[str, ControllerParamSpec],
+) -> Dict[str, Dict[str, JSONValue | str]]:
+    return {
+        key: {
+            "type": param.type,
+            "value": cast(JSONValue, copy.deepcopy(param.value)),
+            "label": param.label,
+        }
+        for key, param in params.items()
+    }
+
+
+def build_public_controller_metadata(
+    controller: ControllerMetadata,
+) -> ControllerPublicMetadata:
+    return ControllerPublicMetadata(
+        id=controller.id,
+        name=controller.name,
+        controller_type=controller.controller_type,
+        input_variable_ids=list(controller.input_variable_ids),
+        output_variable_ids=list(controller.output_variable_ids),
+        params=clone_controller_params(controller.params),
+    )
+
+
+def build_driver_plugin_context(bootstrap: RuntimeBootstrap) -> DriverPluginContext:
+    return DriverPluginContext(
+        config=cast(Dict[str, JSONValue], copy.deepcopy(bootstrap.driver.config)),
+        plant=bootstrap.plant,
+    )
+
+
+def build_controller_plugin_context(
+    controller: ControllerMetadata,
+    plant: PlantContext,
+) -> ControllerPluginContext:
+    return ControllerPluginContext(
+        controller=build_public_controller_metadata(controller),
+        plant=plant,
+    )
+
+
 def build_controller_snapshot(
     cycle_id: int,
     cycle_started_at: float,
@@ -976,6 +1027,7 @@ def build_controller_snapshot(
     sensors: SensorPayload,
     actuators: ActuatorPayload,
 ) -> Dict[str, Any]:
+    public_controller = build_public_controller_metadata(controller)
     return {
         "cycle_id": cycle_id,
         "timestamp": cycle_started_at,
@@ -1000,7 +1052,7 @@ def build_controller_snapshot(
             }
             for variable_id, variable in plant.variables_by_id.items()
         },
-        "controller": controller.serialize(),
+        "controller": public_controller.serialize(),
     }
 
 
