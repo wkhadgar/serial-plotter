@@ -8,10 +8,12 @@
     series: ChartSeries[];
     config: ChartConfig;
     theme: 'dark' | 'light';
+    showYAxis?: boolean;
+    xAxisMode?: 'full' | 'grid-only' | 'hidden';
     onRangeChange?: (xMin: number, xMax: number) => void;
   }
 
-  let { series, config, theme, onRangeChange }: Props = $props();
+  let { series, config, theme, showYAxis = true, xAxisMode = 'full', onRangeChange }: Props = $props();
 
   let wrapper: HTMLDivElement;
   let chart: uPlot | null = null;
@@ -32,6 +34,7 @@
   let pendingRangeChange: { xMin: number; xMax: number } | null = null;
   let lastAppliedXRange: { min: number; max: number } | null = null;
   let lastAppliedYRange: { min: number; max: number } | null = null;
+  let lastLayoutMode = 'regular';
 
   const _scaleRef = {
     xMode: 'auto' as string,
@@ -410,18 +413,42 @@
     return uSeries;
   }
 
+  function resolveLayoutMode(height: number): 'micro' | 'ultra' | 'compact' | 'regular' {
+    if (height < 90) return 'micro';
+    if (height < 120) return 'ultra';
+    if (height < 180) return 'compact';
+    return 'regular';
+  }
+
   function buildOpts(w: number, h: number): uPlot.Options {
-    const compactHeight = h < 180;
-    const ultraCompactHeight = h < 120;
-    const axisFont = ultraCompactHeight ? '9px system-ui, sans-serif' : compactHeight ? '10px system-ui, sans-serif' : '11px system-ui, sans-serif';
-    const xAxisSize = ultraCompactHeight ? 24 : compactHeight ? 28 : 32;
-    const yAxisSize = ultraCompactHeight ? 40 : compactHeight ? 44 : 50;
-    const axisGap = ultraCompactHeight ? 4 : 6;
+    const layoutMode = resolveLayoutMode(h);
+    const microCompactHeight = layoutMode === 'micro';
+    const ultraCompactHeight = layoutMode === 'ultra';
+    const compactHeight = layoutMode === 'compact' || ultraCompactHeight || microCompactHeight;
+    const xAxisHidden = xAxisMode === 'hidden';
+    const xAxisGridOnly = xAxisMode === 'grid-only';
+    const axisFont = microCompactHeight
+      ? '8px system-ui, sans-serif'
+      : ultraCompactHeight
+        ? '9px system-ui, sans-serif'
+        : compactHeight
+          ? '10px system-ui, sans-serif'
+          : '11px system-ui, sans-serif';
+    const xAxisSize = xAxisHidden
+      ? 0
+      : xAxisGridOnly
+        ? (microCompactHeight ? 8 : ultraCompactHeight ? 10 : 12)
+        : (microCompactHeight ? 18 : ultraCompactHeight ? 24 : compactHeight ? 28 : 32);
+    const yAxisSize = microCompactHeight ? 32 : ultraCompactHeight ? 40 : compactHeight ? 44 : 50;
+    const axisGap = microCompactHeight ? 3 : ultraCompactHeight ? 4 : 6;
+    const topPad = microCompactHeight ? 4 : ultraCompactHeight ? 6 : compactHeight ? 7 : 8;
+    const rightPad = microCompactHeight ? 6 : ultraCompactHeight ? 8 : compactHeight ? 10 : 12;
+    const bottomPad = xAxisHidden ? 2 : xAxisGridOnly ? 1 : (microCompactHeight ? 4 : ultraCompactHeight ? 6 : compactHeight ? 6 : 8);
 
     return {
       width: w,
       height: h,
-      padding: ultraCompactHeight ? [6, 8, 6, 0] : compactHeight ? [7, 10, 6, 0] : [8, 12, 8, 0],
+      padding: [topPad, rightPad, bottomPad, 0],
       cursor: {
         show: config.showHover !== false,
         drag: { x: true, y: false, setScale: false },
@@ -456,21 +483,23 @@
       },
       axes: [
         {
-          stroke: colors.ticks,
+          show: !xAxisHidden,
+          stroke: xAxisGridOnly ? 'transparent' : colors.ticks,
           grid: { stroke: colors.grid, width: 1, show: config.showGrid },
-          ticks: { stroke: colors.axis, width: 1 },
+          ticks: { stroke: xAxisGridOnly ? 'transparent' : colors.axis, width: xAxisGridOnly ? 0 : 1 },
           font: axisFont,
-          values: (_u: uPlot, splits: number[]) => splits.map((v) => v.toFixed(1) + 's'),
+          values: xAxisGridOnly ? () => [] : (_u: uPlot, splits: number[]) => splits.map((v) => v.toFixed(1) + 's'),
           gap: axisGap,
           size: xAxisSize,
         },
         {
+          show: showYAxis,
           stroke: colors.ticks,
           grid: { stroke: colors.grid, width: 1, show: config.showGrid },
           ticks: { stroke: colors.axis, width: 1 },
           font: axisFont,
           gap: axisGap,
-          size: yAxisSize,
+          size: showYAxis ? yAxisSize : 0,
         },
       ],
       series: buildSeries(),
@@ -529,6 +558,24 @@
 
   function handleWheel(e: WheelEvent) {
     if (!chart || !wrapper) return;
+
+    let scrollParent: HTMLElement | null = wrapper.parentElement;
+    while (scrollParent) {
+      const styles = window.getComputedStyle(scrollParent);
+      const isScrollableY =
+        (styles.overflowY === 'auto' || styles.overflowY === 'scroll' ||
+          styles.overflow === 'auto' || styles.overflow === 'scroll') &&
+        scrollParent.scrollHeight > scrollParent.clientHeight + 1;
+
+      if (isScrollableY && Math.abs(e.deltaY) >= Math.abs(e.deltaX) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        scrollParent.scrollTop += e.deltaY;
+        return;
+      }
+
+      scrollParent = scrollParent.parentElement;
+    }
+
     e.preventDefault();
     const rect = wrapper.getBoundingClientRect();
     const cursorX = e.clientX - rect.left;
@@ -597,16 +644,34 @@
     queueRangeChange(nMin, nMax);
   }
 
-  function handlePointerUp(e: PointerEvent) {
-    if (!_panning) return;
-    _panning = false;
-    if (wrapper) {
-      wrapper.releasePointerCapture(e.pointerId);
-      wrapper.style.cursor = '';
+  function resetWrapperCursor() {
+    if (!wrapper) return;
+    wrapper.style.cursor = '';
+  }
+
+  function stopPanning(pointerId?: number) {
+    if (!_panning) {
+      resetWrapperCursor();
+      return;
     }
+
+    _panning = false;
+    if (wrapper && pointerId != null && wrapper.hasPointerCapture(pointerId)) {
+      wrapper.releasePointerCapture(pointerId);
+    }
+    resetWrapperCursor();
+
     if (!_pointerInside) {
       flushDeferredUpdate();
     }
+  }
+
+  function handlePointerUp(e: PointerEvent) {
+    stopPanning(e.pointerId);
+  }
+
+  function handlePointerCancel(e: PointerEvent) {
+    stopPanning(e.pointerId);
   }
 
   function initChart() {
@@ -621,6 +686,7 @@
     const opts = buildOpts(Math.floor(rect.width), Math.floor(rect.height));
     const data = buildData();
     chart = new uPlot(opts, data, wrapper);
+    lastLayoutMode = resolveLayoutMode(Math.floor(rect.height));
     lastAppliedXRange = null;
     lastAppliedYRange = null;
     applyResolvedScales(data);
@@ -656,6 +722,8 @@
     if (Math.abs(chart.width - w) > 2 || Math.abs(chart.height - h) > 2) {
       chart.setSize({ width: w, height: h });
     }
+
+    lastLayoutMode = resolveLayoutMode(h);
   }
 
   function pollDataUpdates() {
@@ -683,7 +751,7 @@
     renderPollTimer = window.setInterval(pollDataUpdates, 75);
 
     let resizeRaf: number | null = null;
-    const ro = new ResizeObserver(() => {
+    const handleResize = () => {
       if (!wrapper) return;
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       resizeRaf = requestAnimationFrame(() => {
@@ -691,20 +759,36 @@
         const rect = wrapper.getBoundingClientRect();
         const w = Math.floor(rect.width);
         const h = Math.floor(rect.height);
-        if (w > 10 && h > 10) {
-          if (chart) {
-            chart.setSize({ width: w, height: h });
-            prevDataSignature = '';
-          } else {
-            initChart();
-          }
+        if (w <= 10 || h <= 10) return;
+
+        const nextLayoutMode = resolveLayoutMode(h);
+        const shouldRebuild = !chart || nextLayoutMode !== lastLayoutMode;
+
+        if (shouldRebuild) {
+          initChart();
+          return;
         }
+
+        if (!chart) {
+          initChart();
+          return;
+        }
+
+        chart.setSize({ width: w, height: h });
+        updateChart();
       });
+    };
+
+    const ro = new ResizeObserver(() => {
+      handleResize();
     });
     if (wrapper) ro.observe(wrapper);
+    if (wrapper?.parentElement) ro.observe(wrapper.parentElement);
+    window.addEventListener('resize', handleResize, { passive: true });
     return () => {
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
       ro.disconnect();
+      window.removeEventListener('resize', handleResize);
     };
   });
 
@@ -718,7 +802,7 @@
   });
 
   $effect(() => {
-    const _ = [config.yMode, config.showGrid, theme, seriesVisualSignature];
+    const _ = [config.yMode, config.showGrid, theme, seriesVisualSignature, showYAxis, xAxisMode];
     untrack(() => {
       if (_mounted && chart) initChart();
     });
@@ -773,12 +857,14 @@
   onpointerdown={handlePointerDown}
   onpointermove={handlePointerMove}
   onpointerup={handlePointerUp}
+  onpointercancel={handlePointerCancel}
   onpointerenter={() => {
     _pointerInside = true;
   }}
   onpointerleave={() => {
     _pointerInside = false;
     if (!_panning) {
+      resetWrapperCursor();
       flushDeferredUpdate();
     }
   }}
@@ -788,7 +874,7 @@
 
 <style>
   .plotly-surface {
-    min-height: 96px;
+    min-height: 0;
     overflow: hidden;
   }
 
@@ -850,17 +936,5 @@
   :global(.chart-tooltip .tt-val) {
     font-weight: 600;
     color: #fafafa;
-  }
-
-  @media (max-height: 860px) {
-    .plotly-surface {
-      min-height: 80px;
-    }
-  }
-
-  @media (max-height: 700px) {
-    .plotly-surface {
-      min-height: 68px;
-    }
   }
 </style>

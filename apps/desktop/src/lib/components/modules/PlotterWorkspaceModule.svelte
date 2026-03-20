@@ -1195,7 +1195,7 @@
 />
 
 <div
-  class="flex flex-col h-full w-full bg-white dark:bg-[#09090b] text-slate-900 dark:text-white relative"
+  class="flex flex-col h-full w-full min-h-0 bg-white dark:bg-[#09090b] text-slate-900 dark:text-white relative"
   role="presentation"
 >
   {#if dragOverlay}
@@ -1266,7 +1266,7 @@
       </div>
     </div>
   {:else}
-  <div class="flex-1 flex min-h-0 flex-col md:flex-row overflow-hidden bg-slate-50 dark:bg-[#09090b] relative">
+  <div class="plotter-workspace-shell flex-1 flex min-h-0 flex-col md:flex-row overflow-hidden bg-slate-50 dark:bg-[#09090b] relative">
     <div class="flex-1 flex min-h-0 flex-col min-w-0 relative">
       <PlotterToolbar
         plant={activePlant}
@@ -1288,7 +1288,7 @@
 
       <div
         bind:this={graphContainerRef}
-        class="flex-1 flex min-h-0 flex-col p-3 gap-3 overflow-hidden relative cursor-crosshair"
+        class="plotter-graph-area flex-1 flex min-h-0 flex-col p-3 gap-3 overflow-hidden relative"
         oncontextmenu={handleContextMenu}
         ondblclick={resetZoom}
         role="application"
@@ -1429,3 +1429,30 @@
     onClose={() => editPlantModal = false}
   />
 </div>
+
+<style>
+  @media (max-height: 900px) {
+    .plotter-graph-area {
+      padding: 0.625rem;
+      gap: 0.625rem;
+    }
+  }
+
+  @media (max-height: 760px) {
+    .plotter-graph-area {
+      padding: 0.5rem;
+      gap: 0.5rem;
+    }
+  }
+
+  @media (max-height: 620px) {
+    .plotter-workspace-shell {
+      min-height: 0;
+    }
+
+    .plotter-graph-area {
+      padding: 0.375rem;
+      gap: 0.375rem;
+    }
+  }
+</style>

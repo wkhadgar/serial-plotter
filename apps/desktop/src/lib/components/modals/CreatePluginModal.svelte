@@ -143,7 +143,7 @@
   const modalDescription = $derived(
     isEditing
       ? `Atualize as informações do plugin ${kindLabel}`
-      : `Defina um plugin reutilizável do tipo ${kindLabel}`
+      : `Defina um plugin do tipo ${kindLabel}`
   );
   const submitLabel = $derived(isEditing ? 'Salvar Alterações' : 'Criar Plugin');
 

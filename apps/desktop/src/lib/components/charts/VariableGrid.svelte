@@ -134,14 +134,14 @@
 </script>
 
 <div
-  class="variable-grid-container box-border w-full min-h-0 flex-1 overflow-y-auto p-2 {viewMode === 'single' ? '' : 'grid gap-2 ' + gridCols}"
-  class:flex={viewMode === 'single'}
-  class:items-stretch={viewMode === 'single'}
+  class="variable-grid-container box-border w-full min-h-0 flex-1 overflow-y-auto p-2 {viewMode === 'single' ? 'flex flex-col' : 'grid gap-2 ' + gridCols}"
+  class:variable-grid-container--single={viewMode === 'single'}
+  class:variable-grid-container--grid={viewMode !== 'single'}
 >
   {#each visibleSensors as sensorEntry, displayIdx (sensorEntry.variable.id)}
     {@const cardPvConfig = getVariableChartConfig(pvConfig, sensorEntry.originalIndex)}
     {@const cardMvConfig = getVariableChartConfig(mvConfig, sensorEntry.originalIndex)}
-    <div class={viewMode === 'single' ? 'w-full h-full min-h-0' : 'sensor-card-shell min-h-[300px]'} data-sensor-index={displayIdx}>
+    <div class={viewMode === 'single' ? 'single-sensor-shell w-full' : 'sensor-card-shell'} data-sensor-index={displayIdx}>
       <VariableCard
         title={sensorEntry.variable.name}
         unit={sensorEntry.variable.unit}
@@ -174,3 +174,44 @@
     </span>
   </div>
 {/if}
+
+<style>
+  .variable-grid-container {
+    overflow-x: hidden;
+  }
+
+  .variable-grid-container--single {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    align-content: stretch;
+  }
+
+  .sensor-card-shell {
+    min-height: clamp(130px, 23vh, 240px);
+  }
+
+  .single-sensor-shell {
+    flex: 1 1 clamp(160px, 52vh, 560px);
+    height: 100%;
+    min-height: 0;
+  }
+
+  @media (max-height: 900px) {
+    .variable-grid-container {
+      padding: 0.375rem;
+      gap: 0.375rem;
+    }
+  }
+
+  @media (max-height: 760px) {
+    .variable-grid-container {
+      padding: 0.25rem;
+      gap: 0.25rem;
+    }
+    .sensor-view-hint {
+      bottom: 0.5rem;
+      padding: 0.4rem 0.75rem;
+    }
+  }
+</style>

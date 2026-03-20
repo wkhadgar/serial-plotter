@@ -90,8 +90,8 @@
       </button>
     {/if}
 
-    <main class="flex-1 flex flex-col min-w-0 relative">
-      <div class="flex-1 flex flex-col min-w-0" style:display={appStore.state.activeModule === 'plotter' ? 'flex' : 'none'}>
+    <main class="flex-1 flex flex-col min-w-0 min-h-0 relative">
+      <div class="flex-1 flex flex-col min-w-0 min-h-0" style:display={appStore.state.activeModule === 'plotter' ? 'flex' : 'none'}>
         <PlotterWorkspaceModule
           plants={appStore.state.plants || []}
           activePlantId={appStore.state.activePlantId ?? appStore.state.plants[0]?.id ?? ''}
@@ -100,13 +100,13 @@
           bind:showControllerPanel
         />
       </div>
-      <div class="flex-1 flex flex-col min-w-0" style:display={appStore.state.activeModule === 'analyzer' ? 'flex' : 'none'}>
+      <div class="flex-1 flex flex-col min-w-0 min-h-0" style:display={appStore.state.activeModule === 'analyzer' ? 'flex' : 'none'}>
         <AnalyzerModule
           theme={appStore.state.theme || 'dark'}
           active={appStore.state.activeModule === 'analyzer'}
         />
       </div>
-      <div class="flex-1 flex flex-col min-w-0" style:display={appStore.state.activeModule === 'plugins' ? 'flex' : 'none'}>
+      <div class="flex-1 flex flex-col min-w-0 min-h-0" style:display={appStore.state.activeModule === 'plugins' ? 'flex' : 'none'}>
         <PluginsModule
           theme={appStore.state.theme || 'dark'}
           active={appStore.state.activeModule === 'plugins'}
