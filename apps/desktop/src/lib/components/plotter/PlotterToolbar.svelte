@@ -37,6 +37,9 @@
   } = $props();
 
   let exportMenuOpen = $state(false);
+  let exportDropdownEl: HTMLDivElement | undefined = $state();
+  let exportButtonEl: HTMLButtonElement | undefined = $state();
+  let exportMenuPosition = $state({ top: 0, left: 0 });
   const effectiveSamplingMs = $derived(dt > 0 ? dt * 1000 : 0);
 
   function handleExportCSV() {
@@ -49,18 +52,62 @@
     onExportJSON();
   }
 
-  function handleClickOutside(e: MouseEvent) {
-    const target = e.target as HTMLElement;
-    if (!target.closest('.export-dropdown')) {
+  function updateExportMenuPosition() {
+    if (!exportButtonEl || typeof window === 'undefined') return;
+
+    const rect = exportButtonEl.getBoundingClientRect();
+    const menuWidth = 160;
+    const horizontalPadding = 8;
+    const maxLeft = Math.max(horizontalPadding, window.innerWidth - menuWidth - horizontalPadding);
+    const nextLeft = Math.min(Math.max(horizontalPadding, rect.left), maxLeft);
+
+    exportMenuPosition = {
+      top: Math.round(rect.bottom + 6),
+      left: Math.round(nextLeft),
+    };
+  }
+
+  function toggleExportMenu(e: MouseEvent) {
+    e.stopPropagation();
+    exportMenuOpen = !exportMenuOpen;
+    if (exportMenuOpen) {
+      updateExportMenuPosition();
+    }
+  }
+
+  function handleGlobalClick(e: MouseEvent) {
+    if (!exportMenuOpen) return;
+    const target = e.target;
+    if (!(target instanceof Node)) {
+      exportMenuOpen = false;
+      return;
+    }
+
+    if (exportDropdownEl?.contains(target)) return;
+    exportMenuOpen = false;
+  }
+
+  function handleViewportChange() {
+    if (!exportMenuOpen) return;
+    updateExportMenuPosition();
+  }
+
+  function handleWindowKeyDown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
       exportMenuOpen = false;
     }
   }
 </script>
 
-<svelte:window onclick={handleClickOutside} />
+<svelte:window
+  onclick={handleGlobalClick}
+  onresize={handleViewportChange}
+  onscroll={handleViewportChange}
+  onkeydown={handleWindowKeyDown}
+/>
 
 <div class="plotter-toolbar min-h-14 bg-white dark:bg-[#0c0c0e] border-b border-slate-200 dark:border-white/5 flex flex-wrap items-center justify-between gap-2 px-3 py-2 shadow-sm z-20 print:hidden sm:px-4 sm:py-1 lg:px-6">
-  <div class="plotter-toolbar__controls flex min-w-0 flex-1 items-center gap-2 overflow-x-auto sm:gap-3">
+  <div class="plotter-toolbar__controls flex min-w-0 flex-1 items-center gap-2 overflow-x-auto overflow-y-visible sm:gap-3">
     <button
       onclick={onToggleConnect}
       disabled={connectDisabled}
@@ -99,9 +146,11 @@
     >
       <Pencil size={18} />
     </button>
-    <div class="relative export-dropdown">
+    <div class="relative export-dropdown shrink-0" bind:this={exportDropdownEl}>
       <button
-        onclick={(e) => { e.stopPropagation(); exportMenuOpen = !exportMenuOpen; }}
+        type="button"
+        bind:this={exportButtonEl}
+        onclick={toggleExportMenu}
         class="flex items-center gap-0.5 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 text-slate-500 transition-colors"
         title="Exportar dados"
       >
@@ -109,18 +158,23 @@
         <ChevronDown size={12} />
       </button>
       {#if exportMenuOpen}
-        <div class="absolute top-full left-0 mt-1 bg-white dark:bg-[#18181b] border border-slate-200 dark:border-white/10 rounded-lg shadow-lg z-50 min-w-[160px] py-1">
+        <div
+          class="fixed bg-white dark:bg-[#18181b] border border-slate-200 dark:border-white/10 rounded-lg shadow-lg z-[120] min-w-[160px] py-1"
+          style={`top:${exportMenuPosition.top}px;left:${exportMenuPosition.left}px;`}
+        >
           <button
+            type="button"
             onclick={handleExportCSV}
             class="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
           >
-            Exportar CSV
+            Salvar CSV
           </button>
           <button
+            type="button"
             onclick={handleExportJSON}
             class="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
           >
-            Exportar JSON
+            Salvar JSON
           </button>
         </div>
       {/if}

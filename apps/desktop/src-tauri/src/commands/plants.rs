@@ -1,6 +1,6 @@
 #![allow(clippy::needless_pass_by_value)]
 
-use crate::core::error::ErrorDto;
+use crate::core::error::{AppError, ErrorDto};
 use crate::core::models::plant::{
     CreatePlantRequest, Plant, PlantResponse, RemovePlantControllerRequest,
     SavePlantControllerConfigRequest, SavePlantSetpointRequest, UpdatePlantRequest,
@@ -18,6 +18,12 @@ use tauri::{AppHandle, State};
 pub struct ImportFileRequest {
     #[serde(rename = "fileName")]
     pub file_name: String,
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveExportFileRequest {
+    pub path: String,
     pub content: String,
 }
 
@@ -195,4 +201,20 @@ pub fn import_plant_file(
 ) -> Result<ImportPlantFileResponse, ErrorDto> {
     PlantImportService::import_file(state.plants(), state.plugins(), request.into())
         .map_err(ErrorDto::from)
+}
+
+#[tauri::command]
+pub fn save_export_file(request: SaveExportFileRequest) -> Result<(), ErrorDto> {
+    let path = request.path.trim();
+    if path.is_empty() {
+        return Err(ErrorDto::from(AppError::InvalidArgument(
+            "Caminho do arquivo é obrigatório".into(),
+        )));
+    }
+
+    std::fs::write(path, request.content).map_err(|error| {
+        ErrorDto::from(AppError::IoError(format!(
+            "Falha ao salvar arquivo \"{path}\": {error}"
+        )))
+    })
 }

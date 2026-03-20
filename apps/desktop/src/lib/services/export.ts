@@ -1,3 +1,5 @@
+import { invoke } from '@tauri-apps/api/core';
+import { save } from '@tauri-apps/plugin-dialog';
 import type { Plant, PlantDataPoint, PlantVariable } from '$lib/types/plant';
 import type {
   PlantExportJSON,
@@ -13,6 +15,17 @@ function sanitizeName(name: string): string {
   return name.replace(/\s+/g, '_');
 }
 
+function isTauriRuntime(): boolean {
+  if (typeof window === 'undefined') return false;
+  return '__TAURI_INTERNALS__' in window || '__TAURI__' in window;
+}
+
+function normalizeDialogPath(path: string | string[] | null): string | null {
+  if (typeof path === 'string') return path;
+  if (Array.isArray(path) && path.length > 0) return path.join('/');
+  return null;
+}
+
 function triggerDownload(content: string, filename: string, mimeType: string): void {
   const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
   const url = URL.createObjectURL(blob);
@@ -25,6 +38,41 @@ function triggerDownload(content: string, filename: string, mimeType: string): v
   URL.revokeObjectURL(url);
 }
 
+async function saveContent(
+  content: string,
+  filename: string,
+  mimeType: string,
+  title: string,
+  filterName: string,
+  extension: string
+): Promise<boolean> {
+  if (!isTauriRuntime()) {
+    triggerDownload(content, filename, mimeType);
+    return true;
+  }
+
+  try {
+    const selected = await save({
+      title,
+      defaultPath: filename,
+      filters: [{ name: filterName, extensions: [extension] }],
+    });
+    const path = normalizeDialogPath(selected);
+    if (!path) return false;
+
+    await invoke('save_export_file', {
+      request: {
+        path,
+        content,
+      },
+    });
+    return true;
+  } catch (error) {
+    console.error('Falha ao salvar arquivo de exportação:', error);
+    return false;
+  }
+}
+
 function classifyVariables(variables: PlantVariable[]) {
   const sensors = variables.filter((v) => v.type === 'sensor');
   const actuators = variables.filter((v) => v.type === 'atuador');
@@ -32,7 +80,7 @@ function classifyVariables(variables: PlantVariable[]) {
 }
 
 
-export function exportPlantDataCSV(plant: Plant, data: PlantDataPoint[]): boolean {
+export async function exportPlantDataCSV(plant: Plant, data: PlantDataPoint[]): Promise<boolean> {
   if (data.length === 0) return false;
 
   const { sensors, actuators } = classifyVariables(plant.variables);
@@ -42,18 +90,18 @@ export function exportPlantDataCSV(plant: Plant, data: PlantDataPoint[]): boolea
 
   columns.push({ header: 'seconds', getValue: (pt) => pt.time });
 
-  for (const s of sensors) {
-    const idx = varIndex(s);
-    const name = sanitizeName(s.name);
-    columns.push({ header: `sensor_${name}`, getValue: (pt) => pt[`var_${idx}_pv`] ?? 0 });
-    columns.push({ header: `setpoint_${name}`, getValue: (pt) => pt[`var_${idx}_sp`] ?? 0 });
-  }
+  sensors.forEach((sensor, sensorIndex) => {
+    const idx = varIndex(sensor);
+    const labelIndex = sensorIndex + 1;
+    columns.push({ header: `sensor_${labelIndex}`, getValue: (pt) => pt[`var_${idx}_pv`] ?? 0 });
+    columns.push({ header: `sp_${labelIndex}`, getValue: (pt) => pt[`var_${idx}_sp`] ?? 0 });
+  });
 
-  for (const a of actuators) {
-    const idx = varIndex(a);
-    const name = sanitizeName(a.name);
-    columns.push({ header: `atuador_${name}`, getValue: (pt) => pt[`var_${idx}_pv`] ?? 0 });
-  }
+  actuators.forEach((actuator, actuatorIndex) => {
+    const idx = varIndex(actuator);
+    const labelIndex = actuatorIndex + 1;
+    columns.push({ header: `atuador_${labelIndex}`, getValue: (pt) => pt[`var_${idx}_pv`] ?? 0 });
+  });
 
   const headerLine = columns.map((c) => c.header).join(',');
   const rows = data.map((pt) =>
@@ -64,8 +112,14 @@ export function exportPlantDataCSV(plant: Plant, data: PlantDataPoint[]): boolea
   );
 
   const csv = [headerLine, ...rows].join('\n');
-  triggerDownload(csv, `${sanitizeName(plant.name)}_data.csv`, 'text/csv');
-  return true;
+  return saveContent(
+    csv,
+    `${sanitizeName(plant.name)}_data.csv`,
+    'text/csv',
+    'Salvar CSV',
+    'CSV',
+    'csv'
+  );
 }
 
 
@@ -138,11 +192,17 @@ export function buildPlantExportJSON(plant: Plant, data: PlantDataPoint[]): Plan
   };
 }
 
-export function exportPlantDataJSON(plant: Plant, data: PlantDataPoint[]): boolean {
+export async function exportPlantDataJSON(plant: Plant, data: PlantDataPoint[]): Promise<boolean> {
   if (data.length === 0) return false;
 
   const json = buildPlantExportJSON(plant, data);
   const content = JSON.stringify(json, null, 2);
-  triggerDownload(content, `${sanitizeName(plant.name)}_data.json`, 'application/json');
-  return true;
+  return saveContent(
+    content,
+    `${sanitizeName(plant.name)}_data.json`,
+    'application/json',
+    'Salvar JSON',
+    'JSON',
+    'json'
+  );
 }

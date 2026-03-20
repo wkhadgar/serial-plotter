@@ -6,7 +6,7 @@ mod state;
 use crate::commands::plants::{
     close_plant, connect_plant, create_plant, disconnect_plant, get_plant, import_plant_file,
     list_plants, open_plant_file, pause_plant, remove_controller, remove_plant, resume_plant,
-    save_controller, save_setpoint, update_plant,
+    save_controller, save_export_file, save_setpoint, update_plant,
 };
 use crate::commands::plugins::{
     create_plugin, delete_plugin, get_plugin, import_plugin_file, list_plugins,
@@ -22,6 +22,7 @@ use crate::state::AppState;
 /// Panics if Tauri fails to initialize or run the desktop application.
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
@@ -40,6 +41,7 @@ pub fn run() {
             save_controller,
             remove_controller,
             save_setpoint,
+            save_export_file,
             create_plugin,
             delete_plugin,
             get_plugin,

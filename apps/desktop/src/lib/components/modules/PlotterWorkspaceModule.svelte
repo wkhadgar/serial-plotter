@@ -681,24 +681,46 @@
     plantActionLoading = null;
   }
 
-  function handleExportCSV() {
+  async function handleExportCSV() {
+    if (!activePlant) return;
     const data = getPlantData(activePlantId);
-    if (!activePlant || !exportPlantDataCSV(activePlant, data)) {
+    if (data.length === 0) {
       showFeedbackModal({
         type: 'info',
         title: 'Nada para exportar',
         message: 'Sem dados para exportar em CSV.',
       });
+      return;
+    }
+
+    const exported = await exportPlantDataCSV(activePlant, data);
+    if (!exported) {
+      showFeedbackModal({
+        type: 'info',
+        title: 'Exportação não concluída',
+        message: 'A exportação de CSV foi cancelada ou falhou.',
+      });
     }
   }
 
-  function handleExportJSON() {
+  async function handleExportJSON() {
+    if (!activePlant) return;
     const data = getPlantData(activePlantId);
-    if (!activePlant || !exportPlantDataJSON(activePlant, data)) {
+    if (data.length === 0) {
       showFeedbackModal({
         type: 'info',
         title: 'Nada para exportar',
         message: 'Sem dados para exportar em JSON.',
+      });
+      return;
+    }
+
+    const exported = await exportPlantDataJSON(activePlant, data);
+    if (!exported) {
+      showFeedbackModal({
+        type: 'info',
+        title: 'Exportação não concluída',
+        message: 'A exportação de JSON foi cancelada ou falhou.',
       });
     }
   }
