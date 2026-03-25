@@ -1,0 +1,88 @@
+name: desktop-ci
+
+on:
+  pull_request:
+    branches:
+      - main
+      - dev
+    paths:
+      - apps/desktop/**
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
+      - mise.toml
+      - .github/workflows/**
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - apps/desktop/**
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
+      - mise.toml
+      - .github/workflows/**
+
+concurrency:
+  group: desktop-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: validate (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - ubuntu-22.04
+          - windows-latest
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        run: pnpm --dir apps/desktop install --frozen-lockfile
+
+      - name: Check Svelte and TypeScript
+        run: pnpm --dir apps/desktop check
+
+      - name: Check Rust workspace crate
+        run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Check integrated Tauri build
+        run: pnpm --dir apps/desktop tauri build --no-bundle --ci

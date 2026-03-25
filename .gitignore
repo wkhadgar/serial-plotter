@@ -14,7 +14,8 @@ build/
 .output/
 
 target/
-docs-dev/
+docs-dev
+docs-dev/**
 
 apps/desktop/src-tauri/gen/
 apps/desktop/src-tauri/binaries/
