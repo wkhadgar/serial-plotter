@@ -203,6 +203,14 @@ class LoadedController:
     instance: ControllerProtocol
 
 
+@dataclass
+class ControllerReloadResult:
+    version: int
+    controllers: List[ControllerMetadata]
+    loaded: Optional[List[LoadedController]] = None
+    error: Optional[str] = None
+
+
 class PlantRuntimeEngine:
     def __init__(self, bootstrap: RuntimeBootstrap) -> None:
         self.bootstrap = bootstrap
@@ -221,8 +229,11 @@ class PlantRuntimeEngine:
         self.next_cycle_deadline: Optional[float] = None
         self.paused_started_at: Optional[float] = None
         self.paused_duration_s = 0.0
+        self.controller_reload_version = 0
+        self.controller_reload_results: "queue.Queue[ControllerReloadResult]" = queue.Queue()
 
     def apply_init(self, bootstrap: RuntimeBootstrap) -> None:
+        self._clear_pending_controller_reload_results()
         self.bootstrap = bootstrap
         self.runtime_id = bootstrap.runtime.id
         self.plant_id = bootstrap.plant.id
@@ -239,6 +250,7 @@ class PlantRuntimeEngine:
         self.next_cycle_deadline = None
         self.paused_started_at = None
         self.paused_duration_s = 0.0
+        self.controller_reload_version = 0
 
     def start(self) -> None:
         if self.driver_instance is None:
@@ -285,9 +297,37 @@ class PlantRuntimeEngine:
         self.next_cycle_deadline = now
         self.last_cycle_started_at = None
 
-    def _load_controllers(self) -> List[LoadedController]:
+    def _stop_loaded_controllers(self, controllers: List[LoadedController]) -> None:
+        for controller in controllers:
+            maybe_call_optional_stop(controller.instance, controller.metadata.name)
+
+    def _clear_pending_controller_reload_results(self) -> None:
+        while True:
+            try:
+                result = self.controller_reload_results.get_nowait()
+            except queue.Empty:
+                break
+
+            if result.loaded is not None:
+                self._stop_loaded_controllers(result.loaded)
+
+    def _ensure_driver_write_support(
+        self,
+        controllers: List[ControllerMetadata],
+    ) -> None:
+        if controllers and self.driver_instance is not None and not callable(
+            getattr(self.driver_instance, DRIVER_WRITE_METHOD, None)
+        ):
+            raise RuntimeError(
+                "Driver precisa implementar write(outputs) quando houver controladores ativos"
+            )
+
+    def _load_controllers(
+        self,
+        controllers: List[ControllerMetadata],
+    ) -> List[LoadedController]:
         loaded: List[LoadedController] = []
-        for controller_meta in self.bootstrap.controllers:
+        for controller_meta in controllers:
             controller_cls = load_plugin_class(
                 Path(controller_meta.plugin_dir),
                 controller_meta.source_file,
@@ -311,7 +351,22 @@ class PlantRuntimeEngine:
                     instance=cast(ControllerProtocol, instance),
                 )
             )
+            maybe_call_optional_connect(loaded[-1].instance, controller_meta.name)
         return loaded
+
+    def _install_controllers(
+        self,
+        controllers: List[ControllerMetadata],
+        loaded: List[LoadedController],
+    ) -> None:
+        self._stop_loaded_controllers(self.controllers)
+        self.bootstrap = RuntimeBootstrap(
+            driver=self.bootstrap.driver,
+            controllers=list(controllers),
+            plant=self.bootstrap.plant,
+            runtime=self.bootstrap.runtime,
+        )
+        self.controllers = loaded
 
     def pause(self) -> None:
         if not self.paused:
@@ -335,7 +390,20 @@ class PlantRuntimeEngine:
         self.bootstrap.plant.apply_setpoints(setpoints)
 
     def update_controllers(self, controllers: List[ControllerMetadata]) -> None:
-        self._replace_controllers(controllers)
+        if not self.running:
+            self._replace_controllers(controllers)
+            return
+
+        self.controller_reload_version += 1
+        version = self.controller_reload_version
+        next_controllers = list(controllers)
+        thread = threading.Thread(
+            target=self._load_controllers_async,
+            args=(version, next_controllers),
+            daemon=True,
+            name=f"controller-reload-{version}",
+        )
+        thread.start()
 
     def request_shutdown(self) -> None:
         self.should_exit = True
@@ -524,6 +592,7 @@ class PlantRuntimeEngine:
         return max(0.0, cycle_started_at - first_cycle_started_at)
 
     def stop(self) -> None:
+        self._clear_pending_controller_reload_results()
         for controller in self.controllers:
             maybe_call_optional_stop(controller.instance, controller.metadata.name)
         self.controllers = []
@@ -535,26 +604,53 @@ class PlantRuntimeEngine:
             except Exception as exc:  # noqa: BLE001
                 log_error(f"Falha ao finalizar driver: {exc}")
 
+    def apply_pending_controller_reload(self) -> None:
+        while True:
+            try:
+                result = self.controller_reload_results.get_nowait()
+            except queue.Empty:
+                break
+
+            if result.version != self.controller_reload_version:
+                if result.loaded is not None:
+                    self._stop_loaded_controllers(result.loaded)
+                continue
+
+            if result.error is not None:
+                emit("error", {"message": f"Falha ao atualizar controladores: {result.error}"})
+                continue
+
+            self._install_controllers(result.controllers, result.loaded or [])
+
     def _replace_controllers(self, controllers: List[ControllerMetadata]) -> None:
-        if controllers and self.driver_instance is not None and not callable(
-            getattr(self.driver_instance, DRIVER_WRITE_METHOD, None)
-        ):
-            raise RuntimeError(
-                "Driver precisa implementar write(outputs) quando houver controladores ativos"
+        self._ensure_driver_write_support(controllers)
+        loaded = self._load_controllers(controllers)
+        self._install_controllers(controllers, loaded)
+
+    def _load_controllers_async(
+        self,
+        version: int,
+        controllers: List[ControllerMetadata],
+    ) -> None:
+        try:
+            self._ensure_driver_write_support(controllers)
+            loaded = self._load_controllers(controllers)
+            self.controller_reload_results.put(
+                ControllerReloadResult(
+                    version=version,
+                    controllers=list(controllers),
+                    loaded=loaded,
+                )
             )
-
-        for controller in self.controllers:
-            maybe_call_optional_stop(controller.instance, controller.metadata.name)
-
-        self.bootstrap = RuntimeBootstrap(
-            driver=self.bootstrap.driver,
-            controllers=list(controllers),
-            plant=self.bootstrap.plant,
-            runtime=self.bootstrap.runtime,
-        )
-        self.controllers = self._load_controllers()
-        for controller in self.controllers:
-            maybe_call_optional_connect(controller.instance, controller.metadata.name)
+        except Exception as exc:  # noqa: BLE001
+            log_exception(exc)
+            self.controller_reload_results.put(
+                ControllerReloadResult(
+                    version=version,
+                    controllers=list(controllers),
+                    error=format_exception_message(exc),
+                )
+            )
 
 
 def emit(msg_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
@@ -1250,6 +1346,7 @@ def run() -> int:
             if engine.should_exit:
                 break
 
+            engine.apply_pending_controller_reload()
             engine.run_cycle()
     finally:
         engine.stop()

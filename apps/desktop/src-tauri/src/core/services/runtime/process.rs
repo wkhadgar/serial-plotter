@@ -1,6 +1,7 @@
 use super::{
-    RuntimeCyclePhase, RuntimeEnvelope, RuntimeLifecycleState, RuntimeStatusEvent,
-    RuntimeTelemetryEvent, RuntimeTelemetryPayload, SharedHandshake, SharedMetrics,
+    environment::prepare_python_command, RuntimeCyclePhase, RuntimeEnvelope, RuntimeLifecycleState,
+    RuntimeStatusEvent, RuntimeTelemetryEvent, RuntimeTelemetryPayload, SharedHandshake,
+    SharedMetrics,
 };
 use crate::core::error::{AppError, AppResult};
 use parking_lot::Mutex;
@@ -23,23 +24,26 @@ pub(super) fn spawn_driver_process(
     runtime_dir: &std::path::Path,
     bootstrap_path: &std::path::Path,
 ) -> AppResult<Child> {
-    Command::new(venv_python_path)
-        .arg("-u")
-        .arg(runner_path)
-        .arg("--runtime-dir")
-        .arg(runtime_dir)
-        .arg("--bootstrap")
-        .arg(bootstrap_path)
+    let mut command = Command::new(venv_python_path);
+    prepare_python_command(
+        command
+            .arg("-u")
+            .arg(runner_path)
+            .arg("--runtime-dir")
+            .arg(runtime_dir)
+            .arg("--bootstrap")
+            .arg(bootstrap_path),
+    );
+    command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|error| {
-            AppError::IoError(format!(
-                "Falha ao iniciar processo Python do driver '{}': {error}",
-                venv_python_path.display()
-            ))
-        })
+        .stderr(Stdio::piped());
+    command.spawn().map_err(|error| {
+        AppError::IoError(format!(
+            "Falha ao iniciar processo Python do driver '{}': {error}",
+            venv_python_path.display()
+        ))
+    })
 }
 
 pub(super) fn spawn_stdout_task<R: Runtime + 'static>(

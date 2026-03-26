@@ -16,9 +16,8 @@ use self::process::{
     wait_for_handshake,
 };
 use self::validation::{
-    ensure_driver_supports_write, validate_controller_plugin_source,
-    validate_controller_plugin_source_with_python, validate_plugin_workspace_files,
-    validate_python_source_file,
+    ensure_driver_supports_write, validate_driver_write_support, validate_plugin_workspace_files,
+    validate_python_source_file, validate_runtime_controller,
 };
 use crate::core::error::{AppError, AppResult};
 use crate::core::models::plant::{
@@ -31,7 +30,7 @@ use crate::state::{PlantStore, PluginStore};
 use parking_lot::{Condvar, Mutex};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin};
@@ -458,7 +457,7 @@ impl PlantRuntimeManager {
         validate_plugin_workspace_files(&driver_dir, "driver")?;
         validate_python_source_file(&venv_python_path, &driver_dir.join("main.py"), "driver")?;
         if !active_controllers.is_empty() {
-            ensure_driver_supports_write(driver_plugin)?;
+            validate_driver_write_support(&venv_python_path, driver_plugin)?;
         }
         for controller in active_controllers {
             validate_plugin_workspace_files(&controller.plugin_dir, "controlador")?;
@@ -730,15 +729,68 @@ fn collect_incompatible_active_controller_ids(
     active_controllers
         .iter()
         .filter_map(|controller| {
-            validate_controller_plugin_source_with_python(
-                python_path,
-                &controller.plugin,
-                &controller.instance.name,
-            )
-            .err()
-            .map(|_| controller.instance.id.clone())
+            validate_runtime_controller(python_path, &controller.plugin, &controller.instance.name)
+                .err()
+                .map(|_| controller.instance.id.clone())
         })
         .collect()
+}
+
+fn collect_incompatible_controller_ids_for_target_ids(
+    python_path: &std::path::Path,
+    active_controllers: &[ResolvedRuntimeController],
+    target_ids: &[String],
+) -> Vec<String> {
+    let target_ids = target_ids.iter().cloned().collect::<HashSet<_>>();
+    active_controllers
+        .iter()
+        .filter(|controller| target_ids.contains(&controller.instance.id))
+        .filter_map(|controller| {
+            validate_runtime_controller(python_path, &controller.plugin, &controller.instance.name)
+                .err()
+                .map(|_| controller.instance.id.clone())
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuntimeControllerValidationPlan {
+    None,
+    Targeted(String),
+    All,
+}
+
+fn should_validate_driver_write_on_controller_save(
+    plant: &Plant,
+    request: &SavePlantControllerConfigRequest,
+) -> bool {
+    request.active && !plant.controllers.iter().any(|controller| controller.active)
+}
+
+fn plan_runtime_controller_validation(
+    plant: &Plant,
+    existing_controller: Option<&PlantController>,
+    request: &SavePlantControllerConfigRequest,
+) -> RuntimeControllerValidationPlan {
+    if !plant.connected {
+        return RuntimeControllerValidationPlan::None;
+    }
+
+    if plant.controllers.iter().any(|controller| {
+        controller.active && controller.runtime_status != ControllerRuntimeStatus::Synced
+    }) {
+        return RuntimeControllerValidationPlan::All;
+    }
+
+    let controller_already_running = existing_controller.is_some_and(|controller| {
+        controller.active && controller.runtime_status == ControllerRuntimeStatus::Synced
+    });
+
+    if request.active && !controller_already_running {
+        return RuntimeControllerValidationPlan::Targeted(request.controller_id.clone());
+    }
+
+    RuntimeControllerValidationPlan::None
 }
 
 pub struct DriverRuntimeService;
@@ -882,6 +934,12 @@ impl DriverRuntimeService {
         request: SavePlantControllerConfigRequest,
     ) -> AppResult<Plant> {
         let current_plant = plants.get(&request.plant_id)?;
+        let request_controller_id = request.controller_id.clone();
+        let runtime_python_path = if current_plant.connected {
+            manager.venv_python_path(&request.plant_id).ok()
+        } else {
+            None
+        };
         let existing_controller = current_plant
             .controllers
             .iter()
@@ -892,8 +950,15 @@ impl DriverRuntimeService {
             .iter()
             .any(|controller| controller.id != request.controller_id && controller.active)
             || request.active;
+        let validation_plan = plan_runtime_controller_validation(
+            &current_plant,
+            existing_controller.as_ref(),
+            &request,
+        );
 
-        if will_have_active_controllers {
+        if will_have_active_controllers
+            && should_validate_driver_write_on_controller_save(&current_plant, &request)
+        {
             let mut loaded_from_workspace = false;
             let driver_plugin = resolve_plugin_for_runtime(
                 plugins,
@@ -908,39 +973,11 @@ impl DriverRuntimeService {
                     current_plant.name
                 ))
             })?;
-            ensure_driver_supports_write(&driver_plugin)?;
-        }
-
-        if current_plant.connected && request.active {
-            let mut loaded_from_workspace = false;
-            let controller_plugin_id = request
-                .plugin_id
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .or_else(|| {
-                    existing_controller
-                        .as_ref()
-                        .map(|controller| controller.plugin_id.as_str())
-                })
-                .unwrap_or_default();
-            let controller_plugin_name = existing_controller
-                .as_ref()
-                .map(|controller| controller.plugin_name.as_str())
-                .unwrap_or_default();
-            let controller_plugin = resolve_plugin_for_runtime(
-                plugins,
-                controller_plugin_id,
-                controller_plugin_name,
-                PluginType::Controller,
-                &mut loaded_from_workspace,
-            )?
-            .ok_or_else(|| {
-                AppError::NotFound(format!(
-                    "Plugin do controlador '{}' não foi encontrado",
-                    request.name.trim()
-                ))
-            })?;
-            validate_controller_plugin_source(&controller_plugin, request.name.trim())?;
+            if let Some(python_path) = runtime_python_path.as_deref() {
+                validate_driver_write_support(python_path, &driver_plugin)?;
+            } else {
+                ensure_driver_supports_write(&driver_plugin)?;
+            }
         }
 
         let plant = crate::core::services::plant::PlantService::save_controller_config(
@@ -950,14 +987,31 @@ impl DriverRuntimeService {
         if plant.connected {
             let (resolved_plant, _driver, active_controllers, _runtime_plugins) =
                 resolve_runtime_components_for_connect(plants, plugins, plant)?;
-            let incompatible_controller_ids = match manager.venv_python_path(&resolved_plant.id) {
-                Ok(python_path) => {
-                    collect_incompatible_active_controller_ids(&python_path, &active_controllers)
+            let incompatible_controller_ids = match validation_plan {
+                RuntimeControllerValidationPlan::None => Vec::new(),
+                RuntimeControllerValidationPlan::All => match runtime_python_path.as_deref() {
+                    Some(python_path) => {
+                        collect_incompatible_active_controller_ids(python_path, &active_controllers)
+                    }
+                    None => active_controllers
+                        .iter()
+                        .map(|controller| controller.instance.id.clone())
+                        .collect(),
+                },
+                RuntimeControllerValidationPlan::Targeted(_) => {
+                    match runtime_python_path.as_deref() {
+                        Some(python_path) => collect_incompatible_controller_ids_for_target_ids(
+                            python_path,
+                            &active_controllers,
+                            std::slice::from_ref(&request_controller_id),
+                        ),
+                        None => active_controllers
+                            .iter()
+                            .filter(|controller| controller.instance.id == request_controller_id)
+                            .map(|controller| controller.instance.id.clone())
+                            .collect(),
+                    }
                 }
-                Err(_) => active_controllers
-                    .iter()
-                    .map(|controller| controller.instance.id.clone())
-                    .collect(),
             };
 
             if incompatible_controller_ids.is_empty() {
@@ -1596,6 +1650,118 @@ class DriverPython:
         assert!(read_captured_commands(&commands_path).contains("\"type\":\"update_controllers\""));
 
         manager.stop_runtime(app.handle(), &plant.id);
+    }
+
+    #[test]
+    fn plan_runtime_controller_validation_skips_reloading_for_synced_active_controller_updates() {
+        let mut plant = create_test_plant("plant_validation_none", "Plant Validation None");
+        plant.connected = true;
+        plant.controllers.push(PlantController {
+            id: "ctrl_running".to_string(),
+            plugin_id: "controller_plugin".to_string(),
+            plugin_name: "Controller Running".to_string(),
+            name: "Controller Running".to_string(),
+            controller_type: "PID".to_string(),
+            active: true,
+            input_variable_ids: vec!["var_0".to_string()],
+            output_variable_ids: vec!["var_1".to_string()],
+            params: HashMap::new(),
+            runtime_status: ControllerRuntimeStatus::Synced,
+        });
+
+        let plan = plan_runtime_controller_validation(
+            &plant,
+            plant.controllers.first(),
+            &SavePlantControllerConfigRequest {
+                plant_id: plant.id.clone(),
+                controller_id: "ctrl_running".to_string(),
+                plugin_id: Some("controller_plugin".to_string()),
+                name: "Controller Running".to_string(),
+                controller_type: "PID".to_string(),
+                active: true,
+                input_variable_ids: vec!["var_0".to_string()],
+                output_variable_ids: vec!["var_1".to_string()],
+                params: vec![],
+            },
+        );
+
+        assert_eq!(plan, RuntimeControllerValidationPlan::None);
+    }
+
+    #[test]
+    fn plan_runtime_controller_validation_targets_newly_activated_controller() {
+        let mut plant = create_test_plant("plant_validation_targeted", "Plant Validation Targeted");
+        plant.connected = true;
+        plant.controllers.push(PlantController {
+            id: "ctrl_idle".to_string(),
+            plugin_id: "controller_plugin".to_string(),
+            plugin_name: "Controller Idle".to_string(),
+            name: "Controller Idle".to_string(),
+            controller_type: "PID".to_string(),
+            active: false,
+            input_variable_ids: vec!["var_0".to_string()],
+            output_variable_ids: vec!["var_1".to_string()],
+            params: HashMap::new(),
+            runtime_status: ControllerRuntimeStatus::Synced,
+        });
+
+        let plan = plan_runtime_controller_validation(
+            &plant,
+            plant.controllers.first(),
+            &SavePlantControllerConfigRequest {
+                plant_id: plant.id.clone(),
+                controller_id: "ctrl_idle".to_string(),
+                plugin_id: Some("controller_plugin".to_string()),
+                name: "Controller Idle".to_string(),
+                controller_type: "PID".to_string(),
+                active: true,
+                input_variable_ids: vec!["var_0".to_string()],
+                output_variable_ids: vec!["var_1".to_string()],
+                params: vec![],
+            },
+        );
+
+        assert_eq!(
+            plan,
+            RuntimeControllerValidationPlan::Targeted("ctrl_idle".to_string())
+        );
+    }
+
+    #[test]
+    fn plan_runtime_controller_validation_requires_full_check_when_any_active_controller_is_pending(
+    ) {
+        let mut plant = create_test_plant("plant_validation_all", "Plant Validation All");
+        plant.connected = true;
+        plant.controllers.push(PlantController {
+            id: "ctrl_pending".to_string(),
+            plugin_id: "controller_plugin".to_string(),
+            plugin_name: "Controller Pending".to_string(),
+            name: "Controller Pending".to_string(),
+            controller_type: "PID".to_string(),
+            active: true,
+            input_variable_ids: vec!["var_0".to_string()],
+            output_variable_ids: vec!["var_1".to_string()],
+            params: HashMap::new(),
+            runtime_status: ControllerRuntimeStatus::PendingRestart,
+        });
+
+        let plan = plan_runtime_controller_validation(
+            &plant,
+            plant.controllers.first(),
+            &SavePlantControllerConfigRequest {
+                plant_id: plant.id.clone(),
+                controller_id: "ctrl_pending".to_string(),
+                plugin_id: Some("controller_plugin".to_string()),
+                name: "Controller Pending".to_string(),
+                controller_type: "PID".to_string(),
+                active: true,
+                input_variable_ids: vec!["var_0".to_string()],
+                output_variable_ids: vec!["var_1".to_string()],
+                params: vec![],
+            },
+        );
+
+        assert_eq!(plan, RuntimeControllerValidationPlan::All);
     }
 
     #[test]

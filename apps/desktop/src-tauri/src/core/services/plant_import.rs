@@ -557,10 +557,6 @@ fn parse_registry_controller(
         .unwrap_or(plugin_name.as_str())
         .to_string();
 
-    let active = get_value_by_keys(controller_obj, &["active"])
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-
     let input_variable_ids =
         get_value_by_keys(controller_obj, &["input_variable_ids", "inputVariableIds"])
             .and_then(Value::as_array)
@@ -602,7 +598,7 @@ fn parse_registry_controller(
         plugin_name,
         name,
         controller_type,
-        active,
+        active: false,
         input_variable_ids,
         output_variable_ids,
         params,
@@ -923,7 +919,7 @@ fn resolve_imported_controller_requests(
                 plugin_id: resolved_plugin_id,
                 name: controller.name.clone(),
                 controller_type: controller.controller_type.clone(),
-                active: controller.active,
+                active: false,
                 input_variable_ids: controller.input_variable_ids.clone(),
                 output_variable_ids: controller.output_variable_ids.clone(),
                 params: controller.params.clone(),
@@ -1016,6 +1012,7 @@ mod tests {
         assert_eq!(controller.plugin_name, "PID Controller");
         assert_eq!(controller.name, "PID Temperatura");
         assert_eq!(controller.controller_type, "PID");
+        assert!(!controller.active);
         assert_eq!(controller.input_variable_ids, vec!["sensor_a".to_string()]);
         assert_eq!(controller.output_variable_ids, vec!["var_1".to_string()]);
         assert!(matches!(
@@ -1082,7 +1079,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::too_many_lines)]
-    fn import_file_preserves_registry_controllers() {
+    fn import_file_resets_registry_controller_activation() {
         let plugins = PluginStore::new();
         let plants = PlantStore::new();
         let suffix = Uuid::new_v4().simple().to_string();
@@ -1209,7 +1206,7 @@ mod tests {
         assert_eq!(controller.plugin_name, controller_name);
         assert_eq!(controller.input_variable_ids, vec!["var_0".to_string()]);
         assert_eq!(controller.output_variable_ids, vec!["var_1".to_string()]);
-        assert!(controller.active);
+        assert!(!controller.active);
 
         let _ = WorkspaceService::delete_plant_registry(&plant_name);
         let _ = WorkspaceService::delete_plugin_registry(&driver_name, PluginType::Driver);

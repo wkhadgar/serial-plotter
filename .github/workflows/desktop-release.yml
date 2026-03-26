@@ -122,17 +122,25 @@ jobs:
           PY
 
   publish:
-    name: publish (${{ matrix.platform }})
+    name: publish (${{ matrix.name }})
     runs-on: ${{ matrix.platform }}
     needs: preflight
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-22.04
+          - name: linux
+            platform: ubuntu-22.04
             tauri_args: --ci --no-sign --bundles appimage
-          - platform: windows-latest
+          - name: windows
+            platform: windows-latest
             tauri_args: --ci --no-sign
+          - name: macos-arm64-test
+            platform: macos-latest
+            tauri_args: --ci --no-sign --bundles dmg
+          - name: macos-intel-test
+            platform: macos-15-intel
+            tauri_args: --ci --no-sign --bundles dmg
     defaults:
       run:
         shell: bash
@@ -174,7 +182,7 @@ jobs:
         run: pnpm --dir apps/desktop install --frozen-lockfile
 
       - name: Build and publish draft release
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

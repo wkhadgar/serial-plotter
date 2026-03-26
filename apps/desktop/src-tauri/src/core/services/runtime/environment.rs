@@ -5,8 +5,29 @@ use crate::core::services::workspace::WorkspaceService;
 use serde_json::json;
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+const PYTHON_ENV_VARS_TO_CLEAR: &[&str] = &[
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "VIRTUAL_ENV",
+    "__PYVENV_LAUNCHER__",
+    "PYTHONEXECUTABLE",
+];
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+pub(super) fn prepare_python_command(command: &mut Command) -> &mut Command {
+    for key in PYTHON_ENV_VARS_TO_CLEAR {
+        command.env_remove(key);
+    }
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
 
 pub(super) fn prepare_runtime_directory() -> AppResult<PathBuf> {
     let runtime_root = WorkspaceService::runtime_root_directory()?;
@@ -74,25 +95,37 @@ pub(super) fn ensure_python_env(
 
     let venv_dir = env_dir.join(".venv");
     let venv_python = venv_python_path(&venv_dir);
-    if !venv_python.exists() {
-        let python_cmd = resolve_system_python()?;
-        run_command(
-            Command::new(&python_cmd)
-                .arg("-m")
-                .arg("venv")
-                .arg(&venv_dir),
-            "Falha ao criar ambiente Python isolado",
-        )?;
+    let should_recreate_env = !venv_python.exists() || check_python_runtime(&venv_python).is_err();
 
-        let specs = collect_runtime_dependency_specs(runtime_plugins);
+    if should_recreate_env {
+        if venv_dir.exists() {
+            fs::remove_dir_all(&venv_dir).map_err(|error| {
+                AppError::IoError(format!(
+                    "Falha ao recriar ambiente Python isolado '{}': {error}",
+                    venv_dir.display()
+                ))
+            })?;
+        }
+
+        let python_cmd = find_system_python()?;
+        let mut create_venv = Command::new(&python_cmd);
+        prepare_python_command(create_venv.arg("-m").arg("venv").arg(&venv_dir));
+        run_command(&mut create_venv, "Falha ao criar ambiente Python isolado")?;
+        check_python_runtime(&venv_python)?;
+
+        let specs = collect_dependency_specs(runtime_plugins);
         if !specs.is_empty() {
-            run_command(
-                Command::new(&venv_python)
+            let mut install_deps = Command::new(&venv_python);
+            prepare_python_command(
+                install_deps
                     .arg("-m")
                     .arg("pip")
                     .arg("install")
                     .arg("--disable-pip-version-check")
                     .args(specs.clone()),
+            );
+            run_command(
+                &mut install_deps,
                 "Falha ao instalar dependências da runtime da planta",
             )?;
 
@@ -152,9 +185,15 @@ fn venv_python_path(venv_dir: &Path) -> PathBuf {
     }
 }
 
-fn resolve_system_python() -> AppResult<String> {
+fn find_system_python() -> AppResult<String> {
     for candidate in ["python3", "python"] {
-        if Command::new(candidate).arg("--version").output().is_ok() {
+        let mut command = Command::new(candidate);
+        prepare_python_command(command.arg("--version"));
+        if command
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+        {
             return Ok(candidate.to_string());
         }
     }
@@ -162,6 +201,18 @@ fn resolve_system_python() -> AppResult<String> {
     Err(AppError::IoError(
         "Python não encontrado no sistema para criação da runtime".into(),
     ))
+}
+
+fn check_python_runtime(python_path: &Path) -> AppResult<()> {
+    let mut command = Command::new(python_path);
+    prepare_python_command(command.arg("-c").arg("import encodings, tokenize, venv"));
+    run_command(
+        &mut command,
+        &format!(
+            "Falha ao validar interpretador Python isolado '{}'",
+            python_path.display()
+        ),
+    )
 }
 
 fn run_command(command: &mut Command, context: &str) -> AppResult<()> {
@@ -194,7 +245,7 @@ pub(super) fn dedupe_runtime_plugins(runtime_plugins: Vec<PluginRegistry>) -> Ve
     plugins
 }
 
-fn collect_runtime_dependency_specs(runtime_plugins: &[PluginRegistry]) -> Vec<String> {
+fn collect_dependency_specs(runtime_plugins: &[PluginRegistry]) -> Vec<String> {
     runtime_plugins
         .iter()
         .flat_map(|plugin| plugin.dependencies.iter())
@@ -279,6 +330,7 @@ mod tests {
     use super::*;
     use crate::core::models::plugin::{PluginRegistry, PluginRuntime, PluginType};
     use std::fs;
+    use std::process::Command;
     use std::thread;
     use std::time::Duration;
 
@@ -333,5 +385,20 @@ mod tests {
         let third_modified = fs::metadata(&path).unwrap().modified().unwrap();
 
         assert!(third_modified > second_modified);
+    }
+
+    #[test]
+    fn prepare_python_command_ignores_invalid_pythonhome() {
+        let python = find_system_python().expect("python nao encontrado para teste");
+        let mut command = Command::new(&python);
+        command.env("PYTHONHOME", "/tmp/senamby-invalid-python-home");
+        prepare_python_command(command.arg("-c").arg("import encodings"));
+
+        let output = command.output().expect("falha ao executar python saneado");
+        assert!(
+            output.status.success(),
+            "stderr={}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }
