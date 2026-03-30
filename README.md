@@ -1,96 +1,40 @@
-# splot - Visualizador e Analisador de Controle Térmico
+# Senamby
 
-O **splot** é uma ferramenta para visualizar e analisar o comportamento de um sistema de controle térmico. Ele permite **selecionar controladores ativos**, ajustar suas configurações em tempo real e visualizar a resposta do sistema. Além disso, é possível alternar para a aba **Analyzer** e **analisar logs de execuções anteriores**.
+[![English](https://img.shields.io/badge/Language-English-2563eb?style=for-the-badge)](docs/en/index.md)
+[![Português](https://img.shields.io/badge/Idioma-Portugu%C3%AAs-16a34a?style=for-the-badge)](docs/pt-BR/index.md)
 
-### Instalação
+Senamby is a desktop workspace for creating, running, and analyzing plants driven by reusable drivers and controllers. It combines a Svelte/Tauri desktop UI, a Rust backend, and a Python runtime for plant plugins.
 
-Garanta que você tem Python 3.7 ou mais recente instalado:
+## What You Can Do
 
-```shell
-python --version
-```
+- Create plants with sensors and actuators
+- Register reusable driver and controller plugins
+- Connect a plant to a live runtime
+- Plot sensor and actuator behavior in real time
+- Import plants from JSON files and preview them before loading
+- Configure controllers, bindings, and setpoints from the UI
 
-> [!NOTE]
-> [Opcional] Crie um ambiente virtual e o ative para instalação do script.
+## Documentation
 
-Para instalar o plotter:
+- English: [docs/en/index.md](docs/en/index.md)
+- Português (Brasil): [docs/pt-BR/index.md](docs/pt-BR/index.md)
 
-```shell
-cd serial-plotter
-pip install -e .
-```
+## Quick Start
 
-## Como usar
+If you are running the app from source:
 
-Para executar o `splot`, utilize o seguinte comando:
+1. Install the frontend dependencies inside `apps/desktop`
+2. Start the desktop app with Tauri
+3. Create or import plugins
+4. Create or import a plant
+5. Connect the plant and monitor the charts
 
-```sh
-cd examples
-python main.py
-```
+The current frontend scripts live in `apps/desktop/package.json`, including `pnpm --dir apps/desktop tauri dev`.
 
-## Modos
+## Documentation Guide
 
-### Plotter (Execução em tempo real)
-
-- Exibe os dados do controlador e da planta em tempo real.
-- Permite selecionar e configurar diferentes controladores.
-- Mostra a resposta da planta ao longo do tempo.
-
-### Analyzer (Análise de logs)
-
-- Permite carregar **logs de execuções anteriores**.
-- Plota **temperatura e derivada dT/dt** em gráficos interativos.
-- Indica **pontos críticos** (ex.: ponto de maior derivada).
-- Possibilita comparar diferentes execuções.
-
-## Funcionalidades do Plotter
-
-- Selecionar o controlador ativo e editá-lo em tempo real.
-- Ajustar parâmetros do controlador, como **Setpoint, Kp, Ki, Kd**.
-- Visualizar a resposta da planta em gráficos interativos.
-- Alternar entre os modos de exibição para melhor visualização.
-
-## Funcionalidades do Analyzer
-- Carregar e analisar logs de execuções anteriores.
-- Fazer analise em malha aberta para calcular parâmetros de sintonia
-- Fazer analise em malha fechada par analisar a resposta do sistema
-
-## Navegação
-
-- <kbd>Space</kbd> → Alterna entre as visões (`Plotter` e `Analyzer`).
-- <kbd>Escape</kbd> → Finaliza o programa.
-- **Campo de entrada** → Define a temperatura desejada (`Setpoint`) e a envia ao controlador.
-
-## Estrutura do Projeto
-
-```sh
-serial-plotter/
-├── controller_framework/
-│   ├── core/                 # Lógica principal do framework
-│   ├── gui/                  # Interface gráfica (Plotter e Analyzer)
-│   ├── __init__.py
-│   └── ...
-├── examples/
-│   ├── main.py               # Arquivo principal para rodar o splot
-│   ├── temp_logs/            # Pasta com logs de execuções anteriores
-├── pyproject.toml            # Configuração do pacote
-```
-
-## Exemplo de Uso
-
-1. **Executar o `splot`**  
-   ```sh
-   cd examples
-   python main.py
-   ```
-2. **Selecionar o controlador ativo** no menu lateral.
-3. **Editar os parâmetros** (Setpoint, Kp, Ki, Kd).
-4. **Visualizar a resposta da planta** no gráfico.
-5. **Alternar para `Analyzer`** para carregar logs anteriores.
-
-## Planta utilizada
-![Planta](https://raw.githubusercontent.com/limahigor/serial-plotter/c5f47e3c2436e8b601071a4ce413bb77daab515d/controller_framework/examples/thermal_plant.png)
-
-
-[Link para o modelo 3D](https://cad.onshape.com/documents/2719c8d20779534c7559f55d/w/e520d6a9af3b32d2f18ef8f3/e/bb6b8d18dfe883fe6632567b).
+- Start with [Getting Started](docs/en/getting-started.md)
+- Learn the vocabulary in [Core Concepts](docs/en/core-concepts.md)
+- Use [Plants](docs/en/plants.md) for plant lifecycle and runtime actions
+- Use [Drivers and Controllers](docs/en/drivers-and-controllers.md) to understand plugins and live control
+- Use [Plugin File Format](docs/en/plugin-file-format.md) for JSON and Python basics

@@ -1,0 +1,198 @@
+name: desktop-release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Semver tag to release, for example v0.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref || inputs.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: preflight
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      tag_name: ${{ steps.resolve_tag.outputs.tag_name }}
+      version: ${{ steps.validate.outputs.version }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Resolve release tag
+        id: resolve_tag
+        env:
+          INPUT_TAG_NAME: ${{ inputs.tag_name }}
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag_name="${GITHUB_REF_NAME}"
+          else
+            tag_name="${INPUT_TAG_NAME}"
+          fi
+
+          if [[ -z "${tag_name}" ]]; then
+            echo "Release tag is required." >&2
+            exit 1
+          fi
+
+          echo "tag_name=${tag_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate version lockstep and tag
+        id: validate
+        env:
+          RELEASE_TAG: ${{ steps.resolve_tag.outputs.tag_name }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+          import sys
+          import tomllib
+
+          root = pathlib.Path(".")
+          release_tag = os.environ["RELEASE_TAG"]
+
+          if not re.fullmatch(r"v\d+\.\d+\.\d+", release_tag):
+              print(
+                  f"Release tag '{release_tag}' is invalid. Expected format vX.Y.Z.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          versions = {
+              "apps/desktop/package.json": json.loads(
+                  (root / "apps/desktop/package.json").read_text(encoding="utf-8")
+              )["version"],
+              "apps/desktop/src-tauri/Cargo.toml": tomllib.loads(
+                  (root / "apps/desktop/src-tauri/Cargo.toml").read_text(encoding="utf-8")
+              )["package"]["version"],
+              "apps/desktop/src-tauri/tauri.conf.json": json.loads(
+                  (root / "apps/desktop/src-tauri/tauri.conf.json").read_text(
+                      encoding="utf-8"
+                  )
+              )["version"],
+              "crates/supervisor/Cargo.toml": tomllib.loads(
+                  (root / "crates/supervisor/Cargo.toml").read_text(encoding="utf-8")
+              )["package"]["version"],
+          }
+
+          unique_versions = sorted(set(versions.values()))
+          if len(unique_versions) != 1:
+              print("Version mismatch detected across release manifests:", file=sys.stderr)
+              for path, version in versions.items():
+                  print(f"  - {path}: {version}", file=sys.stderr)
+              sys.exit(1)
+
+          version = unique_versions[0]
+          expected_tag = f"v{version}"
+          if release_tag != expected_tag:
+              print(
+                  f"Tag '{release_tag}' does not match manifest version '{version}'. "
+                  f"Expected '{expected_tag}'.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          print(f"Validated release version {version} for tag {release_tag}.")
+          output_path = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a", encoding="utf-8") as output:
+              output.write(f"version={version}\n")
+          PY
+
+  publish:
+    name: publish (${{ matrix.name }})
+    runs-on: ${{ matrix.platform }}
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            platform: ubuntu-22.04
+            tauri_args: --ci --no-sign --bundles appimage
+          - name: windows
+            platform: windows-latest
+            tauri_args: --ci --no-sign
+          - name: macos-arm64-test
+            platform: macos-latest
+            tauri_args: --ci --no-sign --bundles dmg
+          - name: macos-intel-test
+            platform: macos-15-intel
+            tauri_args: --ci --no-sign --bundles dmg
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.27.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92.0
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        run: pnpm --dir apps/desktop install --frozen-lockfile
+
+      - name: Build and publish draft release
+        uses: tauri-apps/tauri-action@v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: pnpm tauri
+          tagName: ${{ needs.preflight.outputs.tag_name }}
+          releaseName: Senamby ${{ needs.preflight.outputs.tag_name }}
+          releaseBody: |
+            Automated draft release for ${{ needs.preflight.outputs.tag_name }}.
+          releaseDraft: true
+          prerelease: false
+          releaseCommitish: ${{ github.sha }}
+          args: ${{ matrix.tauri_args }}
